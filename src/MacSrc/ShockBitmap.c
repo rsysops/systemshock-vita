@@ -54,9 +54,6 @@ void ChangeScreenSize(int width, int height) {
     SDL_RenderSetLogicalSize(renderer, width, height);
 #endif
     SetupOffscreenBitmaps(width, height);
-
-    gScreenWide = width;
-    gScreenHigh = height;
 }
 
 //------------------------------------------------------------------------------------
@@ -89,4 +86,7 @@ void SetupOffscreenBitmaps(int width, int height) {
     gScreenAddress = drawSurface->pixels;
 
     grd_mode_cap.vbase = gScreenAddress;
+
+    gScreenWide = width;
+    gScreenHigh = height;
 }

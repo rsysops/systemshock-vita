@@ -190,7 +190,7 @@ errtype draw_res_bm(Ref id, int x, int y) { return (draw_res_bm_core(id, x, y, T
 // Note, does no mouse code!
 errtype draw_full_res_bm(Ref id, int x, int y, uchar fade_in) {
     FrameDesc *f;
-    short *temp_pall;
+    short *temp_pall = NULL;
     byte pal_id;
 
     f = RefLock(id);
@@ -216,7 +216,7 @@ errtype draw_full_res_bm(Ref id, int x, int y, uchar fade_in) {
     f->bm.bits = (uchar *)(f + 1);
     ss_bitmap(&f->bm, x, y); // KLC  ss_bitmap(&f->bm, x, y);
     RefUnlock(id);
-    if (fade_in)
+    if (fade_in && temp_pall != NULL)
         finish_pal_effect(pal_id);
     ResDrop(REFID(id));
     return (OK);

@@ -1310,15 +1310,16 @@ void splash_draw(bool show_splash) {
     INFO("Loading splash.res");
     splash_num = ResOpenFile("res/data/splash.res");
 
-    if (pal_file < 0)
+    if (pal_file < 0) {
         INFO("Could not open splshpal.res!");
+    } else {
+        uchar splash_pal[768];
+        ResExtract(RES_splashPalette, FORMAT_RAW, splash_pal);
 
-    uchar splash_pal[768];
-    ResExtract(RES_splashPalette, FORMAT_RAW, splash_pal);
+        // Set initial palette
 
-    // Set initial palette
-
-    gr_set_pal(0, 256, splash_pal);
+        gr_set_pal(0, 256, splash_pal);
+    }
 
     // Set screen mode
 
