@@ -143,8 +143,8 @@ if(VITA)
 	set(VITA_FLAGS "-Ofast -mcpu=cortex-a9 -mfpu=neon -fgraphite-identity -floop-nest-optimize -fno-lto")
 	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${VITA_FLAGS}")
 	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${VITA_FLAGS}")
-	set(VITA_LIBS "-lSDL2 -lvita2d -pthread -ljpeg -lpng -lwebp -lz -lvorbisfile -lvorbis -logg -lmikmod -lScePower_stub -lSceAudio_stub -lSceCtrl_stub -lSceHid_stub \
-	-lSceTouch_stub -lSceDisplay_stub -lSceGxm_stub -lSceAppMgr_stub -lSceSysmodule_stub -lSceCommonDialog_stub -lFLAC -lmpg123 -lSceMotion_stub -lSceAppUtil_stub \
+	set(VITA_LIBS "-lSDL2 -lvita2d -pthread -ljpeg -lpng -lwebp -lz -lvorbisfile -lvorbis -logg -lmikmod -lmodplug -lxmp-lite -lopusfile -lopus -lScePower_stub -lSceAudio_stub -lSceCtrl_stub -lSceHid_stub \
+	-lSceTouch_stub -lSceDisplay_stub -lSceGxm_stub -lSceAppMgr_stub -lSceSysmodule_stub -lSceCommonDialog_stub -lFLAC -lmpg123 -lSceMotion_stub -lSceAppUtil_stub -lSceShaccCgExt -ltaihen_stub \
 	-fno-builtin-memcpy -fno-builtin-memset -fno-builtin-memmove -fno-builtin-memcmp")
 	SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
 	include("${CMAKE_SOURCE_DIR}/vita/vita.cmake")

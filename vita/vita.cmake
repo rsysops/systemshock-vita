@@ -1,11 +1,11 @@
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 
-set(VITA_APP_NAME "Shockolate")
+set(VITA_APP_NAME "System Shock")
 set(VITA_TITLEID  "SHOK00001")
 
 set(EXECUTABLE_NAME systemshock)
 
-set(VITA_VERSION "00.78")
+set(VITA_VERSION "00.82")
 
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 vita_create_self(${EXECUTABLE_NAME}.self ${EXECUTABLE_NAME})
