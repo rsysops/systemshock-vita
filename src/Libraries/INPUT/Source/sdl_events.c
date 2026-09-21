@@ -941,8 +941,13 @@ void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
 
 void HandleTouchEvent(SDL_TouchFingerEvent event)
 {
+    // SDL2's Vita touch backend has changed the numeric ID assigned to the front panel
+    // across versions (0, then 1+); look it up by device index instead of hardcoding it,
+    // since front is always registered as touch device index 0.
+    SDL_TouchID frontTouchId = SDL_GetTouchDevice(0);
+
     // ignore back touchpad
-    if (event.touchId != 0) {
+    if (event.touchId != frontTouchId) {
         if (event.type == SDL_FINGERDOWN) {
             ++num_rear_touches;
             if (num_rear_touches == 1) {
