@@ -49,7 +49,6 @@ static Mix_Chunk *samples_by_channel[SND_MAX_SAMPLES];
 
 extern struct MusicDevice *MusicDev;
 
-extern void AudioStreamCallback(void *userdata, unsigned char *stream, int len);
 extern void MusicCallback(void *userdata, Uint8 *stream, int len);
 
 int snd_start_digital(void) {

@@ -51,16 +51,18 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "rect.h"
 #include "draw4x4.h"
 #include "huff.h"
+#include "res.h"
 
 //	Type-specific information
 
 typedef struct {
-    MovieHeader movieHdr;   // movie header
-    MovieChunk *pmc;        // ptr to movie chunk array
-    MovieChunk *pcurrChunk; // current chunk ptr
-    FILE *fpTemp;           // temp file for writing
-    uint8_t pal[768];       // space for palette
-    uint8_t newPal;         // new pal flag
+    MovieHeader movieHdr;    // movie header
+    MovieChunk *pmc;         // ptr to movie chunk array
+    MovieChunk *pcurrChunk;  // current chunk ptr (video)
+    MovieChunk *paudioChunk; // current chunk ptr (audio streaming; independent of pcurrChunk)
+    FILE *fpTemp;            // temp file for writing
+    uint8_t pal[768];        // space for palette
+    uint8_t newPal;          // new pal flag
 } AmovInfo;
 
 //	Methods
@@ -171,6 +173,7 @@ int32_t AmovReadHeader(Afile *paf) {
 
     // Current chunk is first one
     pmi->pcurrChunk = pmi->pmc;
+    pmi->paudioChunk = pmi->pmc;
 
     DEBUG("PMI: %x", pmi);
 
@@ -376,6 +379,44 @@ int32_t AmovReadAudio(Afile *paf, void *paudio) {
     return 0;
 }
 
+// Read the next single audio chunk (MOVIE_DEFAULT_BLOCKLEN bytes), for incremental/
+// streaming playback. Uses its own cursor (paudioChunk), independent of the video
+// frame-reading cursor (pcurrChunk), so both can advance concurrently during playback.
+// Returns MOVIE_DEFAULT_BLOCKLEN on success, or -1 if there is no more audio.
+int32_t AmovReadNextAudioChunk(Afile *paf, void *paudio) {
+    AmovInfo *pmi = (AmovInfo *)paf->pspec;
+    uint32_t size;
+
+    while (pmi->paudioChunk->chunkType != MOVIE_CHUNK_END &&
+           pmi->paudioChunk->chunkType != MOVIE_CHUNK_AUDIO) {
+        pmi->paudioChunk++;
+    }
+
+    if (pmi->paudioChunk->chunkType == MOVIE_CHUNK_END)
+        return -1;
+
+    mfseek(paf->mf, pmi->paudioChunk->offset);
+    size = mfread(paudio, MOVIE_DEFAULT_BLOCKLEN, paf->mf);
+    if (size < MOVIE_DEFAULT_BLOCKLEN)
+        memset(((uint8_t *)paudio) + size, 128,
+               MOVIE_DEFAULT_BLOCKLEN - size); // fill rest with silence (128)
+
+    pmi->paudioChunk++;
+
+    // If this was the last audio chunk, taper the tail to avoid a pop at the end.
+    MovieChunk *pnext = pmi->paudioChunk;
+    while (pnext->chunkType != MOVIE_CHUNK_END && pnext->chunkType != MOVIE_CHUNK_AUDIO)
+        pnext++;
+    if (pnext->chunkType == MOVIE_CHUNK_END) {
+        float vol = 1.0;
+        uint32_t i = MOVIE_DEFAULT_BLOCKLEN - 512;
+        for (; i < MOVIE_DEFAULT_BLOCKLEN; i++, vol *= 0.8)
+            *((uint8_t *)paudio + i) = 128 + (uint8_t)((*((uint8_t *)paudio + i) - 128) * vol);
+    }
+
+    return MOVIE_DEFAULT_BLOCKLEN;
+}
+
 //	----------------------------------------------------------
 //
 //	AmovReadReset() resets the movie for reading.
@@ -398,7 +439,9 @@ int32_t AmovReadClose(Afile *paf) {
     free(pmi->pmc);
     free(pmi);
 
-	free(paf->mf->p);
+	// mf->p points at a ResLock()'d resource buffer, not a private copy; release it
+	// instead of freeing memory this Afile doesn't own (see AfilePrepareRes()).
+	ResUnlock(paf->mf->resId);
 	free(paf->mf);
 
     return (0);

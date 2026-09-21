@@ -226,4 +226,5 @@ void Draw4x4FreeResources();
 
 // Custom functions
 int32_t AfilePrepareRes(Id id, Afile *afile);
+int32_t AmovReadNextAudioChunk(Afile *paf, void *paudio);
 #endif

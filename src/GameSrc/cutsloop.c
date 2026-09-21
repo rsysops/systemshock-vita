@@ -34,9 +34,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "afile.h"
 #include "movie.h"
 
-static uint8_t *cutscene_audiobuffer = NULL;
-static uint8_t *cutscene_audiobuffer_pos = NULL;
-static int cutscene_audiobuffer_size; //in blocks of MOVIE_DEFAULT_BLOCKLEN
+// Cutscene audio is streamed/converted incrementally instead of being fully
+// pre-converted into one buffer up front (that buffer could reach 100+MB for a
+// long movie, since SDL's classic resampler inflates low-rate mono source audio
+// by a large factor when converting up to the device's 48kHz stereo output).
+static SDL_AudioStream *cutscene_audiostream = NULL;
+static uint8_t cutscene_audio_scratch[MOVIE_DEFAULT_BLOCKLEN];
 
 
 
@@ -81,34 +84,28 @@ extern char EngSubtitle[256];
 extern char FrnSubtitle[256];
 extern char GerSubtitle[256];
 
-static SDL_mutex *CutsceneMutex;
-
 void cutscene_callback(void *userdata, Uint8 *stream, int len) {
 
-    if (cutscene_audiobuffer_size > 0) {
-        SDL_LockMutex(CutsceneMutex);
+    if (cutscene_audiostream == NULL)
+        return;
 
-        if (cutscene_audiobuffer) {
-          size_t byes_to_copy = cutscene_audiobuffer_size > MOVIE_DEFAULT_BLOCKLEN ? MOVIE_DEFAULT_BLOCKLEN : cutscene_audiobuffer_size;
-          SDL_memset(stream, 0, byes_to_copy);
-          memcpy(stream, cutscene_audiobuffer_pos, byes_to_copy);
-          cutscene_audiobuffer_pos += byes_to_copy;
-          cutscene_audiobuffer_size -= byes_to_copy;
-        }
-
-        SDL_UnlockMutex(CutsceneMutex);
+    // Feed the stream more raw source audio (converted incrementally by SDL,
+    // not all at once) until enough is buffered to satisfy this request, or
+    // the movie's audio is exhausted.
+    while (SDL_AudioStreamAvailable(cutscene_audiostream) < len) {
+        int32_t got = AmovReadNextAudioChunk(amovie, cutscene_audio_scratch);
+        if (got <= 0)
+            break;
+        if (SDL_AudioStreamPut(cutscene_audiostream, cutscene_audio_scratch, got) < 0)
+            break;
     }
+
+    int gotten = SDL_AudioStreamGet(cutscene_audiostream, stream, len);
+    if (gotten < 0)
+        gotten = 0;
+    if (gotten < len)
+        SDL_memset(stream + gotten, 0, len - gotten);
 }
-
-void AudioStreamCallback(void *userdata, unsigned char *stream, int len)
-{
-  SDL_AudioStream *as = *(SDL_AudioStream **)userdata;
-
-  if (as != NULL && SDL_AudioStreamAvailable(as) > 0)
-    SDL_AudioStreamGet(as, stream, len);
-}
-
-
 
 uchar cutscene_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data)
 {
@@ -165,22 +162,22 @@ void cutscene_exit(void)
 {
   DEBUG("Cutscene exit");
 
-  if (cutscene_audiobuffer)
+  if (cutscene_audiostream)
   {
-    SDL_LockMutex(CutsceneMutex);
-
-    free(cutscene_audiobuffer);
-    cutscene_audiobuffer = NULL;
+    // snd_resume_music() re-hooks the regular music callback, which SDL_mixer
+    // guarantees happens before this old one (cutscene_callback) can be called
+    // again, so it's safe to destroy the stream right after.
     snd_resume_music();
 
-    SDL_UnlockMutex(CutsceneMutex);
+    SDL_FreeAudioStream(cutscene_audiostream);
+    cutscene_audiostream = NULL;
   }
 
   if (cutscene_filehandle > 0) {ResCloseFile(cutscene_filehandle); cutscene_filehandle = 0;}
 
   if (movie_bitmap.bits != NULL) {free(movie_bitmap.bits); movie_bitmap.bits = NULL;}
 
-  if (amovie != NULL) {free(amovie); amovie = NULL;}
+  if (amovie != NULL) {AfileFree(amovie); free(amovie); amovie = NULL;}
 }
 
 
@@ -313,19 +310,22 @@ short play_cutscene(int id, bool show_credits)
     return ERR_FREAD;
   }
 
-  SDL_AudioCVT cvt;
-  SDL_BuildAudioCVT(&cvt, AUDIO_U8, 1, fix_int(amovie->a.sampleRate), AUDIO_S16SYS, 2, 48000);
-  cvt.len = AfileAudioLength(amovie) * MOVIE_DEFAULT_BLOCKLEN;
-  cvt.buf = (Uint8 *) malloc(cvt.len * cvt.len_mult);
-  AfileGetAudio(amovie, cvt.buf);
-  SDL_ConvertAudio(&cvt);
-
-  //cutscene_audiobuffer = malloc(cvt.len_cvt);
-  //memcpy(cutscene_audiobuffer, cvt.buf, cvt.len_cvt);
-  //free(cvt.buf);
-  cutscene_audiobuffer = cvt.buf;
-  cutscene_audiobuffer_size = cvt.len_cvt;
-  cutscene_audiobuffer_pos = cutscene_audiobuffer;
+  // Convert audio incrementally during playback (see cutscene_callback()) instead
+  // of pre-converting the whole track into one buffer, which for a long movie
+  // like the intro would need 100+MB due to SDL's resampling ratio.
+  cutscene_audiostream = SDL_NewAudioStream(AUDIO_U8, 1, fix_int(amovie->a.sampleRate), AUDIO_S16SYS, 2, 48000);
+  if (cutscene_audiostream == NULL)
+  {
+    WARN("%s: Cannot create audio stream for cutscene %i", __FUNCTION__, id);
+    AfileFree(amovie);
+    free(amovie);
+    amovie = NULL;
+    ResCloseFile(cutscene_filehandle);
+    cutscene_filehandle = 0;
+    _new_mode = SETUP_LOOP;
+    chg_set_flg(GL_CHG_LOOP);
+    return ERR_FREAD;
+  }
 
   AfileReadReset(amovie);
 

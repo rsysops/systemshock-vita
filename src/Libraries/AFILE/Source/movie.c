@@ -22,20 +22,25 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 int32_t AfilePrepareRes(Id id, Afile *afile) {
 
-    // Grab the raw data and let the library deal with it.
+    // Grab the raw data and let the library deal with it. Stay locked (instead of
+    // copying) for the lifetime of the Afile; released in AmovReadClose().
     uint8_t *ptr = ResLock(id);
     int size = ResSize(id);
     MFILE *mf;
 
     mf = (MFILE *)malloc(sizeof(MFILE));
-    mf->p = (unsigned char *)malloc(size);
-    memcpy(mf->p, ptr, size);
+    mf->p = ptr;
     mf->size = size;
     mf->pos = 0;
-
-    ResUnlock(id);
+    mf->resId = id;
 
     int32_t error = AfileOpen(afile, mf, AFILE_MOV);
+
+    if (error < 0) {
+        // AfileOpen failed before taking ownership via AmovReadClose(); release here.
+        ResUnlock(id);
+        free(mf);
+    }
 
     return error;
 }

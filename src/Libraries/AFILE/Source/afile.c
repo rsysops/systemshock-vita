@@ -150,6 +150,10 @@ int32_t AfileOpen(Afile *paf, MFILE *mf, AfileType aftype) {
     TRACE("%s: initing work buffer of size: %d", __FUNCTION__, BM_PLENTY_SIZE(paf->frameLen));
 
     uint8_t *bits = malloc(BM_PLENTY_SIZE(paf->frameLen));
+    if (bits == NULL) {
+        ERROR("%s: can't allocate work buffer of size: %d", __FUNCTION__, BM_PLENTY_SIZE(paf->frameLen));
+        return -3;
+    }
     memcpy(bits + paf->frameLen, BM_CANARY, 16);
     gr_init_bitmap(&paf->bmWork, bits, bmtype, 0, paf->v.width,
                    paf->v.height);

@@ -135,6 +135,7 @@ errtype audiolog_play(int email_id) {
     AfileGetAudio(palog, cvt.buf);
     SDL_ConvertAudio(&cvt);
 
+    AfileFree(palog);
     free(palog);
 
     //audiolog_audiobuffer = malloc(cvt.len_cvt);

@@ -86,6 +86,7 @@ typedef struct MFILE {
 	unsigned char *p;
 	int size;
 	int pos;
+	uint16_t resId; // resource kept locked via ResLock(); released in AmovReadClose()
 } MFILE;
 
 typedef struct Afile_ {
