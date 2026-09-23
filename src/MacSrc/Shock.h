@@ -44,7 +44,7 @@ extern SDL_Rect destRect;
 
 #ifdef VITA2D
 void InitVita2D(int width, int height);
-void ClearVita2D();
+void ResizeVita2D(int width, int height);
 #endif
 
 #endif

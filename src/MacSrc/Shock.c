@@ -290,19 +290,23 @@ void InitVita2D(int width, int height)
     SetRenderRect(width, height);
 }
 
-void ClearVita2D()
+void ResizeVita2D(int width, int height)
 {
-    if (window != NULL) {
-        SDL_DestroyWindow(window);
-        window = NULL;
-    }
-
-    vita2d_fini();
-
     if (texBuffer != NULL) {
         vita2d_free_texture(texBuffer);
         texBuffer = NULL;
     }
+
+    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
+    texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
+    palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
+    memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+
+    if (window != NULL) {
+        SDL_SetWindowSize(window, width, height);
+    }
+
+    SetRenderRect(width, height);
 }
 #endif
 

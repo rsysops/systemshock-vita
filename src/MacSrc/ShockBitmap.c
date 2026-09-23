@@ -40,8 +40,7 @@ void ChangeScreenSize(int width, int height) {
 
     INFO("ChangeScreenSize");
 #ifdef VITA2D
-    ClearVita2D();
-    InitVita2D(width, height);
+    ResizeVita2D(width, height);
 #else
     SDL_RenderClear(renderer);
 
