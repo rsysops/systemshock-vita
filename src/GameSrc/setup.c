@@ -220,12 +220,17 @@ errtype compute_new_diff(void) {
 errtype difficulty_draw(uchar full) {
     int i;
 
-#ifdef VITA
     if (setup_mode != SETUP_DIFFICULTY) {
+        // fresh visit to this screen: don't carry stale category/Start focus or name over from last time
+        start_selected = FALSE;
+        curr_diff = 0;
+        player_struct.name[0] = 0;
+
+#ifdef VITA
         // game start text input
         VitaStartTextInput(1);
-    }
 #endif
+    }
 
     uiHideMouse(NULL);
 
@@ -1048,6 +1053,16 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             else if ((ev->pos.x > DIFF_DONE_X1) && (ev->pos.x < DIFF_DONE_X2) && (ev->pos.y > DIFF_DONE_Y1) &&
                      (ev->pos.y < DIFF_DONE_Y2))
                 go_and_start_the_game_already();
+#ifdef VITA
+            else if ((ev->pos.x > DIFF_NAME_TEXT_X) && (ev->pos.x < DIFF_NAME_X2) && (ev->pos.y > DIFF_NAME_Y) &&
+                     (ev->pos.y < DIFF_NAME_Y2)) {
+                // let the player reopen the keyboard to retype the name without leaving the screen
+                draw_username(0, player_struct.name); // erase the currently-displayed name first
+                player_struct.name[0] = 0;
+                draw_username(NORMAL_ENTRY_COLOR, player_struct.name);
+                VitaStartTextInput(1);
+            }
+#endif
             break;
         }
     }
@@ -1175,7 +1190,12 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 break;
 
             case KEY_ENTER:
-                go_and_start_the_game_already();
+#ifdef VITA
+                // On Vita, closing the on-screen keyboard after naming the character can deliver
+                // its own Enter event; only treat Enter as "launch" if Start is actually focused.
+                if (start_selected)
+#endif
+                    go_and_start_the_game_already();
                 break;
 
             case KEY_ESC:
