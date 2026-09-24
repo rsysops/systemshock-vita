@@ -41,6 +41,11 @@ bool fullscreenActive = false;
 #include "rect.h"
 #include "mfdext.h"
 
+// Mirrors mainloop.h, which INPUT_LIB has no include path to; identifies the
+// main-menu/setup loop so controller buttons aren't emulated as text input there.
+extern short _current_loop;
+#define SETUP_LOOP 4
+
 #define VITA_TEXT_BUFFER_SIZE 32
 
 enum
@@ -214,7 +219,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
             controllerRightYAxis = 0;
     }
 
-	if (controllerLeftXAxis > CONTROLLER_L_DEADZONE)
+	if (controllerLeftXAxis > CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
 	{
 		if (!rightActive)
 		{
@@ -238,7 +243,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
 		SDL_PushEvent(&ev);
 	}
 
-	if (controllerLeftXAxis < -CONTROLLER_L_DEADZONE)
+	if (controllerLeftXAxis < -CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
 	{
 		if (!leftActive)
 		{
@@ -262,7 +267,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
 		SDL_PushEvent(&ev);
 	}
 
-	if (controllerLeftYAxis < -CONTROLLER_L_DEADZONE)
+	if (controllerLeftYAxis < -CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
 	{
 		if (!forwardActive)
 		{
@@ -308,7 +313,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
 		SDL_PushEvent(&ev);
 	}
 
-	if (controllerLeftYAxis > CONTROLLER_L_DEADZONE)
+	if (controllerLeftYAxis > CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
 	{
 		if (!backActive)
 		{
@@ -898,7 +903,7 @@ void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
     }
 
     if (keyboardPress) {
-        if (button.type == SDL_CONTROLLERBUTTONDOWN)
+        if (button.type == SDL_CONTROLLERBUTTONDOWN && _current_loop != SETUP_LOOP)
         {
             SDL_Event ev_txt;
             ev_txt.type = SDL_TEXTINPUT;
