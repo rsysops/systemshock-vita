@@ -192,6 +192,7 @@ typedef struct {
     uchar bvalcol;
     uchar sliderpos;
     uchar active;
+    uchar dragging; // press started on this slider; only then does it follow the pointer
     Ref descrip;
     uint maxval;
     uchar baseval;
@@ -498,7 +499,9 @@ uchar slider_handler(uiEvent *ev, uchar butid) {
 
     switch (ev->type) {
     case UI_EVENT_MOUSE_MOVE:
-        if (ev->mouse_data.buttons) {
+        // ignore drags that began elsewhere, e.g. the rest of a tap on the menu button
+        // that was just replaced by this slider
+        if (st->dragging && ev->mouse_data.buttons) {
             st->sliderpos = ev->pos.x - BR(butid).ul.x;
             slider_deal(butid, TRUE);
             draw_button(butid);
@@ -510,8 +513,14 @@ uchar slider_handler(uiEvent *ev, uchar butid) {
         } else if (ev->mouse_data.action & MOUSE_WHEELDN) {
             uchar max = BR(butid).lr.x - BR(butid).ul.x - 3;
             st->sliderpos = lg_min(st->sliderpos + 5, max);
-        } else {
+        } else if (ev->subtype & MOUSE_DOWN) {
+            st->dragging = TRUE;
             st->sliderpos = ev->pos.x - BR(butid).ul.x;
+        } else if ((ev->subtype & MOUSE_UP) && st->dragging) {
+            st->dragging = FALSE;
+            st->sliderpos = ev->pos.x - BR(butid).ul.x;
+        } else {
+            return FALSE;
         }
         slider_deal(butid, TRUE);
         draw_button(butid);
@@ -543,6 +552,7 @@ void slider_init(uchar butid, Ref descrip, uchar type, uchar smooth, void *var, 
     st->baseval = baseval;
     st->maxval = maxval;
     st->active = FALSE;
+    st->dragging = FALSE;
     st->descrip = descrip;
     st->type = type;
     // note that in these settings, we don't care what size of
@@ -1060,7 +1070,15 @@ uchar opanel_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
     for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
         if (RECT_TEST_PT(&BR(b), mev.pos) && (ev->type & OButtons[b].evmask)) {
             if (OButtons[b].handler && OButtons[b].handler((uiEvent *)(&mev), b))
-                return TRUE;
+                break;
+        }
+    }
+
+    // a release outside a slider never reaches its handler, so end any drag here
+    if (ev->type == UI_EVENT_MOUSE && (ev->subtype & MOUSE_UP)) {
+        for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
+            if (OButtons[b].handler == slider_handler)
+                OButtons[b].user.slider_st.dragging = FALSE;
         }
     }
     return TRUE;
