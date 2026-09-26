@@ -146,6 +146,9 @@ void wrapper_init(void);
 void load_screen_init(void);
 void save_screen_init(void);
 
+// screen the Return button goes back to; NULL on the top-level screen, where it closes the panel
+static void (*wrapper_return_screen)(void) = NULL;
+
 void draw_button(uchar butid);
 
 #define SLOTNAME_HEIGHT 6
@@ -1292,7 +1295,10 @@ void wrapper_pushbutton_func(uchar butid) {
         options_screen_init();
         break;
     case RETURN_BUTTON: // Return
-        wrapper_panel_close(TRUE);
+        if (wrapper_return_screen)
+            wrapper_return_screen(); // back to the parent screen
+        else
+            wrapper_panel_close(TRUE);
         break;
     case QUIT_BUTTON: // Quit
         verify_screen_init(quit_verify_pushbutton_handler, quit_verify_slorker);
@@ -1310,6 +1316,7 @@ void wrapper_init(void) {
     keyequivs = get_temp_string(REF_STR_KeyEquivs0);
 
     clear_obuttons();
+    wrapper_return_screen = NULL; // top level: Return closes the panel
     for (i = 0; i < 8; i++) {
         standard_button_rect(&r, i, 2, 3, 5);
         pushbutton_init(i, keyequivs[i], REF_STR_WrapperText + i, wrapper_pushbutton_func, &r);
@@ -1476,6 +1483,7 @@ void soundopt_screen_init() {
     int i = 0;
 
     clear_obuttons();
+    wrapper_return_screen = sound_screen_init;
 
     standard_button_rect(&r, i, 2, 2, 5);
     retkey = tolower(get_temp_string(REF_STR_AilThreeText)[0]);
@@ -1546,6 +1554,7 @@ void sound_screen_init(void) {
 #endif
 
     clear_obuttons();
+    wrapper_return_screen = wrapper_init;
 
     if (music_card) {
         standard_slider_rect(&r, 0, 2, 5);
@@ -1790,6 +1799,7 @@ void joystick_screen_init(void) {
     extern uchar joystick_count;
     keys = get_temp_string(REF_STR_KeyEquivs6);
     clear_obuttons();
+    wrapper_return_screen = input_screen_init;
 
     standard_button_rect(&r, i, 2, 2, 1);
     multi_init(i, keys[i], REF_STR_JoystickType, REF_STR_JoystickTypes, ID_NULL, sizeof(wrap_joy_type),
@@ -1833,6 +1843,7 @@ void input_screen_init(void) {
 
     keys = get_temp_string(REF_STR_KeyEquivs1);
     clear_obuttons();
+    wrapper_return_screen = wrapper_init;
 
     standard_button_rect(&r, i, 2, 2, 1);
     r.ul.x -= 1;
@@ -1883,6 +1894,7 @@ void vita_input_init(uchar butid) {
 
     keys = get_temp_string(REF_STR_KeyEquivs1);
     clear_obuttons();
+    wrapper_return_screen = wrapper_init;
 
     // gyro aiming
     standard_button_rect(&r, i, 2, 2, 2);
@@ -1942,6 +1954,7 @@ void video_screen_init(void) {
 
     keys = get_temp_string(REF_STR_KeyEquivs3);
     clear_obuttons();
+    wrapper_return_screen = wrapper_init;
     i = 0;
 
 #ifdef USE_OPENGL
@@ -2017,6 +2030,7 @@ void headset_screen_init(void) {
     keys = get_temp_string(REF_STR_KeyEquivs5);
 
     clear_obuttons();
+    wrapper_return_screen = video_screen_init;
 
     i = 0;
 
@@ -2074,6 +2088,7 @@ void screenmode_screen_init(void) {
     keys = get_temp_string(REF_STR_KeyEquivs4);
 
     clear_obuttons();
+    wrapper_return_screen = video_screen_init;
 
     for (i = 0; i < 5; i++) {
         extern short svga_mode_data[];
@@ -2113,6 +2128,7 @@ void options_screen_init(void) {
 
     keys = get_temp_string(REF_STR_KeyEquivs2);
     clear_obuttons();
+    wrapper_return_screen = wrapper_init;
 
     // olh_temp=(QUESTBIT_GET(OLH_QBIT)==0);
 
