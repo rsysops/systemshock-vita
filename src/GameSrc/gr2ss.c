@@ -24,6 +24,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frprotox.h"
 #include "gamescr.h"
 
+#ifdef VITA
+#include <stddef.h>
+#include <stdlib.h>
+#endif
+
 
 #ifdef STEREO_SUPPORT
 #include <i6dvideo.h>
@@ -68,6 +73,89 @@ uchar perform_svga_conversion(uchar mask) {
     return (SVGA_CONV_NONE);
 }
 
+#ifdef VITA
+static uchar hires_bit(grs_font *f, short row, int bit) {
+    uchar *row_buf = (uchar *)f + f->buf + row * f->w;
+    return (row_buf[bit >> 3] >> (7 - (bit & 7))) & 1;
+}
+
+// tinyTech's 640x480 replacement (doubleTinyTech) is drawn at 2x, so a 1.5x
+// copy has the 3x widths the 960x544 layout expects. Every pixel pair becomes
+// three pixels (first, second, second), and the top two rows, which only
+// accents use, merge into one: the 12-row font becomes 16 rows, the height of a
+// tinyTech line at 960x544. Built once; NULL if the font isn't the expected shape.
+static grs_font *hires_tiny_font(void) {
+    static grs_font *hires = NULL;
+    static uchar built = FALSE;
+    grs_font *src;
+    int nchars, total_w = 0, row_bytes, header, dst_x = 0, i;
+    short h;
+
+    if (built)
+        return hires;
+    built = TRUE;
+
+    src = (grs_font *)ResLock(RES_doubleTinyTechFont);
+    if (src == NULL)
+        return NULL;
+    if (src->id == 0xcccc || src->h < 4 || (src->h & 1) != 0) {
+        ResUnlock(RES_doubleTinyTechFont);
+        return NULL;
+    }
+
+    nchars = src->max - src->min + 1;
+    for (i = 0; i < nchars; i++)
+        total_w += 3 * ((src->off_tab[i + 1] - src->off_tab[i] + 1) / 2);
+    h = 1 + 3 * (src->h - 2) / 2;
+    row_bytes = (total_w + 7) / 8;
+    header = (offsetof(grs_font, off_tab) + (nchars + 1) * sizeof(short) + 3) & ~3;
+
+    hires = (grs_font *)calloc(1, header + row_bytes * h);
+    if (hires == NULL) {
+        ResUnlock(RES_doubleTinyTechFont);
+        return NULL;
+    }
+    hires->id = 0;
+    hires->min = src->min;
+    hires->max = src->max;
+    hires->buf = header;
+    hires->w = row_bytes;
+    hires->h = h;
+
+    for (i = 0; i < nchars; i++) {
+        short offset = src->off_tab[i];
+        short src_w = src->off_tab[i + 1] - offset;
+        short out_w = 3 * ((src_w + 1) / 2);
+        short r, k;
+
+        hires->off_tab[i] = dst_x;
+        for (r = 0; r < h; r++) {
+            uchar *dst_row = (uchar *)hires + hires->buf + r * row_bytes;
+            short src_row = 2 + 2 * ((r - 1) / 3) + ((r - 1) % 3 != 0);
+
+            for (k = 0; k < out_w; k++) {
+                short src_x = 2 * (k / 3) + (k % 3 != 0);
+                uchar ink;
+
+                if (src_x >= src_w)
+                    continue;
+                if (r == 0)
+                    ink = hires_bit(src, 0, offset + src_x) | hires_bit(src, 1, offset + src_x);
+                else
+                    ink = hires_bit(src, src_row, offset + src_x);
+                if (ink)
+                    dst_row[(dst_x + k) >> 3] |= 0x80 >> ((dst_x + k) & 7);
+            }
+        }
+        dst_x += out_w;
+    }
+    hires->off_tab[nchars] = dst_x;
+
+    ResUnlock(RES_doubleTinyTechFont);
+    return hires;
+}
+#endif
+
 // Conversion functions from "abstract" shock 2d functions
 // to the actual 2d functions, with appropriate compensations
 // for screen mode coordinates and aspect ratios.
@@ -89,6 +177,22 @@ void ss_scale_string(char *s, short x, short y) {
         gr_string(s, x, y);
         return;
     }
+
+#ifdef VITA
+    // 960x544 has no matching shipped font; draw tinyTech with its 1.5x-converted double
+    if (convert_use_mode == 4 && f == ttfont) {
+        grs_font *hires = hires_tiny_font();
+
+        if (hires != NULL) {
+            gr_set_font(hires);
+            gr_string(s, x, y);
+            gr_set_font(ttfont);
+            ResUnlock(RES_tinyTechFont);
+            ResUnlock(RES_mediumLEDFont);
+            return;
+        }
+    }
+#endif
 
     if ((f == ttfont) || (f == mlfont)) {
         switch (convert_use_mode) {
@@ -112,8 +216,10 @@ void ss_scale_string(char *s, short x, short y) {
         }
 
 #ifdef VITA
-        // in order to have a working 960*544 font
-        use_font = ID_NULL;
+        // The tall and mega fonts are sized for 320x400 and 1024x768, which the
+        // Vita replaces with 480x272 and 960x544. The double fonts still fit.
+        if (convert_use_mode == 1 || convert_use_mode == 4)
+            use_font = ID_NULL;
 #endif
 
 #ifdef STEREO_SUPPORT
