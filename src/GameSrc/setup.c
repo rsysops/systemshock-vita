@@ -1384,6 +1384,13 @@ void splash_draw(bool show_splash) {
     if (do_fades)
         palfx_fade_down();
 
+    // The fade above only faded the palette, not the framebuffer, which still holds
+    // the logo's pixel data; wipe it now so restoring the normal palette below doesn't
+    // reveal it again as a ghosted outline during the movie load that follows.
+    gr_clear(0);
+    SDLDraw();
+    SDLDraw();
+
     // Original palette
     gr_set_pal(0, 256, ppall);
 }
