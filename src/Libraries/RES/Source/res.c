@@ -115,7 +115,7 @@ void ResTerm() {
     int32_t i;
     // Close all open resource files
     for (i = 0; i <= MAX_RESFILENUM; i++) {
-        if (resFile[i].fd >= 0)
+        if (resFile[i].fd != NULL)
             ResCloseFile(i);
     }
 

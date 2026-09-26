@@ -212,8 +212,21 @@ uchar keyhelp_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
 #endif // NOT_YET
 
 uchar really_quit_key_func(ushort keycode, uint32_t context, intptr_t data) {
-    gPlayingGame = false;
+#ifdef VITA
+    // Avoid ever hitting process exit (atexit/SDL_Quit/GXM teardown) on Vita, where
+    // it's a reproducible Vita3K crash real hardware doesn't have - go back to the
+    // main menu instead, the same way the game already does after cutscenes/death.
+    // Close the pause/options panel first (same as the "No" path already does) so
+    // game_paused, the pushed cursor, and wrapper_panel_on don't leak into the next
+    // game session and break its pause screen.
+    extern errtype wrapper_panel_close(uchar clear_message);
+    wrapper_panel_close(TRUE);
+    return change_mode_func(keycode, context, SETUP_LOOP);
+#else
+    _new_mode = -1;
+    chg_set_flg(GL_CHG_LOOP);
     return TRUE;
+#endif
 }
 
 uchar toggle_bool_func(ushort keycode, uint32_t context, intptr_t data) {
