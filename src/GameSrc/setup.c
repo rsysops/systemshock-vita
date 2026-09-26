@@ -986,6 +986,11 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
     LGRegion *dummy2 = r;
 #endif
 
+    // The intro cutscene is queued but the loop hasn't switched yet: swallow input
+    // so the menu can't be used during that last frame
+    if (direct_into_cutscene)
+        return TRUE;
+
     if (ev->mouse_data.action & MOUSE_LDOWN) {
         // If in the splash screen, advance
         if (waiting_for_key) {
@@ -1073,6 +1078,10 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
 uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
     int code = ev->cooked_key_data.code & ~(KB_FLAG_DOWN | KB_FLAG_2ND);
     char old_diff, old_setup_line = curr_setup_line, n = 0;
+
+    // see intro_mouse_handler()
+    if (direct_into_cutscene)
+        return TRUE;
 
     if (ev->cooked_key_data.code & KB_FLAG_DOWN) {
         // If in the splash screen, advance
@@ -1397,6 +1406,11 @@ void splash_draw(bool show_splash) {
 
 void setup_loop(void) {
     bool draw_stuff = FALSE;
+
+    // setup_start() already queued the intro cutscene; the main loop still runs this
+    // once before switching, so don't flash the menu or start the title music
+    if (direct_into_cutscene)
+        return;
 
     // loop title music
     int i = 0;
