@@ -46,6 +46,12 @@ bool fullscreenActive = false;
 extern short _current_loop;
 #define SETUP_LOOP 4
 
+// set while the in-game options panel is open (wrapper.c)
+extern uchar wrapper_panel_on;
+
+// controller-emulated keys would hit the menus' single-letter keyboard shortcuts
+static bool controller_keys_allowed(void) { return _current_loop != SETUP_LOOP && !wrapper_panel_on; }
+
 #define VITA_TEXT_BUFFER_SIZE 32
 
 enum
@@ -219,7 +225,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
             controllerRightYAxis = 0;
     }
 
-	if (controllerLeftXAxis > CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
+	if (controllerLeftXAxis > CONTROLLER_L_DEADZONE && controller_keys_allowed())
 	{
 		if (!rightActive)
 		{
@@ -243,7 +249,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
 		SDL_PushEvent(&ev);
 	}
 
-	if (controllerLeftXAxis < -CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
+	if (controllerLeftXAxis < -CONTROLLER_L_DEADZONE && controller_keys_allowed())
 	{
 		if (!leftActive)
 		{
@@ -267,7 +273,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
 		SDL_PushEvent(&ev);
 	}
 
-	if (controllerLeftYAxis < -CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
+	if (controllerLeftYAxis < -CONTROLLER_L_DEADZONE && controller_keys_allowed())
 	{
 		if (!forwardActive)
 		{
@@ -313,7 +319,7 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
 		SDL_PushEvent(&ev);
 	}
 
-	if (controllerLeftYAxis > CONTROLLER_L_DEADZONE && _current_loop != SETUP_LOOP)
+	if (controllerLeftYAxis > CONTROLLER_L_DEADZONE && controller_keys_allowed())
 	{
 		if (!backActive)
 		{
@@ -805,6 +811,18 @@ void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
     SDL_Keymod mod_state = KMOD_NONE;
     int mouse_mod = 0;
 
+    // in the in-game options panel only START (menu) and square (click under the cursor) act;
+    // the release of a suppressed press is dropped too, so no half click or stance-cycle step leaks
+    static bool suppressedButton[SDL_CONTROLLER_BUTTON_MAX];
+
+    if (button.button >= SDL_CONTROLLER_BUTTON_MAX)
+        return;
+    if (button.type == SDL_CONTROLLERBUTTONDOWN)
+        suppressedButton[button.button] = wrapper_panel_on && button.button != SDL_CONTROLLER_BUTTON_START
+                                          && button.button != SDL_CONTROLLER_BUTTON_X;
+    if (suppressedButton[button.button])
+        return;
+
     switch (button.button) {
     case SDL_CONTROLLER_BUTTON_A:
         // jump
@@ -903,7 +921,7 @@ void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
     }
 
     if (keyboardPress) {
-        if (button.type == SDL_CONTROLLERBUTTONDOWN && _current_loop != SETUP_LOOP)
+        if (button.type == SDL_CONTROLLERBUTTONDOWN && controller_keys_allowed())
         {
             SDL_Event ev_txt;
             ev_txt.type = SDL_TEXTINPUT;

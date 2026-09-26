@@ -115,6 +115,10 @@ needs a code change (e.g. a SELECT+START combination emitting `Alt+O` in
   D-pad, left stick and face buttons do not emit text, so they can't leak into
   the character-name field. START (`Esc`) and △ (`Tab`, cycles difficulty
   categories) still work there.
+- In the in-game options menu, only START (close the menu), □ (click under
+  the cursor), the right stick (move the cursor) and touch act. The D-pad,
+  left stick, ×, ○, △, L and R are ignored so they can't trigger the menu
+  items' single-letter keyboard shortcuts or click by accident.
 - In the in-game options menu, **Return** goes back one screen (e.g. Audio
   options → Audio → main); START closes the whole menu from any screen.
 - The Vita on-screen keyboard opens when entering the New Game screen, when
