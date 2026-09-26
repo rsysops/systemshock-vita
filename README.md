@@ -35,8 +35,8 @@ make
 - D-Pad Left/Right - Lean left/right
 - L1 - LMB (Use)
 - R1 - RMB (Attack)
-- SELECT - Esc
-- START - Use _selected_ drug
+- START - Esc
+- SELECT - Use _selected_ drug
 - Rear touchpad - Next/previous MFD (you can switch them by swiping up or down on the left/right side of the touchpad)
 - Front touchpad - Mouse emulation
 

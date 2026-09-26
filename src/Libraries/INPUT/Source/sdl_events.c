@@ -853,16 +853,16 @@ void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
         keycode = SDLK_TAB;
         break;
     case SDL_CONTROLLER_BUTTON_BACK:
-        // menu
-        keyboardPress = true;
-        scancode = SDL_SCANCODE_ESCAPE;
-        keycode = SDLK_ESCAPE;
-        break;
-    case SDL_CONTROLLER_BUTTON_START:
         // use drugs
         keyboardPress = true;
         scancode = SDL_SCANCODE_O;
         keycode = SDLK_o;
+        break;
+    case SDL_CONTROLLER_BUTTON_START:
+        // menu
+        keyboardPress = true;
+        scancode = SDL_SCANCODE_ESCAPE;
+        keycode = SDLK_ESCAPE;
         break;
     case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
         // LMB

@@ -29,8 +29,8 @@ event, shown in the last column.
 | Lean left / right | D-pad ← / → | `←` / `→` | `q` / `e` |
 | Use | L | `Q` | LMB |
 | Attack | R | `E` | RMB |
-| Menu | SELECT | `Right Shift` | `Esc` |
-| Use selected drug | START | `Enter` | `o` |
+| Menu | START | `Enter` | `Esc` |
+| Use selected drug | SELECT | `Right Shift` | `o` |
 | Cursor + click | Front touch | Mouse click / drag (default touch mode) | Mouse motion + LMB |
 | Previous / next page on left or right MFD | Rear touch: swipe up / down on the left or right half | Press `T` to switch to rear touch, then drag vertically | — |
 | Aiming (on by default) | Gyro | Not available from the keyboard (needs a host controller with motion sensors) | Mouse-look delta |
@@ -68,11 +68,11 @@ Default bindings come from `HotKeyLookup[]` and `MoveKeybindsDefault[]` in
 | Action | PC key | On-screen alternative on Vita |
 |---|---|---|
 | Show help overlay | `Alt+O` | None — only shown automatically at new game start, if on-line help is on |
-| Toggle on-line help | `Ctrl+H` | Options menu (SELECT) → on-line help setting |
-| Save / load game | `Ctrl+S` / `Ctrl+L` | Options menu (SELECT) |
-| Quit | `Ctrl+Q` | Options menu (SELECT) |
-| Toggle music | `Ctrl+M` | Options menu (SELECT) → Audio → music volume |
-| Cycle detail level | `Ctrl+1` | Options menu (SELECT) → detail setting |
+| Toggle on-line help | `Ctrl+H` | Options menu (START) → on-line help setting |
+| Save / load game | `Ctrl+S` / `Ctrl+L` | Options menu (START) |
+| Quit | `Ctrl+Q` | Options menu (START) |
+| Toggle music | `Ctrl+M` | Options menu (START) → Audio → music volume |
+| Cycle detail level | `Ctrl+1` | Options menu (START) → detail setting |
 | Pause | `P` | None (the options menu pauses the game while open) |
 | Previous weapon | `Shift+Tab` | Tap the weapon in the inventory |
 | Reload weapon (normal / swap ammo) | `Alt+Backspace` / `Ctrl+Backspace` | Tap the ammo buttons on the weapon MFD |
@@ -98,7 +98,7 @@ created with the defaults on first launch. An unreachable action can be moved
 onto one of the plain keys above, but every one of them is already used, so
 another action has to give up its key. Any action missing from the file gets
 its default key back, so swap keys rather than deleting lines. For example, to
-put the help overlay on START:
+put the help overlay on SELECT:
 
 ```
 bind  o                       "showhelp"
@@ -113,7 +113,7 @@ needs a code change (e.g. a SELECT+START combination emitting `Alt+O` in
 
 - On the main menu / setup screens (`_current_loop == SETUP_LOOP`), the
   D-pad, left stick and face buttons do not emit text, so they can't leak into
-  the character-name field. SELECT (`Esc`) and △ (`Tab`, cycles difficulty
+  the character-name field. START (`Esc`) and △ (`Tab`, cycles difficulty
   categories) still work there.
 - The Vita on-screen keyboard opens when entering the New Game screen, when
   tapping the name field on that screen, and when selecting a save slot.
