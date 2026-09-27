@@ -161,6 +161,7 @@ enum { PAGE_LOAD, PAGE_SAVE, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, PAGE_VIDEO,
 #define VITA_INPUT_BUTTON 8    // main-list button opening the Vita input screen
 #define JOYSTICK_BUTTON 3      // input-screen button opening the joystick screen
 #define OPANEL_SLIDER_STEP 5   // pixels a grabbed bar moves per Left/Right press (same as the mouse wheel)
+#define OPANEL_ALIGN_SLACK 8   // alignment tolerance, in doubled-centre units (4 px): bars sit lower in their slot than buttons
 #define FOCUS_BUTTON_COLOR (BUTTON_COLOR - 2) // focused widget: lighter green, like bright_pushbutton()
 #define GRABBED_BAR_COLOR GREEN_YELLOW_BASE   // bar grabbed with Enter: Left/Right move it
 
@@ -357,19 +358,15 @@ uchar fv;
 
 #define OPTIONS_COLOR RED_BROWN_BASE + 4
 
-// decides on a "standard" width for our widgets based on column count
-// of current screen.  Our desire is that uniform widgets of this size
-// should have certain margins between them independent of column count.
-#define CONSTANT_MARGINS
-
-#ifdef HALF_BUTTON_MARGINS
-#define widget_width(t, m) (2 * INVENTORY_PANEL_WIDTH / (3 * (t) + 1))
-#define widget_x(c, t, m)  ((3 * (t) + 1) * INVENTORY_PANEL_WIDTH / (3 * (t) + 1))
-#endif
-#ifdef CONSTANT_MARGINS
-#define widget_width(t, m) ((INVENTORY_PANEL_WIDTH - ((m) * ((t) + 1))) / (t))
-#define widget_x(c, t, m)  ((m) * ((c) + 1) + widget_width(t, m) * (c))
-#endif
+// Every options screen places its widgets in one 3x3 grid of slots snapped to the panel
+// background (REF_IMG_bmBlankInventoryPanel), whose 1-px grid lines are every 8 px at
+// x = 8k, y = 1 + 8k (18 x 6 cells). A slot is 6 x 2 cells; widgets sit 1 px inside its grid
+// lines, so the line shows between neighbours. Slot n is column n % 3, row n / 3; screens
+// with two rows of widgets use the top two rows.
+#define OPANEL_GRID_CELL 8
+#define OPANEL_GRID_Y0 1
+#define OPANEL_SLOT_W (6 * OPANEL_GRID_CELL)
+#define OPANEL_SLOT_H (2 * OPANEL_GRID_CELL)
 
 // override get_temp_string() to support hard-coded custom strings without
 // providing an actual resource file
@@ -1156,12 +1153,20 @@ static void opanel_focus_initial(void) {
 
     opanel_queued_focus = -1;
     if (b < 0 || b >= MAX_OPTION_BUTTONS || !opanel_focusable(b)) {
-        for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
-            if (opanel_focusable(b))
-                break;
+        // top-left control on screen: button ids don't follow the layout (e.g. Video mode is
+        // SCREENMODE_BUTTON). Rows are compared by bottom edge, which bars share with buttons.
+        int i;
+
+        b = -1;
+        for (i = 0; i < MAX_OPTION_BUTTONS; i++) {
+            if (!opanel_focusable(i))
+                continue;
+            if (b < 0 || BR(i).lr.y < BR(b).lr.y - OPANEL_ALIGN_SLACK / 2 ||
+                (abs(BR(i).lr.y - BR(b).lr.y) <= OPANEL_ALIGN_SLACK / 2 && BR(i).ul.x < BR(b).ul.x))
+                b = i;
         }
     }
-    if (b >= MAX_OPTION_BUTTONS)
+    if (b < 0)
         return;
 
     opanel_focus = b;
@@ -1186,10 +1191,13 @@ static void opanel_set_focus(int b) {
     }
 }
 
-// move to the nearest focusable button in the arrow's direction, by rectangle centres
+// Move to the nearest focusable button in the arrow's direction, by rectangle centres.
+// Buttons more in that direction than off to the side (a 45 degree cone) are preferred; the
+// rest of the half-plane is only a fallback, so sparse layouts stay fully reachable.
+// Offsets up to OPANEL_ALIGN_SLACK are ignored, so a bar and a button in the same row count as level.
 static void opanel_move_focus(int key) {
-    int b, best = -1;
-    long best_score = 0;
+    int b, best = -1, best_cone = -1;
+    long best_score = 0, best_cone_score = 0;
     int cx0, cy0;
 
     if (opanel_focus < 0)
@@ -1223,15 +1231,22 @@ static void opanel_move_focus(int key) {
             secondary = abs(dx);
             break;
         }
-        if (primary <= 0)
+        if (primary <= OPANEL_ALIGN_SLACK)
             continue;
         score = primary + 2L * secondary;
-        if (best < 0 || score < best_score) {
+        if (primary > secondary) {
+            if (best_cone < 0 || score < best_cone_score) {
+                best_cone = b;
+                best_cone_score = score;
+            }
+        } else if (best < 0 || score < best_score) {
             best = b;
             best_score = score;
         }
     }
-    if (best >= 0)
+    if (best_cone >= 0)
+        opanel_set_focus(best_cone);
+    else if (best >= 0)
         opanel_set_focus(best);
 }
 
@@ -1541,27 +1556,21 @@ void opanel_redraw(uchar back) {
 // assuming buttons in three columns, ro rows, high enough for
 // a specified number of lines of text.
 //
-void standard_button_rect(LGRect *r, uchar butid, uchar lines, uchar ro, uchar mar) {
-    short w, h;
-    char i = butid;
+// rect of grid slot "slot" (see OPANEL_GRID_CELL); lr is exclusive, so the slot's grid lines stay visible
+void standard_button_rect(LGRect *r, uchar slot) {
+    int col = slot % 3, row = slot / 3;
 
-    gr_set_font(opt_font);
-    gr_string_size("X", &w, &h);
-
-    h *= lines;
-
-    r->ul.x = widget_x(i % 3, 3, mar);
-    r->lr.x = r->ul.x + widget_width(3, mar);
-    r->ul.y = INVENTORY_PANEL_HEIGHT * (i / 3 + 1) / (ro + 1) - h / 2;
-    if (ro > 2)
-        r->ul.y += (3 * ((i / 3) - 1));
-    r->lr.y = r->ul.y + h + 2;
+    r->ul.x = col * OPANEL_SLOT_W + 1;
+    r->lr.x = (col + 1) * OPANEL_SLOT_W;
+    r->ul.y = OPANEL_GRID_Y0 + row * OPANEL_SLOT_H + 1;
+    r->lr.y = OPANEL_GRID_Y0 + (row + 1) * OPANEL_SLOT_H;
 }
 
-void standard_slider_rect(LGRect *r, uchar butid, uchar ro, uchar mar) {
+// a bar sits at the bottom of its slot, its title drawn above it
+void standard_slider_rect(LGRect *r, uchar slot) {
     short sh, sw;
 
-    standard_button_rect(r, butid, 2, ro, mar);
+    standard_button_rect(r, slot);
 
     sh = res_bm_height(OPT_SLIDER_BAR);
     sw = res_bm_height(OPT_SLIDER_BAR);
@@ -1704,12 +1713,12 @@ void wrapper_init(void) {
     clear_obuttons();
     opanel_screen_begin(wrapper_init, NULL, PAGE_NONE, 0); // top level: Return closes the panel
     for (i = 0; i < 8; i++) {
-        standard_button_rect(&r, i, 2, 3, 5);
+        standard_button_rect(&r, i);
         pushbutton_init(i, keyequivs[i], REF_STR_WrapperText + i, wrapper_pushbutton_func, &r);
     }
 
 #ifdef VITA
-    standard_button_rect(&r, 8, 2, 3, 5);
+    standard_button_rect(&r, 8);
     pushbutton_init(8, 'v', REF_STR_VitaOptions, vita_input_init, &r);
 #endif
 
@@ -1750,10 +1759,10 @@ void verify_screen_init(void (*verify)(uchar butid), slorker slork) {
     clear_obuttons();
     opanel_screen_begin(NULL, parent, page, opanel_prev_focus < 0 ? 0 : opanel_prev_focus);
 
-    standard_button_rect(&r, 1, 2, 2, 5);
+    standard_button_rect(&r, 1);
     pushbutton_init(0, tolower(get_temp_string(REF_STR_VerifyText)[0]), REF_STR_VerifyText, verify, &r);
 
-    standard_button_rect(&r, 4, 2, 2, 5);
+    standard_button_rect(&r, 4);
     pushbutton_init(1, tolower(get_temp_string(REF_STR_VerifyText + 1)[0]), (REF_STR_VerifyText + 1), (void (*)(uchar))slork, &r);
 
     slork_init(2, slork);
@@ -1875,34 +1884,34 @@ void soundopt_screen_init() {
     clear_obuttons();
     opanel_screen_begin(soundopt_screen_init, sound_screen_init, PAGE_AUDIO, AUDIO_OPT_BUTTON);
 
-    standard_button_rect(&r, i, 2, 2, 5);
+    standard_button_rect(&r, i);
     retkey = tolower(get_temp_string(REF_STR_AilThreeText)[0]);
     multi_init(i, retkey, REF_STR_AilThreeText, REF_STR_DigiChannelState, ID_NULL, sizeof(hack_digi_channels),
                &hack_digi_channels, 3, digichan_dealfunc, &r);
     i++;
 
-    standard_button_rect(&r, i, 2, 2, 5);
+    standard_button_rect(&r, i);
     retkey = tolower(get_temp_string(REF_STR_AilThreeText + 1)[0]);
     // multi_init(i, retkey, REF_STR_AilThreeText+1, REF_STR_StereoReverseState, NULL,
     //   sizeof(snd_stereo_reverse), &snd_stereo_reverse, 2, NULL, &r);
     // i++;
 
 #ifdef AUDIOLOGS
-    standard_button_rect(&r, i, 2, 2, 5);
+    standard_button_rect(&r, i);
     retkey = tolower(get_temp_string(REF_STR_MusicText + 3)[0]);
     multi_init(i, retkey, REF_STR_MusicText + 3, REF_STR_AudiologState, ID_NULL, sizeof(audiolog_setting),
                &audiolog_setting, 3, audiolog_dealfunc, &r);
     i++;
 #endif
 
-    standard_button_rect(&r, i, 2, 2, 5);
+    standard_button_rect(&r, i);
     multi_init(i, 'p', REF_STR_Seqer, REF_STR_ADLMIDI, ID_NULL,
                sizeof(gShockPrefs.soMidiBackend), &gShockPrefs.soMidiBackend, OPT_SEQ_Max, seqer_dealfunc, &r);
     i++;
 /* standard button is too narrow, so use a slider instead
     const unsigned int numMidiOutputs = GetOutputCountXMI();
     INFO("numMidiOutputs=%d", numMidiOutputs);
-    standard_button_rect(&r, i, 2, 2, 5);
+    standard_button_rect(&r, i);
     multi_init(i, 'o', REF_STR_MidiOut, REF_STR_MidiOutX, ID_NULL,
                sizeof(gShockPrefs.soMidiOutput), &gShockPrefs.soMidiOutput, numMidiOutputs, midi_output_dealfunc, &r);
     i++;
@@ -1910,9 +1919,8 @@ void soundopt_screen_init() {
     unsigned int midiOutputCount = GetOutputCountXMI();
     if (midiOutputCount > 1)
     {
-        standard_slider_rect(&r, i, 2, 5);
-        // this makes it double-wide i guess?
-        r.lr.x += (r.lr.x - r.ul.x);
+        standard_slider_rect(&r, i);
+        r.lr.x += OPANEL_SLOT_W; // spans two slots
         slider_init(i, REF_STR_MidiOutX + gShockPrefs.soMidiOutput, sizeof(gShockPrefs.soMidiOutput), FALSE, &gShockPrefs.soMidiOutput, midiOutputCount - 1,
                     0, midi_output_dealfunc, &r);
         i++;
@@ -1920,12 +1928,12 @@ void soundopt_screen_init() {
     else if (midiOutputCount == 1)
     {
         // just show a text label
-        standard_button_rect(&r, i, 1, 2, 10);
+        standard_button_rect(&r, i);
         textwidget_init(i, BUTTON_COLOR, REF_STR_MidiOutX, &r);
         i++;
     }
 
-    standard_button_rect(&r, 5, 2, 2, 5);
+    standard_button_rect(&r, 5);
     retkey = tolower(get_temp_string(REF_STR_MusicText + 2)[0]);
     pushbutton_init(RETURN_BUTTON, retkey, REF_STR_MusicText + 2, wrapper_pushbutton_func, &r);
 
@@ -1938,60 +1946,45 @@ void sound_screen_init(void) {
     LGRect r;
     uchar sliderbase;
     char retkey;
-    char slider_offset = 0;
-#ifdef AUDIOLOGS
-    slider_offset = 10;
-#endif
 
     clear_obuttons();
     opanel_screen_begin(sound_screen_init, wrapper_init, PAGE_AUDIO, AUDIO_BUTTON);
 
     if (music_card) {
-        standard_slider_rect(&r, 0, 2, 5);
-        // let's double the width of these things, eh?
-        r.lr.x += (r.lr.x - r.ul.x);
-        r.ul.y -= slider_offset;
-        r.lr.y -= slider_offset;
+        standard_slider_rect(&r, 0);
+        r.lr.x += OPANEL_SLOT_W; // spans two slots
         sliderbase = r.lr.x - r.ul.x - 2;
         slider_init(0, REF_STR_MusicText, sizeof(ushort), TRUE, &player_struct.questvars[MUSIC_VOLUME_QVAR], 100,
                     sliderbase, recompute_music_level, &r);
     } else {
-        standard_button_rect(&r, 0, 2, 2, 5);
-        r.lr.x += (r.lr.x - r.ul.x);
-        r.ul.y -= slider_offset / 2;
-        r.lr.y -= slider_offset / 2;
+        standard_button_rect(&r, 0);
+        r.lr.x += OPANEL_SLOT_W; // spans two slots
         textwidget_init(0, BUTTON_COLOR, REF_STR_MusicFeedbackText + 2, &r);
     }
 
     if (digi_gain) {
-        standard_slider_rect(&r, 3, 2, 5);
-        r.lr.x += (r.lr.x - r.ul.x);
-        r.ul.y -= slider_offset;
-        r.lr.y -= slider_offset;
+        standard_slider_rect(&r, 3);
+        r.lr.x += OPANEL_SLOT_W; // spans two slots
         slider_init(1, REF_STR_MusicText + 1, sizeof(ushort), FALSE, &player_struct.questvars[SFX_VOLUME_QVAR], 100,
                     sliderbase, recompute_digifx_level, &r);
     } else {
-        standard_button_rect(&r, 3, 2, 2, 5);
-        r.ul.y -= slider_offset;
-        r.lr.y -= slider_offset;
+        standard_button_rect(&r, 3);
         multi_init(1, get_temp_string(REF_STR_MusicText + 1)[0], REF_STR_MusicText + 1, REF_STR_OffonText,
                    REF_STR_MusicFeedbackText + 5, sizeof(sfx_on), &sfx_on, 2, digi_toggle_deal, &r);
     }
 
 #ifdef AUDIOLOGS
-    standard_slider_rect(&r, 6, 2, 5);
-    r.lr.x += (r.lr.x - r.ul.x);
-    r.ul.y -= slider_offset;
-    r.lr.y -= slider_offset;
+    standard_slider_rect(&r, 6);
+    r.lr.x += OPANEL_SLOT_W; // spans two slots
     slider_init(2, REF_STR_MusicText + 4, sizeof(ushort), FALSE, &player_struct.questvars[ALOG_VOLUME_QVAR], 100,
                 sliderbase, recompute_audiolog_level, &r);
 #endif
 
-    standard_button_rect(&r, 2, 2, 2, 5);
+    standard_button_rect(&r, 2);
     retkey = tolower(get_temp_string(REF_STR_AilThreeText + 2)[0]);
     pushbutton_init(AUDIO_OPT_BUTTON, retkey, REF_STR_AilThreeText + 2, wrapper_pushbutton_func, &r);
 
-    standard_button_rect(&r, 5, 2, 2, 5);
+    standard_button_rect(&r, 5);
     retkey = tolower(get_temp_string(REF_STR_MusicText + 2)[0]);
     pushbutton_init(RETURN_BUTTON, retkey, REF_STR_MusicText + 2, wrapper_pushbutton_func, &r);
 
@@ -2191,12 +2184,12 @@ void joystick_screen_init(void) {
     clear_obuttons();
     opanel_screen_begin(joystick_screen_init, input_screen_init, PAGE_INPUT, JOYSTICK_BUTTON);
 
-    standard_button_rect(&r, i, 2, 2, 1);
+    standard_button_rect(&r, i);
     multi_init(i, keys[i], REF_STR_JoystickType, REF_STR_JoystickTypes, ID_NULL, sizeof(wrap_joy_type),
                &wrap_joy_type, 4, joystick_type_func, &r);
     i++;
 
-    standard_button_rect(&r, i, 2, 2, 1);
+    standard_button_rect(&r, i);
     pushbutton_init(i, keys[i], REF_STR_CenterJoy, center_joy_pushbutton_func, &r);
     if (!joystick_count && !inp6d_headset) {
         dim_pushbutton(i);
@@ -2204,14 +2197,14 @@ void joystick_screen_init(void) {
     i++;
 
     if (joystick_count) {
-        standard_slider_rect(&r, i, 2, 1);
+        standard_slider_rect(&r, i);
         sliderbase = (r.lr.x - r.ul.x - 2) >> 1;
         slider_init(i, REF_STR_JoystickSens, sizeof(ushort), FALSE, &player_struct.questvars[JOYSENS_QVAR], 256,
                     sliderbase, joysens_dealfunc, &r);
     }
     i++;
 
-    standard_button_rect(&r, 5, 2, 2, 1);
+    standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[i], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
@@ -2235,37 +2228,33 @@ void input_screen_init(void) {
     clear_obuttons();
     opanel_screen_begin(input_screen_init, wrapper_init, PAGE_INPUT, INPUT_BUTTON);
 
-    standard_button_rect(&r, i, 2, 2, 1);
-    r.ul.x -= 1;
+    standard_button_rect(&r, i);
     multi_init(i, keys[0], REF_STR_OptionsText + 0, REF_STR_OffonText, REF_STR_PopupCursFeedback, sizeof(popup_cursors),
                &popup_cursors, 2, NULL, &r);
     i++;
 
-    standard_button_rect(&r, i, 2, 2, 1);
+    standard_button_rect(&r, i);
     multi_init(i, keys[1], REF_STR_OptionsText + 1, REF_STR_MouseHand, REF_STR_HandFeedback,
                sizeof(player_struct.questvars[MOUSEHAND_QVAR]), &player_struct.questvars[MOUSEHAND_QVAR], 2,
                mousehand_dealfunc, &r);
     i++;
 
-    standard_slider_rect(&r, i, 2, 1);
-    r.ul.x -= 1;
+    standard_slider_rect(&r, i);
     sliderbase = ((r.lr.x - r.ul.x - 3) * (FIX_UNIT / 3)) / USHRT_MAX;
     slider_init(i, REF_STR_DoubleClick, sizeof(ushort), FALSE, &player_struct.questvars[DCLICK_QVAR], USHRT_MAX,
                 sliderbase, dclick_dealfunc, &r);
     i++;
 
-    standard_button_rect(&r, i, 2, 2, 1);
-    r.ul.x -= 1;
+    standard_button_rect(&r, i);
     pushbutton_init(i, keys[2], REF_STR_Joystick, joystick_button_func, &r);
     i++;
 
-    standard_button_rect(&r, i, 2, 2, 1);
-    r.ul.x -= 1;
+    standard_button_rect(&r, i);
     multi_init(i, keys[3], REF_STR_MousLook, REF_STR_MousNorm, ID_NULL,
                sizeof(gShockPrefs.goInvertMouseY), &gShockPrefs.goInvertMouseY, 2, NULL, &r);
     i++;
 
-    standard_button_rect(&r, 5, 2, 2, 1);
+    standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
@@ -2287,29 +2276,26 @@ void vita_input_init(uchar butid) {
     opanel_screen_begin(vita_input_screen, wrapper_init, PAGE_VITA, VITA_INPUT_BUTTON);
 
     // gyro aiming
-    standard_button_rect(&r, i, 2, 2, 2);
-    r.ul.x -= 1;
+    standard_button_rect(&r, i);
     multi_init(i, keys[0], REF_STR_GyroAiming, REF_STR_GyroOff, ID_NULL,
                 sizeof(gShockPrefs.gyroAiming), &gShockPrefs.gyroAiming, 2, NULL, &r);
     i++;
 
     sliderbase = ((r.lr.x - r.ul.x - 1) * 5 / 15);
 
-    standard_slider_rect(&r, i, 2, 1);
-    r.ul.x -= 1;
+    standard_slider_rect(&r, i);
     slider_init(i, REF_STR_GyroLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.gyroAimingSpeed, 15,
                 sliderbase, NULL, &r);
     i++;
 
     sliderbase = ((r.lr.x - r.ul.x - 1) * 10 / 25);
 
-    standard_slider_rect(&r, i, 2, 1);
-    r.ul.x -= 1;
+    standard_slider_rect(&r, i);
     slider_init(i, REF_STR_ControllerLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.controllerAimingSpeed, 25,
                 sliderbase, NULL, &r);
     i++;
 
-    standard_button_rect(&r, 5, 2, 2, 1);
+    standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
@@ -2350,7 +2336,7 @@ void video_screen_init(void) {
 #ifdef USE_OPENGL
     // renderer
     if(can_use_opengl()) {
-        standard_button_rect(&r, i, 2, 2, 2);
+        standard_button_rect(&r, i);
         multi_init(i, 'g', REF_STR_Renderer, REF_STR_Software, ID_NULL,
                    sizeof(gShockPrefs.doUseOpenGL), &gShockPrefs.doUseOpenGL, 2, renderer_dealfunc, &r);
         i++;
@@ -2359,28 +2345,26 @@ void video_screen_init(void) {
 
 #ifdef SVGA_SUPPORT
     // video mode
-    standard_button_rect(&r, i, 2, 2, 2);
+    standard_button_rect(&r, i);
     pushbutton_init(SCREENMODE_BUTTON, keys[0], REF_STR_VideoText, wrapper_pushbutton_func, &r);
     i++;
 #endif
 
     // detail level
-    standard_button_rect(&r, i, 2, 2, 2);
-    r.lr.x += 2;
+    standard_button_rect(&r, i);
     multi_init(i, keys[1], REF_STR_OptionsText + 4, REF_STR_DetailLvl, REF_STR_DetailLvlFeedback,
                sizeof(_fr_global_detail), &_fr_global_detail, 4, detail_dealfunc, &r);
     i++;
 
     // gamma
-    standard_slider_rect(&r, i, 2, 2);
-    r.ul.x = r.ul.x + 1;
+    standard_slider_rect(&r, i);
     sliderbase = ((r.lr.x - r.ul.x - 1) * 29 / 100);
     slider_init(i, REF_STR_OptionsText + 3, sizeof(ushort), TRUE, &(gShockPrefs.doGamma), 100,
                 sliderbase, gamma_slider_dealfunc, &r);
     i++;
 
 #if defined(VFX1_SUPPORT) || defined(CTM_SUPPORT)
-    standard_button_rect(&r, i, 2, 2, 2);
+    standard_button_rect(&r, i);
     pushbutton_init(HEADSET_BUTTON, keys[2], REF_STR_HeadsetText, wrapper_pushbutton_func, &r);
     if (!inp6d_headset)
         dim_pushbutton(HEADSET_BUTTON);
@@ -2390,7 +2374,7 @@ void video_screen_init(void) {
 #ifdef USE_OPENGL
     // textre filter
     if(can_use_opengl() && gShockPrefs.doUseOpenGL) {
-        standard_button_rect(&r, i, 2, 2, 2);
+        standard_button_rect(&r, i);
         multi_init(i, 't', REF_STR_TextFilt, REF_STR_TFUnfil, ID_NULL,
                    sizeof(gShockPrefs.doTextureFilter), &gShockPrefs.doTextureFilter, 2, renderer_dealfunc, &r);
         i++;
@@ -2398,7 +2382,7 @@ void video_screen_init(void) {
 #endif
 
     // return (fixed at position 5)
-    standard_button_rect(&r, 5, 2, 2, 2);
+    standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
@@ -2424,18 +2408,17 @@ void headset_screen_init(void) {
 
     i = 0;
 
-    standard_button_rect(&r, i, 2, 2, 2);
+    standard_button_rect(&r, i);
     pushbutton_init(HEAD_RECENTER_BUTTON, keys[0], REF_STR_HeadsetText + 1, wrapper_pushbutton_func, &r);
 
 #ifdef STEREO_SUPPORT
     i++;
-    standard_slider_rect(&r, i, 2, 2);
-    r.ul.x -= 1;
+    standard_slider_rect(&r, i);
     slider_init(i, REF_STR_HeadsetText + 2, sizeof(inp6d_stereo_div), FALSE, &inp6d_stereo_div, fix_make(10, 0),
                 INITIAL_OCULAR_DIST, NULL, &r);
 
     i++;
-    standard_button_rect(&r, i, 2, 2, 2);
+    standard_button_rect(&r, i);
     multi_init(i, keys[1], REF_STR_HeadsetText + 3, REF_STR_OffonText, ID_NULL, sizeof(inp6d_stereo),
                &inp6d_stereo, 2, headset_stereo_dealfunc, &r);
 
@@ -2443,19 +2426,18 @@ void headset_screen_init(void) {
         dim_pushbutton(i);
 
     i++;
-    standard_button_rect(&r, i, 2, 2, 2);
+    standard_button_rect(&r, i);
     multi_init(i, keys[3], REF_STR_MoreHeadset + 1, REF_STR_OffonText, ID_NULL, sizeof(headset_track),
                &headset_track, 2, headset_tracking_dealfunc, &r);
 
     i++;
-    standard_slider_rect(&r, i, 2, 2);
-    r.ul.x -= 1;
+    standard_slider_rect(&r, i);
     slider_init(i, REF_STR_MoreHeadset, sizeof(hack_headset_fov), FALSE, &hack_headset_fov,
                 HEADSET_FOV_MAX - HEADSET_FOV_MIN, inp6d_real_fov - HEADSET_FOV_MIN, headset_fov_dealfunc, &r);
 #endif
 
     // Standard return button and other bureaucracy
-    standard_button_rect(&r, 5, 2, 2, 2);
+    standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[2], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
     keywidget_init(QUIT_BUTTON, KB_FLAG_ALT | 'x', wrapper_pushbutton_func);
     opanel_redraw(TRUE);
@@ -2484,7 +2466,7 @@ void screenmode_screen_init(void) {
         extern short svga_mode_data[];
         uchar mode_ok = FALSE;
         char j = 0;
-        standard_button_rect(&r, i, 2, 2, 2);
+        standard_button_rect(&r, i);
 #ifdef VITA
         pushbutton_init(i, keys[i], REF_STR_VitaRes1 + i, screenmode_change, &r);
 #else
@@ -2501,7 +2483,7 @@ void screenmode_screen_init(void) {
             bright_pushbutton(i);
     }
 
-    standard_button_rect(&r, 5, 2, 2, 2);
+    standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[2], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
@@ -2527,28 +2509,26 @@ void options_screen_init(void) {
     // okay, I admit it, we're going to tweak these "standard"
     // button rects a little bit.
 
-    standard_button_rect(&r, 0, 2, 2, 2);
-    r.ul.x -= 2;
+    standard_button_rect(&r, 0);
     multi_init(i, keys[i], REF_STR_OptionsText + 2, REF_STR_TerseText, REF_STR_TerseFeedback,
                sizeof(gShockPrefs.goMsgLength), &(gShockPrefs.goMsgLength), 2, NULL, &r);
     i++;
 
     i++;
 
-    standard_button_rect(&r, 1, 2, 2, 2);
+    standard_button_rect(&r, 1);
     multi_init(i, keys[i], REF_STR_OnlineHelp, REF_STR_OffonText, ID_NULL, sizeof(olh_temp), &olh_temp, 2,
                olh_dealfunc, &r);
     i++;
 
     i++;
 
-    standard_button_rect(&r, 2, 2, 2, 2);
+    standard_button_rect(&r, 2);
     multi_init(i, keys[i], REF_STR_Language, REF_STR_Languages, ID_NULL, sizeof(which_lang), &which_lang, 3,
                language_dealfunc, &r);
     i++;
 
-    standard_button_rect(&r, 5, 2, 2, 2);
-    r.lr.x += 2;
+    standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[i], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
