@@ -162,7 +162,11 @@ enum { PAGE_LOAD, PAGE_SAVE, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, PAGE_VIDEO,
 #define JOYSTICK_BUTTON 3      // input-screen button opening the joystick screen
 #define OPANEL_SLIDER_STEP 5   // pixels a grabbed bar moves per Left/Right press (same as the mouse wheel)
 #define OPANEL_ALIGN_SLACK 8   // alignment tolerance, in doubled-centre units (4 px): bars sit lower in their slot than buttons
-#define FOCUS_BUTTON_COLOR (BUTTON_COLOR - 2) // focused widget: lighter green, like bright_pushbutton()
+#define FOCUS_BUTTON_COLOR (BUTTON_COLOR - 2) // focused widget: lighter green
+// current choice (e.g. the resolution in use): gold matching the button green's brightness,
+// text/border (171,151,0) vs green (95,167,43), fill (59,39,0) vs green's (23,59,27)
+#define CURRENT_CHOICE_COLOR (GREEN_YELLOW_BASE + 4)
+#define CURRENT_CHOICE_SHADOW 6
 #define GRABBED_BAR_COLOR GREEN_YELLOW_BASE   // bar grabbed with Enter: Left/Right move it
 
 static void (*opanel_screen)(void) = NULL; // init function of the current screen, NULL for the verify screen
@@ -656,8 +660,8 @@ void dim_pushbutton(uchar butid) {
 void bright_pushbutton(uchar butid) {
     opt_pushbutton_state *st = &OButtons[butid].user.pushbutton_st;
     OButtons[butid].evmask = 0;
-    st->fcolor -= 2;
-    st->shadow += 2;
+    st->fcolor = CURRENT_CHOICE_COLOR;
+    st->shadow = CURRENT_CHOICE_SHADOW;
 }
 
 // text widget
@@ -1713,7 +1717,10 @@ void wrapper_init(void) {
     clear_obuttons();
     opanel_screen_begin(wrapper_init, NULL, PAGE_NONE, 0); // top level: Return closes the panel
     for (i = 0; i < 8; i++) {
-        standard_button_rect(&r, i);
+        // Return sits centre right, like on every submenu: it swaps slots with Video
+        int slot = (i == VIDEO_BUTTON) ? RETURN_BUTTON : (i == RETURN_BUTTON) ? VIDEO_BUTTON : i;
+
+        standard_button_rect(&r, slot);
         pushbutton_init(i, keyequivs[i], REF_STR_WrapperText + i, wrapper_pushbutton_func, &r);
     }
 
