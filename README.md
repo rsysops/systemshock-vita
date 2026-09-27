@@ -42,6 +42,8 @@ make
 
 Gyro aiming is active by default. You can turn it off or adjust analog/gyro look speed by selecting `Vita input` option in the game menu.
 
+In the main menu and the in-game menu, move with the D-Pad or left stick, select with ×, go back with ○ and switch the in-game menu page with L1/R1. START closes the in-game menu. See [docs/KEYMAPS.md](docs/KEYMAPS.md) for details.
+
 ## Additional info
 
 ### Tip for the new players

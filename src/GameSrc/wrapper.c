@@ -149,6 +149,34 @@ void save_screen_init(void);
 // screen the Return button goes back to; NULL on the top-level screen, where it closes the panel
 static void (*wrapper_return_screen)(void) = NULL;
 
+// Keyboard / D-pad navigation: one focused widget per screen, moved with the arrow keys or by
+// hovering it with the cursor; Enter activates it, Home goes back, PgUp/PgDn switch page.
+enum { PAGE_LOAD, PAGE_SAVE, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, PAGE_VIDEO,
+#ifdef VITA
+       PAGE_VITA,
+#endif
+       NUM_PAGES };
+
+#define PAGE_NONE -1           // main list: PgUp/PgDn do nothing there
+#define VITA_INPUT_BUTTON 8    // main-list button opening the Vita input screen
+#define JOYSTICK_BUTTON 3      // input-screen button opening the joystick screen
+#define OPANEL_SLIDER_STEP 5   // pixels a grabbed bar moves per Left/Right press (same as the mouse wheel)
+#define FOCUS_BUTTON_COLOR (BUTTON_COLOR - 2) // focused widget: lighter green, like bright_pushbutton()
+#define GRABBED_BAR_COLOR GREEN_YELLOW_BASE   // bar grabbed with Enter: Left/Right move it
+
+static void (*opanel_screen)(void) = NULL; // init function of the current screen, NULL for the verify screen
+static int opanel_page = PAGE_NONE;        // top-level page the current screen belongs to
+static uchar opanel_entry_button = 0;      // parent's button that opened this screen, focused again on Back
+static int opanel_focus = -1;              // focused button, -1 = not chosen yet
+static int opanel_prev_focus = -1;         // focus before the last clear_obuttons(), kept on a same-screen re-init
+static int opanel_queued_focus = -1;       // focus the next screen should start on
+static uchar opanel_slider_editing = FALSE; // focused bar grabbed with Enter: Left/Right move it
+static int opanel_save_armed_line = -1;    // save slot whose name keyboard was opened by Enter; next Enter saves
+
+static void opanel_screen_begin(void (*self)(void), void (*parent)(void), int page, uchar entry_button);
+static void opanel_go_back(void);
+uchar textlist_handler(uiEvent *ev, uchar butid);
+
 void draw_button(uchar butid);
 
 #define SLOTNAME_HEIGHT 6
@@ -402,6 +430,11 @@ static char *_get_temp_string(int num) {
 
 //#ifdef NOT_YET //
 
+// colour a widget is drawn in: lighter when it has the keyboard / D-pad focus
+static uchar opanel_widget_color(uchar butid, uchar normal) {
+    return (butid == opanel_focus) ? FOCUS_BUTTON_COLOR : normal;
+}
+
 void draw_button(uchar butid) {
     if (OButtons[butid].drawfunc) {
 #ifdef SVGA_SUPPORT
@@ -450,6 +483,7 @@ void slider_draw_func(uchar butid) {
     opt_slider_state *st = &(OButtons[butid].user.slider_st);
     short w, h, sw;
     char *title;
+    uchar col;
 
 #ifdef SVGA_SUPPORT
     uchar old_over;
@@ -457,8 +491,13 @@ void slider_draw_func(uchar butid) {
     gr2ss_override = OVERRIDE_ALL;
 #endif
 
+    if (butid == opanel_focus && opanel_slider_editing)
+        col = GRABBED_BAR_COLOR;
+    else
+        col = opanel_widget_color(butid, st->color);
+
     sw = res_bm_width(OPT_SLIDER_BAR);
-    gr_set_fcolor(st->color);
+    gr_set_fcolor(col);
     title = get_temp_string(st->descrip);
     gr_string_size(title, &w, &h);
 
@@ -469,7 +508,7 @@ void slider_draw_func(uchar butid) {
     gr_set_fcolor(st->bvalcol);
     ss_vline(BR(butid).ul.x + st->baseval, BR(butid).ul.y, BR(butid).lr.y - 1);
 
-    gr_set_fcolor(st->color);
+    gr_set_fcolor(col);
     ss_box(BR(butid).ul.x, BR(butid).ul.y, BR(butid).lr.x, BR(butid).lr.y);
 
     if (!(st->active))
@@ -582,7 +621,7 @@ void pushbutton_draw_func(uchar butid) {
 
     btext = get_temp_string(st->descrip);
     gr_string_wrap(btext, BR(butid).lr.x - BR(butid).ul.x - 3);
-    text_button(btext, BR(butid).ul.x, BR(butid).ul.y, st->fcolor, st->shadow, -w, -h);
+    text_button(btext, BR(butid).ul.x, BR(butid).ul.y, opanel_widget_color(butid, st->fcolor), st->shadow, -w, -h);
     gr_font_string_unwrap(btext);
 }
 
@@ -703,12 +742,13 @@ void multi_draw_func(uchar butid) {
     short w, h, x, y;
     uint val = 0;
     opt_multi_state *st = &OButtons[butid].user.multi_st;
+    uchar col = opanel_widget_color(butid, BUTTON_COLOR);
 
-    gr_set_fcolor(BUTTON_COLOR);
+    gr_set_fcolor(col);
     ss_rect(BR(butid).ul.x, BR(butid).ul.y, BR(butid).lr.x, BR(butid).lr.y);
-    gr_set_fcolor(BUTTON_COLOR + BUTTON_SHADOW);
+    gr_set_fcolor(col + BUTTON_SHADOW);
     ss_rect(BR(butid).ul.x + 1, BR(butid).ul.y + 1, BR(butid).lr.x - 1, BR(butid).lr.y - 1);
-    gr_set_fcolor(BUTTON_COLOR);
+    gr_set_fcolor(col);
     x = (BR(butid).lr.x + BR(butid).ul.x) / 2;
     y = (BR(butid).lr.y + BR(butid).ul.y) / 2;
     btext = get_temp_string(st->descrip);
@@ -720,8 +760,22 @@ void multi_draw_func(uchar butid) {
     ss_string(btext, x - w / 2, y);
 }
 
+// advance a multi-choice option by delta (num_opts - 1 goes back one)
+static void multi_cycle(uchar butid, uint delta) {
+    opt_multi_state *st = &OButtons[butid].user.multi_st;
+    uint val;
+
+    val = multi_get_curval(st->type, st->curval);
+    val = (val + delta) % (st->num_opts);
+    multi_set_curval(st->type, st->curval, val, st->dealfunc);
+    draw_button(butid);
+    if (st->feedbackbase) {
+        string_message_info(st->feedbackbase + val);
+    }
+}
+
 uchar multi_handler(uiEvent *ev, uchar butid) {
-    uint val = 0, delta = 0;
+    uint delta = 0;
     opt_multi_state *st = &OButtons[butid].user.multi_st;
 
     if (ev->type == UI_EVENT_MOUSE) {
@@ -740,13 +794,7 @@ uchar multi_handler(uiEvent *ev, uchar butid) {
     }
 
     if (delta) {
-        val = multi_get_curval(st->type, st->curval);
-        val = (val + delta) % (st->num_opts);
-        multi_set_curval(st->type, st->curval, val, st->dealfunc);
-        draw_button(butid);
-        if (st->feedbackbase) {
-            string_message_info(st->feedbackbase + val);
-        }
+        multi_cycle(butid, delta);
         return TRUE;
     }
     return FALSE;
@@ -1053,6 +1101,327 @@ void textlist_init(uchar butid, char *text, uchar numblocks, uchar blocksiz, uch
     st->modified = FALSE;
 }
 
+//
+// KEYBOARD / D-PAD NAVIGATION
+//
+
+void wrapper_pushbutton_func(uchar butid);
+uchar can_save();
+
+#ifdef VITA
+static void vita_input_screen(void) { vita_input_init(VITA_INPUT_BUTTON); }
+#endif
+
+// Every screen init calls this right after clear_obuttons(): it records where Back goes
+// (parent, focusing entry_button there) and which page L/R switch from.
+static void opanel_screen_begin(void (*self)(void), void (*parent)(void), int page, uchar entry_button) {
+    // the same screen rebuilding itself (e.g. after a setting change) keeps its focus
+    if (self != NULL && self == opanel_screen && opanel_queued_focus < 0)
+        opanel_queued_focus = opanel_prev_focus;
+
+    opanel_screen = self;
+    wrapper_return_screen = parent;
+    opanel_page = page;
+    opanel_entry_button = entry_button;
+}
+
+static uchar opanel_focusable(int b) {
+    opt_button *ob = &OButtons[b];
+
+    if (ob->drawfunc == NULL || !(ob->evmask & UI_EVENT_MOUSE)) // hidden, or dimmed
+        return FALSE;
+    return ob->handler == pushbutton_handler || ob->handler == multi_handler || ob->handler == slider_handler ||
+           ob->handler == textlist_handler;
+}
+
+// a slot list needs a current line for Enter to act on
+static void opanel_textlist_preselect(int b) {
+    opt_textlist_state *st = &OButtons[b].user.textlist_st;
+    int line;
+
+    if (st->currstring >= 0)
+        return;
+    for (line = 0; line < st->numblocks; line++) {
+        if (st->selectmask & (1 << line)) {
+            st->currstring = line;
+            st->index = -1;
+            return;
+        }
+    }
+}
+
+// pick the focus of a freshly built screen: the queued one if usable, else the first focusable button
+static void opanel_focus_initial(void) {
+    int b = opanel_queued_focus;
+
+    opanel_queued_focus = -1;
+    if (b < 0 || b >= MAX_OPTION_BUTTONS || !opanel_focusable(b)) {
+        for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
+            if (opanel_focusable(b))
+                break;
+        }
+    }
+    if (b >= MAX_OPTION_BUTTONS)
+        return;
+
+    opanel_focus = b;
+    if (OButtons[b].handler == textlist_handler)
+        opanel_textlist_preselect(b);
+}
+
+static void opanel_set_focus(int b) {
+    int old = opanel_focus;
+
+    if (b == old)
+        return;
+    opanel_focus = b;
+    opanel_slider_editing = FALSE;
+    if (old >= 0) {
+        draw_button(old);
+    }
+    if (b >= 0) {
+        if (OButtons[b].handler == textlist_handler)
+            opanel_textlist_preselect(b);
+        draw_button(b);
+    }
+}
+
+// move to the nearest focusable button in the arrow's direction, by rectangle centres
+static void opanel_move_focus(int key) {
+    int b, best = -1;
+    long best_score = 0;
+    int cx0, cy0;
+
+    if (opanel_focus < 0)
+        return;
+    cx0 = BR(opanel_focus).ul.x + BR(opanel_focus).lr.x; // doubled centres, no rounding
+    cy0 = BR(opanel_focus).ul.y + BR(opanel_focus).lr.y;
+
+    for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
+        int dx, dy, primary, secondary;
+        long score;
+
+        if (b == opanel_focus || !opanel_focusable(b))
+            continue;
+        dx = BR(b).ul.x + BR(b).lr.x - cx0;
+        dy = BR(b).ul.y + BR(b).lr.y - cy0;
+        switch (key) {
+        case KEY_LEFT:
+            primary = -dx;
+            secondary = abs(dy);
+            break;
+        case KEY_RIGHT:
+            primary = dx;
+            secondary = abs(dy);
+            break;
+        case KEY_UP:
+            primary = -dy;
+            secondary = abs(dx);
+            break;
+        default: // KEY_DOWN
+            primary = dy;
+            secondary = abs(dx);
+            break;
+        }
+        if (primary <= 0)
+            continue;
+        score = primary + 2L * secondary;
+        if (best < 0 || score < best_score) {
+            best = b;
+            best_score = score;
+        }
+    }
+    if (best >= 0)
+        opanel_set_focus(best);
+}
+
+static void opanel_slider_step(int b, int delta) {
+    opt_slider_state *st = &OButtons[b].user.slider_st;
+    int max = BR(b).lr.x - BR(b).ul.x - 3;
+    int pos = st->sliderpos + delta;
+
+    if (pos < 0)
+        pos = 0;
+    else if (pos > max)
+        pos = max;
+    st->sliderpos = pos;
+    slider_deal(b, TRUE);
+    draw_button(b);
+}
+
+static void opanel_textlist_enter(int b) {
+    opt_textlist_state *st = &OButtons[b].user.textlist_st;
+    char cur = st->currstring;
+
+    if (cur < 0)
+        return;
+    if (st->editable && (st->editmask & (1 << cur)) && !st->modified && opanel_save_armed_line != cur) {
+        // first press on a save slot: open the name keyboard, like tapping the slot does;
+        // the next press saves, with the new name or the old one if nothing was typed
+        opanel_save_armed_line = cur;
+#ifdef VITA
+        VitaStartTextInput(0);
+#endif
+        string_message_info(st->selectprompt);
+        textlist_select_line(st, b, cur, FALSE);
+        return;
+    }
+    opanel_save_armed_line = -1;
+    st->dealfunc(b, cur);
+}
+
+static void opanel_activate(int b) {
+    opt_button *ob = &OButtons[b];
+
+    if (ob->handler == pushbutton_handler) {
+        ob->user.pushbutton_st.pushfunc(b);
+    } else if (ob->handler == multi_handler) {
+        multi_cycle(b, 1);
+    } else if (ob->handler == slider_handler) {
+        opanel_slider_editing = !opanel_slider_editing;
+        draw_button(b); // its colour shows whether the bar is grabbed
+    } else if (ob->handler == textlist_handler) {
+        opanel_textlist_enter(b);
+    }
+}
+
+// throw away a half-typed save name before leaving the slot list
+static void opanel_leave_textlist(void) {
+    if (opanel_focus >= 0 && OButtons[opanel_focus].handler == textlist_handler)
+        textlist_cleanup(&OButtons[opanel_focus].user.textlist_st);
+}
+
+// back one screen, like the Return button; closes the panel from the main list
+static void opanel_go_back(void) {
+    opanel_leave_textlist();
+    if (wrapper_return_screen) {
+        opanel_queued_focus = opanel_entry_button;
+        wrapper_return_screen();
+    } else {
+        wrapper_panel_close(TRUE);
+    }
+}
+
+static void opanel_open_page(int page) {
+    switch (page) {
+    case PAGE_LOAD:
+        wrapper_pushbutton_func(LOAD_BUTTON);
+        break;
+    case PAGE_SAVE:
+        wrapper_pushbutton_func(SAVE_BUTTON);
+        break;
+    case PAGE_AUDIO:
+        wrapper_pushbutton_func(AUDIO_BUTTON);
+        break;
+    case PAGE_INPUT:
+        wrapper_pushbutton_func(INPUT_BUTTON);
+        break;
+    case PAGE_OPTIONS:
+        wrapper_pushbutton_func(OPTIONS_BUTTON);
+        break;
+    case PAGE_VIDEO:
+        wrapper_pushbutton_func(VIDEO_BUTTON);
+        break;
+#ifdef VITA
+    case PAGE_VITA:
+        vita_input_screen();
+        break;
+#endif
+    }
+}
+
+// L/R: previous/next top-level page, wrapping; Save is skipped where saving isn't allowed
+static void opanel_switch_page(int dir) {
+    int page = opanel_page;
+
+    if (page == PAGE_NONE)
+        return;
+    do {
+        page = (page + dir + NUM_PAGES) % NUM_PAGES;
+    } while (page == PAGE_SAVE && !can_save());
+
+    opanel_leave_textlist();
+    opanel_open_page(page);
+}
+
+// the cursor moves the focus too, so Enter (cross) acts on whatever is under it
+static void opanel_hover(LGPoint pos) {
+    int b;
+
+    if (opanel_slider_editing)
+        return;
+    for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
+        if (opanel_focusable(b) && RECT_TEST_PT(&BR(b), pos))
+            break;
+    }
+    if (b >= MAX_OPTION_BUTTONS)
+        return;
+
+    opanel_set_focus(b);
+
+    if (OButtons[b].handler == textlist_handler) {
+        opt_textlist_state *st = &OButtons[b].user.textlist_st;
+        short w, h;
+        int line;
+        char old = st->currstring;
+
+        if (st->index >= 0) // a name is being typed into the current slot
+            return;
+        gr_set_font(opt_font);
+        gr_char_size('X', &w, &h);
+        line = (pos.y - BR(b).ul.y) / h;
+        if (line >= 0 && line < st->numblocks && line != old && (st->selectmask & (1 << line))) {
+            st->currstring = line;
+            if (old >= 0)
+                textlist_draw_line(st, old, b);
+            textlist_draw_line(st, line, b);
+        }
+    }
+}
+
+// Arrows, Enter, Home (back) and PgUp/PgDn (page) are handled here before the widgets see
+// them: the slot list would swallow them and the verify screen's slorker closes the panel.
+static uchar opanel_nav_key(uiEvent *ev, int key) {
+    int b = opanel_focus;
+
+    switch (key) {
+    case KEY_UP:
+    case KEY_DOWN:
+    case KEY_LEFT:
+    case KEY_RIGHT:
+        if (b >= 0 && OButtons[b].handler == textlist_handler) {
+            if (key == KEY_UP || key == KEY_DOWN)
+                textlist_handler(ev, b); // moves between slots
+        } else if (b >= 0 && opanel_slider_editing) {
+            if (key == KEY_LEFT || key == KEY_RIGHT)
+                opanel_slider_step(b, key == KEY_LEFT ? -OPANEL_SLIDER_STEP : OPANEL_SLIDER_STEP);
+        } else {
+            opanel_move_focus(key);
+        }
+        return TRUE;
+
+    case KEY_ENTER:
+        if (b >= 0)
+            opanel_activate(b);
+        return TRUE;
+
+    case KEY_HOME:
+        if (b >= 0 && opanel_slider_editing) {
+            opanel_slider_editing = FALSE;
+            draw_button(b);
+        } else {
+            opanel_go_back();
+        }
+        return TRUE;
+
+    case KEY_PGUP:
+    case KEY_PGDN:
+        opanel_switch_page(key == KEY_PGUP ? -1 : 1);
+        return TRUE;
+    }
+    return FALSE;
+}
+
 // One, true mouse handler for all options panel mouse events.
 // checks all options panel widgets which enclose point of mouse
 // event to see if they want to deal with it.
@@ -1069,6 +1438,9 @@ uchar opanel_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
 
     mev.pos.x -= inventory_region->r->ul.x;
     mev.pos.y -= inventory_region->r->ul.y;
+
+    if (ev->type == UI_EVENT_MOUSE_MOVE)
+        opanel_hover(mev.pos);
 
     for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
         if (RECT_TEST_PT(&BR(b), mev.pos) && (ev->type & OButtons[b].evmask)) {
@@ -1097,6 +1469,9 @@ uchar opanel_kb_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
     if (!(code & KB_FLAG_DOWN))
         return TRUE;
 
+    if (opanel_nav_key(ev, code & ~KB_FLAG_DOWN))
+        return TRUE;
+
     for (b = 0; b < MAX_OPTION_BUTTONS; b++) {
         if ((ev->type & OButtons[b].evmask) && OButtons[b].handler && OButtons[b].handler(ev, b))
             return TRUE;
@@ -1118,6 +1493,12 @@ void clear_obuttons() {
     uiPopCursorEvery(cs, &slider_cursor);
     mouse_unconstrain();
     LG_memset(OButtons, 0, MAX_OPTION_BUTTONS * sizeof(opt_button));
+
+    // new screen: focus is picked again by opanel_redraw()
+    opanel_prev_focus = opanel_focus;
+    opanel_focus = -1;
+    opanel_slider_editing = FALSE;
+    opanel_save_armed_line = -1;
 }
 
 void opanel_redraw(uchar back) {
@@ -1140,6 +1521,9 @@ void opanel_redraw(uchar back) {
         else
             ss_bitmap(&inv_backgnd, 0, 0);
     }
+
+    if (opanel_focus < 0)
+        opanel_focus_initial();
 
     for (but = 0; but < MAX_OPTION_BUTTONS; but++) {
         if (OButtons[but].drawfunc) {
@@ -1197,6 +1581,11 @@ errtype wrapper_panel_close(uchar clear_message) {
     if (clear_message)
         message_info("");
     wrapper_panel_on = FALSE;
+    // the next opening starts fresh on the main list
+    opanel_screen = NULL;
+    opanel_focus = -1;
+    opanel_queued_focus = -1;
+    opanel_slider_editing = FALSE;
     SavePrefs();
     inventory_page = inv_last_page;
     if (inventory_page < 0 && inventory_page != INV_3DVIEW_PAGE)
@@ -1295,10 +1684,7 @@ void wrapper_pushbutton_func(uchar butid) {
         options_screen_init();
         break;
     case RETURN_BUTTON: // Return
-        if (wrapper_return_screen)
-            wrapper_return_screen(); // back to the parent screen
-        else
-            wrapper_panel_close(TRUE);
+        opanel_go_back(); // back to the parent screen, or close from the main list
         break;
     case QUIT_BUTTON: // Quit
         verify_screen_init(quit_verify_pushbutton_handler, quit_verify_slorker);
@@ -1316,7 +1702,7 @@ void wrapper_init(void) {
     keyequivs = get_temp_string(REF_STR_KeyEquivs0);
 
     clear_obuttons();
-    wrapper_return_screen = NULL; // top level: Return closes the panel
+    opanel_screen_begin(wrapper_init, NULL, PAGE_NONE, 0); // top level: Return closes the panel
     for (i = 0; i < 8; i++) {
         standard_button_rect(&r, i, 2, 3, 5);
         pushbutton_init(i, keyequivs[i], REF_STR_WrapperText + i, wrapper_pushbutton_func, &r);
@@ -1357,8 +1743,12 @@ uchar save_verify_slorker(uchar butid) {
 
 void verify_screen_init(void (*verify)(uchar butid), slorker slork) {
     LGRect r;
+    // Back ("no") returns to the screen that asked, e.g. the main list for Quit or the save slots
+    void (*parent)(void) = opanel_screen;
+    int page = opanel_page;
 
     clear_obuttons();
+    opanel_screen_begin(NULL, parent, page, opanel_prev_focus < 0 ? 0 : opanel_prev_focus);
 
     standard_button_rect(&r, 1, 2, 2, 5);
     pushbutton_init(0, tolower(get_temp_string(REF_STR_VerifyText)[0]), REF_STR_VerifyText, verify, &r);
@@ -1483,7 +1873,7 @@ void soundopt_screen_init() {
     int i = 0;
 
     clear_obuttons();
-    wrapper_return_screen = sound_screen_init;
+    opanel_screen_begin(soundopt_screen_init, sound_screen_init, PAGE_AUDIO, AUDIO_OPT_BUTTON);
 
     standard_button_rect(&r, i, 2, 2, 5);
     retkey = tolower(get_temp_string(REF_STR_AilThreeText)[0]);
@@ -1554,7 +1944,7 @@ void sound_screen_init(void) {
 #endif
 
     clear_obuttons();
-    wrapper_return_screen = wrapper_init;
+    opanel_screen_begin(sound_screen_init, wrapper_init, PAGE_AUDIO, AUDIO_BUTTON);
 
     if (music_card) {
         standard_slider_rect(&r, 0, 2, 5);
@@ -1799,7 +2189,7 @@ void joystick_screen_init(void) {
     extern uchar joystick_count;
     keys = get_temp_string(REF_STR_KeyEquivs6);
     clear_obuttons();
-    wrapper_return_screen = input_screen_init;
+    opanel_screen_begin(joystick_screen_init, input_screen_init, PAGE_INPUT, JOYSTICK_BUTTON);
 
     standard_button_rect(&r, i, 2, 2, 1);
     multi_init(i, keys[i], REF_STR_JoystickType, REF_STR_JoystickTypes, ID_NULL, sizeof(wrap_joy_type),
@@ -1843,7 +2233,7 @@ void input_screen_init(void) {
 
     keys = get_temp_string(REF_STR_KeyEquivs1);
     clear_obuttons();
-    wrapper_return_screen = wrapper_init;
+    opanel_screen_begin(input_screen_init, wrapper_init, PAGE_INPUT, INPUT_BUTTON);
 
     standard_button_rect(&r, i, 2, 2, 1);
     r.ul.x -= 1;
@@ -1894,7 +2284,7 @@ void vita_input_init(uchar butid) {
 
     keys = get_temp_string(REF_STR_KeyEquivs1);
     clear_obuttons();
-    wrapper_return_screen = wrapper_init;
+    opanel_screen_begin(vita_input_screen, wrapper_init, PAGE_VITA, VITA_INPUT_BUTTON);
 
     // gyro aiming
     standard_button_rect(&r, i, 2, 2, 2);
@@ -1954,7 +2344,7 @@ void video_screen_init(void) {
 
     keys = get_temp_string(REF_STR_KeyEquivs3);
     clear_obuttons();
-    wrapper_return_screen = wrapper_init;
+    opanel_screen_begin(video_screen_init, wrapper_init, PAGE_VIDEO, VIDEO_BUTTON);
     i = 0;
 
 #ifdef USE_OPENGL
@@ -2030,7 +2420,7 @@ void headset_screen_init(void) {
     keys = get_temp_string(REF_STR_KeyEquivs5);
 
     clear_obuttons();
-    wrapper_return_screen = video_screen_init;
+    opanel_screen_begin(headset_screen_init, video_screen_init, PAGE_VIDEO, HEADSET_BUTTON);
 
     i = 0;
 
@@ -2088,7 +2478,7 @@ void screenmode_screen_init(void) {
     keys = get_temp_string(REF_STR_KeyEquivs4);
 
     clear_obuttons();
-    wrapper_return_screen = video_screen_init;
+    opanel_screen_begin(screenmode_screen_init, video_screen_init, PAGE_VIDEO, SCREENMODE_BUTTON);
 
     for (i = 0; i < 5; i++) {
         extern short svga_mode_data[];
@@ -2128,7 +2518,7 @@ void options_screen_init(void) {
 
     keys = get_temp_string(REF_STR_KeyEquivs2);
     clear_obuttons();
-    wrapper_return_screen = wrapper_init;
+    opanel_screen_begin(options_screen_init, wrapper_init, PAGE_OPTIONS, OPTIONS_BUTTON);
 
     // olh_temp=(QUESTBIT_GET(OLH_QBIT)==0);
 
@@ -2200,6 +2590,7 @@ void load_screen_init(void) {
     extern uchar valid_save;
 
     clear_obuttons();
+    opanel_screen_begin(load_screen_init, wrapper_init, PAGE_LOAD, LOAD_BUTTON);
 
     textlist_init(0, *comments, NUM_SAVE_SLOTS, SAVE_COMMENT_LEN, FALSE, 0, valid_save, valid_save, REF_STR_UnusedSave,
                   BUTTON_COLOR, WHITE, BUTTON_COLOR + 2, 0, load_dealfunc, NULL);
@@ -2229,6 +2620,7 @@ void save_screen_init(void) {
     extern uchar valid_save;
 
     clear_obuttons();
+    opanel_screen_begin(save_screen_init, wrapper_init, PAGE_SAVE, SAVE_BUTTON);
 
     textlist_init(0, *comments, NUM_SAVE_SLOTS, SAVE_COMMENT_LEN, TRUE, 0xFFFF, 0xFFFF, valid_save, REF_STR_UnusedSave,
                   BUTTON_COLOR, WHITE, BUTTON_COLOR + 2, REF_STR_EnterSaveString, save_dealfunc, NULL);

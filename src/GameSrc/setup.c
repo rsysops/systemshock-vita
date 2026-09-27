@@ -200,6 +200,7 @@ errtype draw_username(int color, char *string);
 
 char curr_diff = 0;
 uchar start_selected = FALSE;
+uchar name_selected = FALSE;
 
 short diff_titles_x[] = {DIFF_TITLE1_X1, DIFF_TITLE2_X1, DIFF_TITLE3_X1, DIFF_TITLE4_X1};
 short diff_titles_y[] = {DIFF_TITLE1_Y1, DIFF_TITLE2_Y1, DIFF_TITLE3_Y1, DIFF_TITLE4_Y1};
@@ -223,6 +224,7 @@ errtype difficulty_draw(uchar full) {
     if (setup_mode != SETUP_DIFFICULTY) {
         // fresh visit to this screen: don't carry stale category/Start focus or name over from last time
         start_selected = FALSE;
+        name_selected = FALSE;
         curr_diff = 0;
         player_struct.name[0] = 0;
 
@@ -242,7 +244,7 @@ errtype difficulty_draw(uchar full) {
     setup_mode = SETUP_DIFFICULTY;
 
     for (i = 0; i < NUM_DIFF_CATEGORIES; i++) {
-        if (i == curr_diff && !start_selected)
+        if (i == curr_diff && !start_selected && !name_selected)
             gr_set_fcolor(KEYBOARD_FOCUS_COLOR);
         else
             gr_set_fcolor(NORMAL_ENTRY_COLOR);
@@ -257,14 +259,19 @@ errtype difficulty_draw(uchar full) {
 
     res_draw_string(RES_citadelFont, DIFF_START, DIFF_DONE_X1 + 13, DIFF_DONE_Y1 + 2);
 
+    // the "Name" label is the name row's focus indicator
+    if (name_selected)
+        gr_set_fcolor(KEYBOARD_FOCUS_COLOR);
+    else
+        gr_set_fcolor(NORMAL_ENTRY_COLOR);
+    res_draw_string(RES_citadelFont, DIFF_NAME, DIFF_NAME_X, DIFF_NAME_Y);
+
     if (full) {
         for (i = 0; i < 16; i++)
             draw_difficulty_char(i);
         for (i = 0; i < 4; i++)
             draw_difficulty_description(i, NORMAL_ENTRY_COLOR);
 
-        gr_set_fcolor(KEYBOARD_FOCUS_COLOR);
-        res_draw_string(RES_citadelFont, DIFF_NAME, DIFF_NAME_X, DIFF_NAME_Y);
         draw_username(NORMAL_ENTRY_COLOR, player_struct.name);
     }
 
@@ -292,9 +299,51 @@ void flash_username(void) {
     while (TickCount() < flash_done) {
         SDLDraw();
     }
-    gr_set_fcolor(KEYBOARD_FOCUS_COLOR);
+    gr_set_fcolor(name_selected ? KEYBOARD_FOCUS_COLOR : NORMAL_ENTRY_COLOR);
     res_draw_string(RES_citadelFont, DIFF_NAME, DIFF_NAME_X, DIFF_NAME_Y);
     uiShowMouse(&name_rect);
+}
+
+#ifdef VITA
+// clear the name and reopen the on-screen keyboard to retype it
+static void difficulty_rename(void) {
+    draw_username(0, player_struct.name); // erase the currently-displayed name first
+    player_struct.name[0] = 0;
+    draw_username(NORMAL_ENTRY_COLOR, player_struct.name);
+    VitaStartTextInput(1);
+
+    // move on to the first category, so the Enter the keyboard can send when it closes
+    // doesn't land on the name row and reopen it
+    name_selected = FALSE;
+    start_selected = FALSE;
+    curr_diff = 0;
+    difficulty_draw(FALSE);
+}
+#endif
+
+// Up/Down focus order on the difficulty screen: name, categories 0..3, Start (wrapping)
+#define DIFF_FOCUS_NAME 0
+#define DIFF_FOCUS_START (NUM_DIFF_CATEGORIES + 1)
+#define DIFF_FOCUS_COUNT (NUM_DIFF_CATEGORIES + 2)
+
+static int difficulty_focus_get(void) {
+    if (name_selected)
+        return DIFF_FOCUS_NAME;
+    if (start_selected)
+        return DIFF_FOCUS_START;
+    return curr_diff + 1;
+}
+
+// moves the focus and redraws, if it changed
+static void difficulty_focus_set(int focus) {
+    if (focus == difficulty_focus_get())
+        return;
+
+    name_selected = (focus == DIFF_FOCUS_NAME);
+    start_selected = (focus == DIFF_FOCUS_START);
+    if (!name_selected && !start_selected)
+        curr_diff = focus - 1;
+    difficulty_draw(FALSE);
 }
 
 errtype draw_difficulty_line(int which_line) {
@@ -975,6 +1024,76 @@ void go_and_start_the_game_already(void) {
     gr2ss_override = OVERRIDE_ALL; // CC: This fixed popups cursors drawing tiny
 }
 
+// The cursor moves the same focus as the arrow keys, so the Enter key (cross on Vita)
+// then acts on whatever is under it. Redraws only when the focus actually changes.
+static void intro_mouse_hover(LGPoint pos) {
+    int i;
+
+    switch (setup_mode) {
+    case SETUP_JOURNEY:
+        if (journey_lock || pos.x <= JOURNEY_OPT_LEFT || pos.x >= JOURNEY_OPT_RIGHT)
+            break;
+        for (i = 0; i < NUM_SETUP_LINES; i++) {
+            if (pos.y > journey_y[i * 2] && pos.y < journey_y[i * 2 + 1])
+                break;
+        }
+        if (i == NUM_SETUP_LINES || i == curr_setup_line)
+            break;
+#ifdef DEMO
+        if (i == 0 || i == NUM_SETUP_LINES - 1)
+            break;
+#else
+        if (i == NUM_SETUP_LINES - 1 && !save_game_exists) // continue is disabled without saves
+            break;
+#endif
+        {
+            char old_setup_line = curr_setup_line;
+            curr_setup_line = i;
+            journey_draw(old_setup_line + 1);
+            journey_draw(curr_setup_line + 1);
+        }
+        break;
+
+    case SETUP_CONTINUE:
+        if (pos.x >= SG_SLOT_X && pos.x <= SG_SLOT_X + SG_SLOT_WD && pos.y >= SG_SLOT_Y &&
+            pos.y < SG_SLOT_Y + (NUM_SAVE_SLOTS * SG_SLOT_HT)) {
+            char which = (pos.y - SG_SLOT_Y) / SG_SLOT_HT;
+            if (which != curr_sg) {
+                char old_sg = curr_sg;
+                curr_sg = which;
+                draw_sg_slot(old_sg);
+                draw_sg_slot(curr_sg);
+            }
+        }
+        break;
+
+    case SETUP_DIFFICULTY:
+        // category title or one of its four level boxes
+        for (i = 0; i < NUM_DIFF_CATEGORIES; i++) {
+            if (pos.x > diff_titles_x[i] && pos.x < diff_titles_x[i] + (DIFF_TITLE1_X2 - DIFF_TITLE1_X1) &&
+                pos.y > diff_titles_y[i] && pos.y < diff_titles_y[i] + (DIFF_TITLE1_Y2 - DIFF_TITLE1_Y1)) {
+                difficulty_focus_set(i + 1);
+                return;
+            }
+        }
+        for (i = 0; i < 16; i++) {
+            if ((pos.x > (build_diff_x(i) - 2)) && (pos.x < (build_diff_x(i) - 2 + DIFF_SIZE_X)) &&
+                (pos.y > (build_diff_y(i) - 2)) && (pos.y < (build_diff_y(i) - 2 + DIFF_SIZE_Y))) {
+                difficulty_focus_set(i / 4 + 1);
+                return;
+            }
+        }
+        if (pos.x > DIFF_DONE_X1 && pos.x < DIFF_DONE_X2 && pos.y > DIFF_DONE_Y1 && pos.y < DIFF_DONE_Y2)
+            difficulty_focus_set(DIFF_FOCUS_START);
+        else if (pos.x > DIFF_NAME_X && pos.x < DIFF_NAME_X2 && pos.y > DIFF_NAME_Y && pos.y < DIFF_NAME_Y2)
+            difficulty_focus_set(DIFF_FOCUS_NAME);
+        break;
+
+    default:
+        break;
+    }
+}
+
 uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
     int which_one = -1;
     int i = 0;
@@ -990,6 +1109,11 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
     // so the menu can't be used during that last frame
     if (direct_into_cutscene)
         return TRUE;
+
+    if (ev->type == UI_EVENT_MOUSE_MOVE) {
+        intro_mouse_hover(ev->pos);
+        return TRUE;
+    }
 
     if (ev->mouse_data.action & MOUSE_LDOWN) {
         // If in the splash screen, advance
@@ -1062,10 +1186,7 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             else if ((ev->pos.x > DIFF_NAME_TEXT_X) && (ev->pos.x < DIFF_NAME_X2) && (ev->pos.y > DIFF_NAME_Y) &&
                      (ev->pos.y < DIFF_NAME_Y2)) {
                 // let the player reopen the keyboard to retype the name without leaving the screen
-                draw_username(0, player_struct.name); // erase the currently-displayed name first
-                player_struct.name[0] = 0;
-                draw_username(NORMAL_ENTRY_COLOR, player_struct.name);
-                VitaStartTextInput(1);
+                difficulty_rename();
             }
 #endif
             break;
@@ -1164,7 +1285,7 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             case '+':
             case KEY_RIGHT:
                 n++; // n now NDC-1 or 1
-                if (!start_selected) {
+                if (!start_selected && !name_selected) {
                     old_diff = player_struct.difficulty[curr_diff];
                     draw_difficulty_description(curr_diff, 0);
                     player_struct.difficulty[curr_diff] =
@@ -1178,28 +1299,19 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
 
             case KEY_UP:
             case (KEY_TAB | KB_FLAG_SHIFT):
-                n = NUM_DIFF_CATEGORIES - 2; // sneaky fallthrough
+                difficulty_focus_set((difficulty_focus_get() + DIFF_FOCUS_COUNT - 1) % DIFF_FOCUS_COUNT);
+                break;
             case KEY_DOWN:
             case KEY_TAB:
-                n++; // now -1 or 1
-                if (start_selected && n == 1) {
-                    start_selected = FALSE;
-                    curr_diff = 0;
-                } else if (start_selected && n == NUM_DIFF_CATEGORIES - 1) {
-                    start_selected = FALSE;
-                    curr_diff = NUM_DIFF_CATEGORIES - 1;
-                } else if ((curr_diff == NUM_DIFF_CATEGORIES - 1 && n == 1) ||
-                           (curr_diff == 0 && n == NUM_DIFF_CATEGORIES - 1))
-                    start_selected = TRUE;
-                else {
-                    start_selected = FALSE;
-                    curr_diff = (curr_diff + n) % NUM_DIFF_CATEGORIES;
-                }
-                difficulty_draw(FALSE);
+                difficulty_focus_set((difficulty_focus_get() + 1) % DIFF_FOCUS_COUNT);
                 break;
 
             case KEY_ENTER:
 #ifdef VITA
+                if (name_selected) {
+                    difficulty_rename();
+                    break;
+                }
                 // On Vita, closing the on-screen keyboard after naming the character can deliver
                 // its own Enter event; only treat Enter as "launch" if Start is actually focused.
                 if (start_selected)
@@ -1292,6 +1404,11 @@ errtype setup_init(void) {
 #endif
 
     generic_reg_init(TRUE, &setup_root_region, NULL, &setup_slab, intro_key_handler, intro_mouse_handler);
+    // also feed cursor movement to it, so hovering an entry focuses it
+    {
+        int callid;
+        uiInstallRegionHandler(&setup_root_region, UI_EVENT_MOUSE_MOVE, intro_mouse_handler, 0, &callid);
+    }
 
 #ifndef GAMEONLY
     cnt = 1;

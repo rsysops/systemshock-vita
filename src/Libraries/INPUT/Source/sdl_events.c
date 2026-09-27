@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "lg.h"
 #include "kb.h"
+#include "keydefs.h"
 #include "mouse.h"
 #include <stdlib.h>
 #include <SDL.h>
@@ -51,6 +52,77 @@ extern uchar wrapper_panel_on;
 
 // controller-emulated keys would hit the menus' single-letter keyboard shortcuts
 static bool controller_keys_allowed(void) { return _current_loop != SETUP_LOOP && !wrapper_panel_on; }
+
+// In menus the controller sends navigation keys instead of gameplay keys
+enum
+{
+    MENU_REPEAT_DELAY = 400, // ms before a held direction starts repeating
+    MENU_REPEAT_RATE = 120   // ms between repeats
+};
+
+static SDL_Keycode menuRepeatKey = 0; // held direction being auto-repeated, 0 = none
+static uint32_t menuRepeatNext = 0;
+static SDL_Keycode menuStickKey = 0;  // arrow key currently held by the left stick in a menu
+
+static void PushKeyEvent(SDL_Keycode sym, bool down)
+{
+    SDL_Event ev;
+    ev.type = down ? SDL_KEYDOWN : SDL_KEYUP;
+    ev.key.state = down ? SDL_PRESSED : SDL_RELEASED;
+    ev.key.repeat = 0;
+    ev.key.keysym.mod = KMOD_NONE;
+    ev.key.keysym.sym = sym;
+    ev.key.keysym.scancode = SDL_GetScancodeFromKey(sym);
+    SDL_PushEvent(&ev);
+}
+
+static void MenuDirectionDown(SDL_Keycode sym)
+{
+    PushKeyEvent(sym, true);
+    menuRepeatKey = sym;
+    menuRepeatNext = SDL_GetTicks() + MENU_REPEAT_DELAY;
+}
+
+static void MenuDirectionUp(SDL_Keycode sym)
+{
+    PushKeyEvent(sym, false);
+    if (menuRepeatKey == sym)
+        menuRepeatKey = 0;
+}
+
+// Key a button sends in a menu; 0 = ignored there.
+// Main menu: Esc is its "back". Options panel: Esc (START) closes the whole panel, so
+// circle sends Home (back one screen) and the bumpers send PgUp/PgDn (adjacent page).
+static SDL_Keycode MenuKeyForButton(Uint8 button, bool options_panel)
+{
+    switch (button) {
+    case SDL_CONTROLLER_BUTTON_DPAD_UP:
+        return SDLK_UP;
+    case SDL_CONTROLLER_BUTTON_DPAD_DOWN:
+        return SDLK_DOWN;
+    case SDL_CONTROLLER_BUTTON_DPAD_LEFT:
+        return SDLK_LEFT;
+    case SDL_CONTROLLER_BUTTON_DPAD_RIGHT:
+        return SDLK_RIGHT;
+    case SDL_CONTROLLER_BUTTON_A:
+        return SDLK_RETURN;
+    case SDL_CONTROLLER_BUTTON_B:
+        return options_panel ? SDLK_HOME : SDLK_ESCAPE;
+    case SDL_CONTROLLER_BUTTON_LEFTSHOULDER:
+        return options_panel ? SDLK_PAGEUP : 0;
+    case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
+        return options_panel ? SDLK_PAGEDOWN : 0;
+    case SDL_CONTROLLER_BUTTON_START:
+        return SDLK_ESCAPE;
+    default:
+        return 0; // square and triangle do nothing in menus
+    }
+}
+
+static bool IsMenuDirection(SDL_Keycode sym)
+{
+    return sym == SDLK_UP || sym == SDLK_DOWN || sym == SDLK_LEFT || sym == SDLK_RIGHT;
+}
 
 #define VITA_TEXT_BUFFER_SIZE 32
 
@@ -154,11 +226,47 @@ void EmulateTextInput()
     }
 }
 
+// In menus the left stick acts as a D-pad: its dominant direction past the deadzone holds one arrow key
+static void UpdateMenuStick(void)
+{
+    SDL_Keycode dir = 0;
+
+    if (!controller_keys_allowed()) {
+        if (abs(controllerLeftXAxis) > abs(controllerLeftYAxis)) {
+            if (controllerLeftXAxis != 0)
+                dir = controllerLeftXAxis > 0 ? SDLK_RIGHT : SDLK_LEFT;
+        } else if (controllerLeftYAxis != 0) {
+            dir = controllerLeftYAxis > 0 ? SDLK_DOWN : SDLK_UP;
+        }
+    }
+
+    if (dir != menuStickKey) {
+        if (menuStickKey)
+            MenuDirectionUp(menuStickKey);
+        if (dir)
+            MenuDirectionDown(dir);
+        menuStickKey = dir;
+    }
+}
+
 void ProcessControllerAxisMotion()
 {
     const uint32_t currentTime = SDL_GetTicks();
     const uint32_t deltaTime = currentTime - lastControllerTime;
     lastControllerTime = currentTime;
+
+    // runs every frame, so it also releases the stick's arrow key as soon as a menu closes
+    UpdateMenuStick();
+
+    // auto-repeat a held menu direction (D-pad or left stick)
+    if (menuRepeatKey) {
+        if (controller_keys_allowed()) {
+            menuRepeatKey = 0;
+        } else if ((int32_t)(currentTime - menuRepeatNext) >= 0) {
+            PushKeyEvent(menuRepeatKey, true);
+            menuRepeatNext = currentTime + MENU_REPEAT_RATE;
+        }
+    }
 
     relativeRightXAxis = (int)((0.000005f + 0.000001f * gShockPrefs.controllerAimingSpeed) * controllerRightXAxis * deltaTime);
     relativeRightYAxis = (int)((0.000005f + 0.000001f * gShockPrefs.controllerAimingSpeed) * controllerRightYAxis * deltaTime);
@@ -811,17 +919,32 @@ void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
     SDL_Keymod mod_state = KMOD_NONE;
     int mouse_mod = 0;
 
-    // in the in-game options panel only START (menu) and square (click under the cursor) act;
-    // the release of a suppressed press is dropped too, so no half click or stance-cycle step leaks
-    static bool suppressedButton[SDL_CONTROLLER_BUTTON_MAX];
+    // A press made in a menu sends a navigation key (see MenuKeyForButton) and its release
+    // sends the key-up of that same key, even if the menu has closed in between; a press made
+    // in game keeps its gameplay meaning until released, so nothing gets stuck either way.
+    static bool menuPress[SDL_CONTROLLER_BUTTON_MAX];
+    static SDL_Keycode menuKey[SDL_CONTROLLER_BUTTON_MAX];
 
     if (button.button >= SDL_CONTROLLER_BUTTON_MAX)
         return;
-    if (button.type == SDL_CONTROLLERBUTTONDOWN)
-        suppressedButton[button.button] = wrapper_panel_on && button.button != SDL_CONTROLLER_BUTTON_START
-                                          && button.button != SDL_CONTROLLER_BUTTON_X;
-    if (suppressedButton[button.button])
+    if (button.type == SDL_CONTROLLERBUTTONDOWN) {
+        menuPress[button.button] = !controller_keys_allowed();
+        menuKey[button.button] = menuPress[button.button] ? MenuKeyForButton(button.button, wrapper_panel_on) : 0;
+    }
+    if (menuPress[button.button]) {
+        SDL_Keycode key = menuKey[button.button];
+        bool down = (button.type == SDL_CONTROLLERBUTTONDOWN);
+
+        if (key && IsMenuDirection(key)) {
+            if (down)
+                MenuDirectionDown(key);
+            else
+                MenuDirectionUp(key);
+        } else if (key) {
+            PushKeyEvent(key, down);
+        }
         return;
+    }
 
     switch (button.button) {
     case SDL_CONTROLLER_BUTTON_A:
@@ -921,7 +1044,7 @@ void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
     }
 
     if (keyboardPress) {
-        if (button.type == SDL_CONTROLLERBUTTONDOWN && controller_keys_allowed())
+        if (button.type == SDL_CONTROLLERBUTTONDOWN)
         {
             SDL_Event ev_txt;
             ev_txt.type = SDL_TEXTINPUT;
@@ -1164,6 +1287,16 @@ void pump_events(void) {
                         break;
                     case SDLK_KP_0:
                         keyEvent.ascii = 128 + 18;
+                        break;
+                    // menu navigation keys (options panel back / previous / next page)
+                    case SDLK_HOME:
+                        keyEvent.ascii = KEY_HOME;
+                        break;
+                    case SDLK_PAGEUP:
+                        keyEvent.ascii = KEY_PGUP;
+                        break;
+                    case SDLK_PAGEDOWN:
+                        keyEvent.ascii = KEY_PGDN;
                         break;
                     }
                 }

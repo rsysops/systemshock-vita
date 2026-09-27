@@ -109,20 +109,43 @@ bind  alt+semicolon           "use_drug"
 needs a code change (e.g. a SELECT+START combination emitting `Alt+O` in
 `HandleControllerButtonEvent()`).
 
-## Menus and text entry
+## Menus
 
-- On the main menu / setup screens (`_current_loop == SETUP_LOOP`), the
-  D-pad, left stick and face buttons do not emit text, so they can't leak into
-  the character-name field. START (`Esc`) and △ (`Tab`, cycles difficulty
-  categories) still work there.
-- In the in-game options menu, only START (close the menu), □ (click under
-  the cursor), the right stick (move the cursor) and touch act. The D-pad,
-  left stick, ×, ○, △, L and R are ignored so they can't trigger the menu
-  items' single-letter keyboard shortcuts or click by accident.
-- In the in-game options menu, **Return** goes back one screen (e.g. Audio
-  options → Audio → main); START closes the whole menu from any screen.
-- The Vita on-screen keyboard opens when entering the New Game screen, when
-  tapping the name field on that screen, and when selecting a save slot.
+The main menu and the in-game options menu are navigated with a focus
+highlight instead of the cursor. The controller sends navigation keys there,
+handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
+(`sdl_events.c`), `intro_key_handler()` (`setup.c`) and `opanel_nav_key()`
+(`wrapper.c`), so a PC keyboard works the same way.
+
+| Action | Vita input | Vita3K default key | Main menu | In-game options menu |
+|---|---|---|---|---|
+| Move the focus | D-pad / left stick (holding repeats) | `↑` `↓` `←` `→` / `W` `A` `S` `D` | arrow keys | arrow keys |
+| Select / toggle an option / grab a bar | × | `X` | `Enter` | `Enter` |
+| Back one screen | ○ | `C` | `Esc` | `Home` |
+| Previous / next page | L / R | `Q` / `E` | — | `PgUp` / `PgDn` |
+| Close the whole menu | START | `Enter` | — | `Esc` |
+| Retype the character name (New Game) | × on the Name row | `X` | `Enter` | — |
+| Move the cursor | Right stick | `I` `J` `K` `L` | mouse | mouse |
+
+- **Focus follows the cursor**: moving the cursor (right stick or touch) over
+  an entry focuses it, and × then selects it. Touch still selects directly.
+- **Focus** (in-game menu): the focused control is drawn in a lighter green.
+- **Bars** (gamma, volumes, look speeds): × grabs the focused bar (it turns
+  yellow-green), Left/Right move it, and × or ○ release it. Changes apply live.
+- **Pages** (L / R): Load, Save, Audio, Input, Options, Video, Vita input,
+  wrapping. Save is skipped when saving isn't possible. Nested screens count
+  as their parent page (e.g. Audio options → Audio). L / R do nothing on the
+  main list.
+- **Save slots**: × on a slot opens the on-screen keyboard to name the save;
+  × again saves it.
+- **New Game screen**: Up/Down cycle Name → the four difficulty categories →
+  Start; Left/Right change the focused category's level; × on Start launches.
+- □ and △ do nothing in either menu.
+- In the in-game menu, **Return** and ○ go back one screen (e.g. Audio
+  options → Audio → main list, focusing the entry you came from); START closes
+  the whole menu from any screen.
+- The on-screen keyboard also opens automatically when entering the New Game
+  screen, and when tapping the name field or a save slot.
 
 ## Keyboard trap in Vita3K
 
