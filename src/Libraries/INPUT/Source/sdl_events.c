@@ -49,9 +49,13 @@ extern short _current_loop;
 
 // set while the in-game options panel is open (wrapper.c)
 extern uchar wrapper_panel_on;
+// set while the help / controls screen is shown (olh.c)
+extern uchar olh_overlay_on;
 
 // controller-emulated keys would hit the menus' single-letter keyboard shortcuts
-static bool controller_keys_allowed(void) { return _current_loop != SETUP_LOOP && !wrapper_panel_on; }
+static bool controller_keys_allowed(void) {
+    return _current_loop != SETUP_LOOP && !wrapper_panel_on && !olh_overlay_on;
+}
 
 // In menus the controller sends navigation keys instead of gameplay keys
 enum
@@ -92,9 +96,22 @@ static void MenuDirectionUp(SDL_Keycode sym)
 
 // Key a button sends in a menu; 0 = ignored there.
 // Main menu: Esc is its "back". Options panel: Esc (START) closes the whole panel, so
-// circle sends Home (back one screen) and the bumpers send PgUp/PgDn (adjacent page).
+// circle sends Home (back one screen), the bumpers send PgUp/PgDn (adjacent page),
+// triangle F1 (help screen) and square F2 (toggle music).
+// Help screen: cross, circle and triangle send Enter, which closes it.
 static SDL_Keycode MenuKeyForButton(Uint8 button, bool options_panel)
 {
+    if (olh_overlay_on) {
+        switch (button) {
+        case SDL_CONTROLLER_BUTTON_A:
+        case SDL_CONTROLLER_BUTTON_B:
+        case SDL_CONTROLLER_BUTTON_Y:
+            return SDLK_RETURN;
+        default:
+            return 0;
+        }
+    }
+
     switch (button) {
     case SDL_CONTROLLER_BUTTON_DPAD_UP:
         return SDLK_UP;
@@ -112,10 +129,14 @@ static SDL_Keycode MenuKeyForButton(Uint8 button, bool options_panel)
         return options_panel ? SDLK_PAGEUP : 0;
     case SDL_CONTROLLER_BUTTON_RIGHTSHOULDER:
         return options_panel ? SDLK_PAGEDOWN : 0;
+    case SDL_CONTROLLER_BUTTON_Y:
+        return options_panel ? SDLK_F1 : 0;
+    case SDL_CONTROLLER_BUTTON_X:
+        return options_panel ? SDLK_F2 : 0;
     case SDL_CONTROLLER_BUTTON_START:
         return SDLK_ESCAPE;
     default:
-        return 0; // square and triangle do nothing in menus
+        return 0;
     }
 }
 

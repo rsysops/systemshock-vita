@@ -433,6 +433,7 @@ void olh_shutdown(void) {
 
 short _olh_overlay_keys[] = {
     ' ' | KB_FLAG_DOWN,
+    KEY_ENTER | KB_FLAG_DOWN, // the pad's cross, circle and triangle (see sdl_events.c)
     '?' | KB_FLAG_DOWN,
 };
 
@@ -470,7 +471,7 @@ void olh_overlay(void) {
             for (i = 0; i < NUM_OVERLAY_KEYS; i++)
                 if (_olh_overlay_keys[i] == key) {
                     done = TRUE;
-                    if (i != 0)
+                    if (key == ('?' | KB_FLAG_DOWN))
                         hotkey_dispatch(key);
                 }
         }

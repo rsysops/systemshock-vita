@@ -37,6 +37,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "colors.h"
 #include "cybstrng.h"
 #include "fullscrn.h"
+#include "game_screen.h"
 #include "render.h"
 #include "gametime.h"
 #include "musicai.h"
@@ -180,6 +181,7 @@ static int opanel_save_armed_line = -1;    // save slot whose name keyboard was 
 
 static void opanel_screen_begin(void (*self)(void), void (*parent)(void), int page, uchar entry_button);
 static void opanel_go_back(void);
+void opanel_redraw(uchar back);
 uchar textlist_handler(uiEvent *ev, uchar butid);
 
 void draw_button(uchar butid);
@@ -1398,8 +1400,112 @@ static void opanel_hover(LGPoint pos) {
     }
 }
 
-// Arrows, Enter, Home (back) and PgUp/PgDn (page) are handled here before the widgets see
-// them: the slot list would swallow them and the verify screen's slorker closes the panel.
+// top left of the paused 3D view: the options panel's 3x3 grid has no room for them
+#define OPANEL_HINT_X (SCREEN_VIEW_X + 2)
+#define OPANEL_HINT_Y (SCREEN_VIEW_Y + 2)
+#define OPANEL_HINT_PAD 2 // between the box border, glyphs and labels
+
+static void opanel_hint_glyph_triangle(short x, short y, short g) {
+    ss_thick_int_line(x + g / 2, y, x, y + g - 1);
+    ss_thick_int_line(x + g / 2, y, x + g - 1, y + g - 1);
+    ss_thick_int_line(x, y + g - 1, x + g - 1, y + g - 1);
+}
+
+static void opanel_hint_glyph_square(short x, short y, short g) {
+    ss_rect(x, y, x + g, y + g);
+    gr_set_fcolor(BUTTON_COLOR + BUTTON_SHADOW);
+    ss_rect(x + 1, y + 1, x + g - 1, y + g - 1);
+    gr_set_fcolor(BUTTON_COLOR);
+}
+
+// "(triangle) Help (square) Music": the pad's F1 / F2 in opanel_nav_key(), drawn in the
+// button style. The 3D view doesn't redraw while the panel keeps the game paused, so this
+// only needs drawing again after an explicit render_run() (see opanel_render_view()).
+static void opanel_draw_hints(void) {
+    char *help = "Help", *music = "Music";
+    short hw, mw, th, g, w, h, x, y;
+    LGRect r;
+#ifdef SVGA_SUPPORT
+    uchar old_over = gr2ss_override;
+    gr2ss_override = OVERRIDE_ALL;
+#endif
+    gr_push_canvas(grd_screen_canvas);
+    gr_set_font(opt_font);
+    gr_string_size(help, &hw, &th);
+    gr_string_size(music, &mw, &th);
+    g = th | 1; // odd, so the triangle's apex is centred
+    w = OPANEL_HINT_PAD + g + OPANEL_HINT_PAD + hw + 2 * OPANEL_HINT_PAD + g + OPANEL_HINT_PAD + mw + OPANEL_HINT_PAD;
+    h = g + 2 * OPANEL_HINT_PAD;
+    x = OPANEL_HINT_X;
+    y = OPANEL_HINT_Y;
+    RECT_FILL(&r, x, y, x + w, y + h);
+    uiHideMouse(&r);
+
+    gr_set_fcolor(BUTTON_COLOR);
+    ss_rect(x, y, x + w, y + h);
+    gr_set_fcolor(BUTTON_COLOR + BUTTON_SHADOW);
+    ss_rect(x + 1, y + 1, x + w - 1, y + h - 1);
+    gr_set_fcolor(BUTTON_COLOR);
+
+    x += OPANEL_HINT_PAD;
+    y += OPANEL_HINT_PAD;
+    opanel_hint_glyph_triangle(x, y, g);
+    x += g + OPANEL_HINT_PAD;
+    ss_string(help, x, y);
+    x += hw + 2 * OPANEL_HINT_PAD;
+    opanel_hint_glyph_square(x, y, g);
+    x += g + OPANEL_HINT_PAD;
+    ss_string(music, x, y);
+
+    uiShowMouse(&r);
+    gr_pop_canvas();
+#ifdef SVGA_SUPPORT
+    gr2ss_override = old_over;
+#endif
+}
+
+// render_run() repaints the 3D view, over the hints
+static void opanel_render_view(void) {
+    render_run();
+    opanel_draw_hints();
+}
+
+// the help / controls screen, over the whole screen; returns once it's closed
+static void opanel_show_help(void) {
+    extern uchar redraw_paused;
+    short page = inv_last_page; // page shown before the panel opened
+
+    if (global_fullmap->cyber) {
+        string_message_info(REF_STR_NotAvailCspace);
+        return;
+    }
+    if (full_game_3d)
+        return; // it labels the normal HUD
+
+    // it labels the HUD underneath: show the inventory instead of the panel, and the 3D view
+    // without the hints
+    render_run();
+    if (page >= 0) {
+        inventory_page = page;
+        inv_last_page = -1; // draw it whole
+        inventory_draw();
+        inventory_page = -1;
+        inv_last_page = page;
+    } else {
+        inventory_clear();
+    }
+
+    olh_overlay_on = TRUE;
+    olh_overlay();
+    // it redraws the HUD, but not the 3D view, the panel or "Pause"
+    render_run();
+    opanel_redraw(TRUE);
+    redraw_paused = TRUE;
+}
+
+// Arrows, Enter, Home (back), PgUp/PgDn (page), F1 (help) and F2 (music) are handled here
+// before the widgets see them: the slot list would swallow them and the verify screen's
+// slorker closes the panel.
 static uchar opanel_nav_key(uiEvent *ev, int key) {
     int b = opanel_focus;
 
@@ -1436,6 +1542,14 @@ static uchar opanel_nav_key(uiEvent *ev, int key) {
     case KEY_PGUP:
     case KEY_PGDN:
         opanel_switch_page(key == KEY_PGUP ? -1 : 1);
+        return TRUE;
+
+    case KEY_F1:
+        opanel_show_help();
+        return TRUE;
+
+    case KEY_F2:
+        toggle_music_func(0, 0, 0);
         return TRUE;
     }
     return FALSE;
@@ -1554,6 +1668,7 @@ void opanel_redraw(uchar back) {
 #ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
 #endif
+    opanel_draw_hints();
 }
 
 // fills in the Rect r with one of the "standard" button rects,
@@ -2101,7 +2216,7 @@ void center_joy_pushbutton_func(uchar butid) {
 
 static void renderer_dealfunc(bool unused) {
     uiHideMouse(NULL);
-    render_run();
+    opanel_render_view();
     if (full_game_3d) {
         // update stored background bitmap and redraw menu
         ss_get_bitmap(&inv_view360_canvas.bm, GAME_MESSAGE_X, GAME_MESSAGE_Y);
@@ -2118,7 +2233,7 @@ void detail_dealfunc(uchar det) {
 
     change_detail_level(det);
     uiHideMouse(NULL);
-    render_run();
+    opanel_render_view();
     if (full_game_3d)
         opanel_redraw(FALSE);
     uiShowMouse(NULL);
@@ -2317,7 +2432,7 @@ void gamma_slider_dealfunc(ushort gamma_qvar) {
     gr_set_gamma_pal(0, 256, 0);
 
     uiHideMouse(NULL);
-    render_run();
+    opanel_render_view();
     if (full_game_3d)
         opanel_redraw(FALSE);
     uiShowMouse(NULL);
@@ -2777,8 +2892,14 @@ errtype wrapper_create_mouse_region(LGRegion *root) {
     errtype err;
     int id;
     LGRect r = {{0, 0}, {STATUS_X, STATUS_HEIGHT}};
-    LGRegion *reg = &(options_mouseregion[free_mouseregion++]);
+    LGRegion *reg;
 
+#ifdef VITA
+    // no "Click for Options" corner: START opens the options, and the cursor stuck
+    // against the top-left screen edge would keep showing it
+    return OK;
+#endif
+    reg = &(options_mouseregion[free_mouseregion++]);
     err = region_create(root, reg, &r, 2, 0, REG_USER_CONTROLLED | AUTODESTROY_FLAG, NULL, NULL, NULL, NULL);
     if (err != OK)
         return err;

@@ -67,11 +67,11 @@ Default bindings come from `HotKeyLookup[]` and `MoveKeybindsDefault[]` in
 
 | Action | PC key | On-screen alternative on Vita |
 |---|---|---|
-| Show help overlay | `Alt+O` | None — only shown automatically at new game start, if on-line help is on |
+| Show help overlay | `Alt+O` | Options menu (START) → △ (also shown automatically at new game start, if on-line help is on) |
 | Toggle on-line help | `Ctrl+H` | Options menu (START) → on-line help setting |
 | Save / load game | `Ctrl+S` / `Ctrl+L` | Options menu (START) |
 | Quit | `Ctrl+Q` | Options menu (START) |
-| Toggle music | `Ctrl+M` | Options menu (START) → Audio → music volume |
+| Toggle music | `Ctrl+M` | Options menu (START) → □ |
 | Cycle detail level | `Ctrl+1` | Options menu (START) → detail setting |
 | Pause | `P` | None (the options menu pauses the game while open) |
 | Previous weapon | `Shift+Tab` | Tap the weapon in the inventory |
@@ -98,7 +98,8 @@ created with the defaults on first launch. An unreachable action can be moved
 onto one of the plain keys above, but every one of them is already used, so
 another action has to give up its key. Any action missing from the file gets
 its default key back, so swap keys rather than deleting lines. For example, to
-put the help overlay on SELECT:
+put the help overlay on SELECT during gameplay (it is already on △ in the
+options menu):
 
 ```
 bind  o                       "showhelp"
@@ -124,6 +125,8 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 | Back one screen | ○ | `C` | `Esc` | `Home` |
 | Previous / next page | L / R | `Q` / `E` | — | `PgUp` / `PgDn` |
 | Close the whole menu | START | `Enter` | — | `Esc` |
+| Show the help / controls screen | △ | `V` | — | `F1` |
+| Toggle music | □ | `Z` | — | `F2` |
 | Retype the character name (New Game) | × on the Name row | `X` | `Enter` | — |
 | Move the cursor | Right stick | `I` `J` `K` `L` | mouse | mouse |
 
@@ -140,7 +143,10 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
   × again saves it.
 - **New Game screen**: Up/Down cycle Name → the four difficulty categories →
   Start; Left/Right change the focused category's level; × on Start launches.
-- □ and △ do nothing in either menu.
+- □ and △ do nothing in the main menu. In the in-game menu, a "△ Help
+  □ Music" hint is shown at the top left of the view.
+- **Help / controls screen**: ×, ○ or △ close it. This also applies to the one
+  shown automatically at new game start. It isn't available in cyberspace.
 - In the in-game menu, **Return** and ○ go back one screen (e.g. Audio
   options → Audio → main list, focusing the entry you came from); START closes
   the whole menu from any screen.
