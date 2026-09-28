@@ -380,43 +380,57 @@ uchar fv;
 #define MIDI_OUT_STR_SIZE 1024
 static char MIDI_STR_BUFFER[MIDI_OUT_STR_SIZE];
 
-static char *_get_temp_string(int num) {
-    switch (num) {
-        case REF_STR_Renderer: return "Renderer";
-        case REF_STR_Software: return "Software";
-        case REF_STR_OpenGL:   return "OpenGL";
+// In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute.
+// Arrays rather than literals, since pushbutton_draw_func() wraps its label in place.
+static struct {
+    int num;
+    char text[3][16];
+} custom_strings[] = {
+    {REF_STR_Renderer, {"Renderer", "Rendu", "Renderer"}},
+    {REF_STR_Software, {"Software", "Logiciel", "Software"}},
+    {REF_STR_OpenGL, {"OpenGL", "OpenGL", "OpenGL"}},
 
-        case REF_STR_TextFilt: return "Tex Filter";
-        case REF_STR_TFUnfil:  return "Unfiltered";
-        case REF_STR_TFBilin:  return "Bilinear";
+    {REF_STR_TextFilt, {"Tex Filter", "Filtrage", "Texturfilter"}},
+    {REF_STR_TFUnfil, {"Unfiltered", "Aucun", "Ungefiltert"}},
+    {REF_STR_TFBilin, {"Bilinear", "Bilin\x82" "aire", "Bilinear"}},
 
-        case REF_STR_MousLook: return "Mouselook";
-        case REF_STR_MousNorm: return "Normal";
-        case REF_STR_MousInv:  return "Inverted";
+    {REF_STR_MousLook, {"Mouselook", "Vue souris", "Mausblick"}},
+    {REF_STR_MousNorm, {"Normal", "Normale", "Normal"}},
+    {REF_STR_MousInv, {"Inverted", "Invers\x82" "e", "Invertiert"}},
 
 #ifdef VITA
-        case REF_STR_VitaOptions: return "Vita Input";
-        case REF_STR_GyroAiming: return "Gyro Aiming";
-        case REF_STR_GyroOn: return "Enabled";
-        case REF_STR_GyroOff: return "Disabled";
-        case REF_STR_ControllerLookSpeed: return "Look Speed";
-        case REF_STR_GyroLookSpeed: return "Gyro Speed";
-        case REF_STR_VitaRes1: return "320 x 200";
-        case REF_STR_VitaRes2: return "480 x 272";
-        case REF_STR_VitaRes3: return "640 x 400";
-        case REF_STR_VitaRes4: return "640 x 480";
-        case REF_STR_VitaRes5: return "960 x 544";
+    // the German is too wide for one line, and wrapping only breaks at spaces
+    {REF_STR_VitaOptions, {"Vita Options", "Options Vita", "Vita-\nOptionen"}},
+    {REF_STR_GyroAiming, {"Gyro Aiming", "Vis\x82" "e gyro", "Gyro-Zielen"}},
+    {REF_STR_GyroOn, {"Enabled", "Activ\x82" "e", "An"}},
+    {REF_STR_GyroOff, {"Disabled", "D\x82sactiv\x82" "e", "Aus"}},
+    {REF_STR_ControllerLookSpeed, {"Look Speed", "Vitesse vue", "Blicktempo"}},
+    {REF_STR_GyroLookSpeed, {"Gyro Speed", "Vitesse gyro", "Gyro-Tempo"}},
+    {REF_STR_VitaRes1, {"320 x 200", "320 x 200", "320 x 200"}},
+    {REF_STR_VitaRes2, {"480 x 272", "480 x 272", "480 x 272"}},
+    {REF_STR_VitaRes3, {"640 x 400", "640 x 400", "640 x 400"}},
+    {REF_STR_VitaRes4, {"640 x 480", "640 x 480", "640 x 480"}},
+    {REF_STR_VitaRes5, {"960 x 544", "960 x 544", "960 x 544"}},
 #endif
 
-        case REF_STR_Seqer:    return "Midi Player";
-        case REF_STR_ADLMIDI:  return "ADLMIDI";
-        case REF_STR_NativeMI: return "Native MIDI";
+    {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
+
+    {REF_STR_Seqer, {"Midi Player", "Lecteur MIDI", "MIDI-Player"}},
+    {REF_STR_ADLMIDI, {"ADLMIDI", "ADLMIDI", "ADLMIDI"}},
+    {REF_STR_NativeMI, {"Native MIDI", "MIDI natif", "System-MIDI"}},
 #ifdef USE_FLUIDSYNTH
-        case REF_STR_FluidSyn: return "FluidSynth";
+    {REF_STR_FluidSyn, {"FluidSynth", "FluidSynth", "FluidSynth"}},
 #endif
 
-        case REF_STR_MidiOut:  return "Midi Output";
-    }
+    {REF_STR_MidiOut, {"Midi Output", "Sortie MIDI", "MIDI-Ausgang"}},
+};
+
+static char *_get_temp_string(int num) {
+    int i;
+
+    for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++)
+        if (custom_strings[i].num == num)
+            return custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
 
     if (num >= REF_STR_MidiOutX && num <= (REF_STR_MidiOutX | 0x0fffffff))
     {
@@ -1409,7 +1423,7 @@ static void opanel_hover(LGPoint pos) {
 // button style. The 3D view doesn't redraw while the panel keeps the game paused, so this
 // only needs drawing again after an explicit render_run() (see opanel_render_view()).
 static void opanel_draw_hints(void) {
-    char *help = "Help", *music = "Music";
+    char *help = get_temp_string(REF_STR_Help), *music = get_temp_string(REF_STR_MusicText);
     short hw, mw, th, g, w, h, x, y;
     LGRect r;
 #ifdef SVGA_SUPPORT

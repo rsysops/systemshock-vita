@@ -564,6 +564,12 @@ int WaitForKey(ulong ticks) {
 
         kbs_event ev = kb_next();
         ch = ev.ascii;
+#ifdef VITA
+        // the pad's START sends End in the main menu loop (see MenuKeyForButton() in
+        // sdl_events.c); on the win stats and credits it's still Esc
+        if (ch == KEY_END)
+            ch = KEY_ESC;
+#endif
         ticks = (ulong)TickCount();
 
         if ((ch == 27 || ch == ' ' || ch == '\r') && ticks >= key_ticks)
@@ -575,32 +581,62 @@ int WaitForKey(ulong ticks) {
     return ch;
 }
 
+// the end screen's lines in English, French and German (which_lang), in the font's CP437:
+// \x90 is E acute and \x9A U umlaut. On the Vita, START counts as Esc (see WaitForKey()).
+static const struct {
+    const char *congrats, *completed, *credits, *stats, *time, *kills, *regens, *difficulty, *score;
+} win_stats_text[] = {
+    {"CONGRATULATIONS!", "YOU HAVE COMPLETED SYSTEM SHOCK!",
+#ifdef VITA
+     "PRESS START TO VIEW CREDITS.",
+#else
+     "HIT ESC TO VIEW CREDITS.",
+#endif
+     "STATISTICS", "TIME: %u", "KILLS: %d", "REGENERATIONS: %d", "DIFFICULTY INDEX: %d", "SCORE: %d"},
+    {"F\x90LICITATIONS !", "VOUS AVEZ TERMIN\x90 SYSTEM SHOCK !",
+#ifdef VITA
+     "APPUYEZ SUR START POUR LE G\x90N\x90RIQUE.",
+#else
+     "APPUYEZ SUR ECHAP POUR LE G\x90N\x90RIQUE.",
+#endif
+     "STATISTIQUES", "TEMPS : %u", "VICTIMES : %d", "R\x90G\x90N\x90RATIONS : %d", "INDICE DE DIFFICULT\x90 : %d",
+     "SCORE : %d"},
+    {"GL\x9A" "CKWUNSCH!", "SIE HABEN SYSTEM SHOCK BEENDET!",
+#ifdef VITA
+     "START DR\x9A" "CKEN F\x9AR DEN ABSPANN.",
+#else
+     "ESC DR\x9A" "CKEN F\x9AR DEN ABSPANN.",
+#endif
+     "STATISTIK", "ZEIT: %u", "ABSCH\x9ASSE: %d", "REGENERATIONEN: %d", "SCHWIERIGKEITSGRAD: %d", "PUNKTZAHL: %d"},
+};
+
 void PrintWinStats(void) {
     char buf[256], buf_temp[256];
     int x, y = 15;
     short w, h;
+    int lang = (which_lang >= 0 && which_lang < 3) ? which_lang : 0;
 
     grs_font *fon = gr_get_font();
     gr_set_font(ResLock(RES_coloraliasedFont));
 
     gr_clear(0);
 
-    sprintf(buf, "CONGRATULATIONS!");
+    sprintf(buf, "%s", win_stats_text[lang].congrats);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12 * 2;
 
-    sprintf(buf, "YOU HAVE COMPLETED SYSTEM SHOCK!");
+    sprintf(buf, "%s", win_stats_text[lang].completed);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12;
 
-    sprintf(buf, "HIT ESC TO VIEW CREDITS.");
+    sprintf(buf, "%s", win_stats_text[lang].credits);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12 * 2;
 
-    sprintf(buf, "STATISTICS");
+    sprintf(buf, "%s", win_stats_text[lang].stats);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12;
@@ -618,17 +654,17 @@ void PrintWinStats(void) {
 
     y += 4;
 
-    sprintf(buf, "TIME: %u", player_struct.game_time);
+    sprintf(buf, win_stats_text[lang].time, player_struct.game_time);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12;
 
-    sprintf(buf, "KILLS: %d", player_struct.num_victories);
+    sprintf(buf, win_stats_text[lang].kills, player_struct.num_victories);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12;
 
-    sprintf(buf, "REGENERATIONS: %d", player_struct.num_deaths);
+    sprintf(buf, win_stats_text[lang].regens, player_struct.num_deaths);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12;
@@ -636,7 +672,7 @@ void PrintWinStats(void) {
     uint8_t stupid = 0;
     for (uint8_t i = 0; i < 4; i++)
         stupid += (player_struct.difficulty[i] * player_struct.difficulty[i]);
-    sprintf(buf, "DIFFICULTY INDEX: %d", stupid);
+    sprintf(buf, win_stats_text[lang].difficulty, stupid);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
     y += 12;
@@ -650,7 +686,7 @@ void PrintWinStats(void) {
     if (stupid == 36) {
         score += 2222222; // secret kevin bonus
     }
-    sprintf(buf, "SCORE: %d", score);
+    sprintf(buf, win_stats_text[lang].score, score);
     gr_string_size(buf, &w, &h);
     ss_string(buf, (320 - w) / 2, y);
 
@@ -1210,6 +1246,16 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             waiting_for_key = false;
             return OK;
         }
+
+#ifdef VITA
+        // the pad's START (see MenuKeyForButton() in sdl_events.c): starts the game from the
+        // New Game screen, whatever has the focus, and does nothing on the other screens
+        if (code == KEY_END) {
+            if (setup_mode == SETUP_DIFFICULTY)
+                go_and_start_the_game_already();
+            return TRUE;
+        }
+#endif
 
         switch (setup_mode) {
         case SETUP_JOURNEY:

@@ -127,6 +127,8 @@ enum TEMP_STR_ {
     REF_STR_VitaRes5,
 #endif
 
+    REF_STR_Help = 0x11000020, // the options panel's pad hints
+
     REF_STR_Seqer    = 0x20000000,
     REF_STR_ADLMIDI,
     REF_STR_NativeMI,

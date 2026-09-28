@@ -1056,7 +1056,6 @@ uchar MacSkiplinesFunc(ushort keycode, uint32_t context, intptr_t data) {
 
 uchar MacDetailFunc(ushort keycode, uint32_t context, intptr_t data) {
     char msg[32];
-    char detailStr[8];
     fauxrend_context *_frc = (fauxrend_context *)svga_render_context;
 
     if (_frc->detail == 4) // Adjust for that global detail nonsense.
@@ -1070,21 +1069,9 @@ uchar MacDetailFunc(ushort keycode, uint32_t context, intptr_t data) {
     gShockPrefs.doDetail = _frc->detail; // Update and save our prefs.
     SavePrefs();
 
-    switch (_frc->detail) // Show a nice, informative message.
-    {
-    case 0:
-        strcpy(detailStr, "Min");
-        break;
-    case 1:
-        strcpy(detailStr, "Low");
-        break;
-    case 2:
-        strcpy(detailStr, "High");
-        break;
-    case 3:
-        strcpy(detailStr, "Max");
-    }
-    sprintf(msg, "Detail level: %s", detailStr);
+    // Show a nice, informative message, with the video options' "Detail" and its levels.
+    snprintf(msg, sizeof(msg), "%s: %s", get_temp_string(REF_STR_OptionsText + 4),
+             get_temp_string(REF_STR_DetailLvl + _frc->detail));
     message_info(msg);
     return TRUE;
 }

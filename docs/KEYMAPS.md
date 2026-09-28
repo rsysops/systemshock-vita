@@ -35,8 +35,8 @@ event, shown in the last column.
 | Previous / next page on left or right MFD | Rear touch: swipe up / down on the left or right half | Press `T` to switch to rear touch, then drag vertically | — |
 | Aiming (on by default) | Gyro | Not available from the keyboard (needs a host controller with motion sensors) | Mouse-look delta |
 
-Gyro aiming and analog/gyro look speed can be changed from the **Vita input**
-option in the game menu.
+Gyro aiming and analog/gyro look speed can be changed from the **Vita Options**
+entry in the game menu.
 
 Tuning values, all in `sdl_events.c`:
 
@@ -125,6 +125,7 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 | Back one screen | ○ | `C` | `Esc` | `Home` |
 | Previous / next page | L / R | `Q` / `E` | — | `PgUp` / `PgDn` |
 | Close the whole menu | START | `Enter` | — | `Esc` |
+| Start the game (New Game) | START | `Enter` | `End` | — |
 | Show the help / controls screen | △ | `V` | — | `F1` |
 | Toggle music | □ | `Z` | — | `F2` |
 | Retype the character name (New Game) | × on the Name row | `X` | `Enter` | — |
@@ -135,14 +136,16 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - **Focus** (in-game menu): the focused control is drawn in a lighter green.
 - **Bars** (gamma, volumes, look speeds): × grabs the focused bar (it turns
   yellow-green), Left/Right move it, and × or ○ release it. Changes apply live.
-- **Pages** (L / R): Load, Save, Audio, Input, Options, Video, Vita input,
+- **Pages** (L / R): Load, Save, Audio, Input, Options, Video, Vita options,
   wrapping. Save is skipped when saving isn't possible. Nested screens count
   as their parent page (e.g. Audio options → Audio). L / R do nothing on the
   main list.
 - **Save slots**: × on a slot opens the on-screen keyboard to name the save;
   × again saves it.
 - **New Game screen**: Up/Down cycle Name → the four difficulty categories →
-  Start; Left/Right change the focused category's level; × on Start launches.
+  Start; Left/Right change the focused category's level; × on Start launches,
+  and so does START from anywhere on the screen. START does nothing on the
+  other main menu screens.
 - □ and △ do nothing in the main menu. In the in-game menu, a "△ Help
   □ Music" hint is shown at the top left of the view.
 - **Help / controls screen**: ×, ○ or △ close it. This also applies to the one

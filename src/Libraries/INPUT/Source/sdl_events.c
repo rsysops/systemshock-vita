@@ -95,7 +95,9 @@ static void MenuDirectionUp(SDL_Keycode sym)
 }
 
 // Key a button sends in a menu; 0 = ignored there.
-// Main menu: Esc is its "back". Options panel: Esc (START) closes the whole panel, so
+// Main menu: Esc is its "back"; START sends End, which starts the game from the New Game
+// screen and does nothing elsewhere (see intro_key_handler()).
+// Options panel: Esc (START) closes the whole panel, so
 // circle sends Home (back one screen), the bumpers send PgUp/PgDn (adjacent page),
 // triangle F1 (help screen) and square F2 (toggle music).
 // Help screen: cross, circle and triangle send Enter, which closes it.
@@ -134,7 +136,7 @@ static SDL_Keycode MenuKeyForButton(Uint8 button, bool options_panel)
     case SDL_CONTROLLER_BUTTON_X:
         return options_panel ? SDLK_F2 : 0;
     case SDL_CONTROLLER_BUTTON_START:
-        return SDLK_ESCAPE;
+        return options_panel ? SDLK_ESCAPE : SDLK_END;
     default:
         return 0;
     }
@@ -1319,6 +1321,12 @@ void pump_events(void) {
                     case SDLK_PAGEDOWN:
                         keyEvent.ascii = KEY_PGDN;
                         break;
+#ifdef VITA
+                    // the pad's START in the main menu (see MenuKeyForButton())
+                    case SDLK_END:
+                        keyEvent.ascii = KEY_END;
+                        break;
+#endif
                     }
                 }
 

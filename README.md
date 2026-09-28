@@ -40,9 +40,9 @@ make
 - Rear touchpad - Next/previous MFD (you can switch them by swiping up or down on the left/right side of the touchpad)
 - Front touchpad - Mouse emulation
 
-Gyro aiming is active by default. You can turn it off or adjust analog/gyro look speed by selecting `Vita input` option in the game menu.
+Gyro aiming is active by default. You can turn it off or adjust analog/gyro look speed by selecting `Vita Options` in the game menu.
 
-In the main menu and the in-game menu, move with the D-Pad or left stick, select with ×, go back with ○ and switch the in-game menu page with L1/R1. In the in-game menu, △ shows the help / controls screen and □ toggles the music. START closes the in-game menu. See [docs/KEYMAPS.md](docs/KEYMAPS.md) for details.
+In the main menu and the in-game menu, move with the D-Pad or left stick, select with ×, go back with ○ and switch the in-game menu page with L1/R1. In the in-game menu, △ shows the help / controls screen and □ toggles the music. START starts the game from the New Game screen and closes the in-game menu. See [docs/KEYMAPS.md](docs/KEYMAPS.md) for details.
 
 ## Additional info
 
