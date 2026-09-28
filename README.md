@@ -42,6 +42,8 @@ make
 
 Gyro aiming is active by default. You can turn it off or adjust analog/gyro look speed by selecting `Vita Options` in the game menu.
 
+The cursor is hidden in menus by default (they're navigated with the D-pad; touch still works). Enable `Cursor` in `Vita Options` to show it there again.
+
 In the main menu and the in-game menu, move with the D-Pad or left stick, select with ×, go back with ○ and switch the in-game menu page with L1/R1. In the in-game menu, △ shows the help / controls screen and □ toggles the music. START starts the game from the New Game screen and closes the in-game menu. See [docs/KEYMAPS.md](docs/KEYMAPS.md) for details.
 
 ## Additional info

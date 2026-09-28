@@ -89,6 +89,7 @@ static const char *PREF_MIDI_OUTPUT = "midi-output";
 static const char *VITA_GYRO = "vita-gyro";
 static const char *VITA_GYRO_SPEED = "vita-gyro-speed";
 static const char *VITA_CONTROLLER_SPEED = "vita-controller-speed";
+static const char *VITA_CURSOR = "vita-cursor";
 #endif
 
 static void SetShockGlobals(void);
@@ -124,6 +125,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.gyroAiming = 1;
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;
+    gShockPrefs.showCursor = false;
 #else
     gShockPrefs.doVideoMode = 3;
 #endif
@@ -269,6 +271,8 @@ int16_t LoadPrefs(void) {
             int cas = atoi(value);
             if (cas >= 0 && cas <= 25)
                 gShockPrefs.controllerAimingSpeed = cas;
+        } else if (strcasecmp(key, VITA_CURSOR) == 0) {
+            gShockPrefs.showCursor = is_true(value);
         }
 #endif
     }
@@ -311,6 +315,7 @@ int16_t SavePrefs(void) {
     fprintf(f, "%s = %d\n", VITA_GYRO, gShockPrefs.gyroAiming);
     fprintf(f, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
+    fprintf(f, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
 #endif
     fclose(f);
     return 0;

@@ -35,8 +35,8 @@ event, shown in the last column.
 | Previous / next page on left or right MFD | Rear touch: swipe up / down on the left or right half | Press `T` to switch to rear touch, then drag vertically | — |
 | Aiming (on by default) | Gyro | Not available from the keyboard (needs a host controller with motion sensors) | Mouse-look delta |
 
-Gyro aiming and analog/gyro look speed can be changed from the **Vita Options**
-entry in the game menu.
+Gyro aiming, analog/gyro look speed and the cursor in menus can be changed from
+the **Vita Options** entry in the game menu.
 
 Tuning values, all in `sdl_events.c`:
 
@@ -129,10 +129,16 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 | Show the help / controls screen | △ | `V` | — | `F1` |
 | Toggle music | □ | `Z` | — | `F2` |
 | Retype the character name (New Game) | × on the Name row | `X` | `Enter` | — |
-| Move the cursor | Right stick | `I` `J` `K` `L` | mouse | mouse |
+| Move the cursor (only with **Vita Options → Cursor** enabled) | Right stick | `I` `J` `K` `L` | mouse | mouse |
 
-- **Focus follows the cursor**: moving the cursor (right stick or touch) over
-  an entry focuses it, and × then selects it. Touch still selects directly.
+- **Cursor**: hidden by default in menus (main menu, in-game options menu, help
+  screen), and the right stick doesn't move it there, so it can't move the
+  focus. Touch still focuses and selects the entry under the finger. In game
+  the cursor is unaffected. **Vita Options → Cursor → Enabled** shows it in
+  menus again (`vita-cursor` in the prefs file; see `VitaMenuCursorHidden()` in
+  `sdl_events.c`).
+- **Focus follows the cursor** (cursor enabled): moving the cursor (right stick
+  or touch) over an entry focuses it, and × then selects it.
 - **Focus** (in-game menu): the focused control is drawn in a lighter green.
 - **Bars** (gamma, volumes, look speeds): × grabs the focused bar (it turns
   yellow-green), Left/Right move it, and × or ○ release it. Changes apply live.

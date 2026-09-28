@@ -411,6 +411,7 @@ static struct {
     {REF_STR_VitaRes3, {"640 x 400", "640 x 400", "640 x 400"}},
     {REF_STR_VitaRes4, {"640 x 480", "640 x 480", "640 x 480"}},
     {REF_STR_VitaRes5, {"960 x 544", "960 x 544", "960 x 544"}},
+    {REF_STR_Cursor, {"Cursor", "Curseur", "Mauszeiger"}},
 #endif
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
@@ -2393,6 +2394,13 @@ void input_screen_init(void) {
 }
 
 #ifdef VITA
+// draw or erase the cursor right away (see VitaMenuCursorHidden() in sdl_events.c)
+static void cursor_dealfunc(uchar unused) {
+    uiHideMouse(NULL);
+    uiShowMouse(NULL);
+    (void)unused;
+}
+
 void vita_input_init(uchar butid) {
     LGRect r;
     char *keys;
@@ -2422,6 +2430,12 @@ void vita_input_init(uchar butid) {
     standard_slider_rect(&r, i);
     slider_init(i, REF_STR_ControllerLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.controllerAimingSpeed, 25,
                 sliderbase, NULL, &r);
+    i++;
+
+    // cursor in menus
+    standard_button_rect(&r, i);
+    multi_init(i, keys[1], REF_STR_Cursor, REF_STR_GyroOff, ID_NULL,
+                sizeof(gShockPrefs.showCursor), &gShockPrefs.showCursor, 2, cursor_dealfunc, &r);
     i++;
 
     standard_button_rect(&r, 5);

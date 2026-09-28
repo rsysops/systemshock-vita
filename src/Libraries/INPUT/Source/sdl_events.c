@@ -57,6 +57,12 @@ static bool controller_keys_allowed(void) {
     return _current_loop != SETUP_LOOP && !wrapper_panel_on && !olh_overlay_on;
 }
 
+// Menus are driven by the focus highlight, so unless the Vita option shows it the cursor is
+// neither drawn there (see bitmap_cursor_drawfunc()) nor moved by the right stick; touch still works
+bool VitaMenuCursorHidden(void) {
+    return !gShockPrefs.showCursor && !controller_keys_allowed();
+}
+
 // In menus the controller sends navigation keys instead of gameplay keys
 enum
 {
@@ -294,7 +300,7 @@ void ProcessControllerAxisMotion()
     relativeRightXAxis = (int)((0.000005f + 0.000001f * gShockPrefs.controllerAimingSpeed) * controllerRightXAxis * deltaTime);
     relativeRightYAxis = (int)((0.000005f + 0.000001f * gShockPrefs.controllerAimingSpeed) * controllerRightYAxis * deltaTime);
 
-    if (controllerRightXAxis != 0 || controllerRightYAxis != 0) {
+    if ((controllerRightXAxis != 0 || controllerRightYAxis != 0) && !VitaMenuCursorHidden()) {
         int physical_width, physical_height;
         SDL_GetWindowSize(window, &physical_width, &physical_height);
 

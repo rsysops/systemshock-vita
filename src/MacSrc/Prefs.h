@@ -64,6 +64,7 @@ typedef struct {
     bool gyroAiming;
     short gyroAimingSpeed;
     short controllerAimingSpeed;
+    bool showCursor; // draw the cursor in menus and let the right stick move it there
 #endif
 } ShockPrefs;
 
