@@ -56,6 +56,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "grenades.h"
 #include "mfdext.h"
 #include "olhext.h"
+#include "citres.h"
 #include "cit2d.h"
 #include "gr2ss.h"
 #include "hkeyfunc.h"
@@ -439,6 +440,278 @@ short _olh_overlay_keys[] = {
 
 #define NUM_OVERLAY_KEYS (sizeof(_olh_overlay_keys) / sizeof(_olh_overlay_keys[0]))
 
+#ifdef VITA
+// The help screen (English, French or German image), reworded for the Vita pad and relabelled
+// with the game font. The image is copied and its lettering erased with each box's own fill; the
+// labels are then drawn with ss_string(), which picks the font matching the screen resolution
+// (see ss_scale_string()), so they're as sharp as the rest of the interface's text. The font is
+// CP437: \x8E, \x99 and \x9A are the umlauted A, O and U. Like the original French image, the
+// French labels go without accents, which the font mostly lacks in capitals.
+
+#define OLH_BOX_TEXT(c) ((c) == 0x31 || (c) == 0x35) // text colours inside the boxes
+#define OLH_CENTRED -1                                 // x of a box whose lines are centred
+
+// pad buttons inside a line, drawn with draw_pad_glyph()
+#define OLH_CROSS "\001"
+#define OLH_CIRCLE "\002"
+#define OLH_TRIANGLE "\003"
+#define OLH_GLYPH_SIZE 5 // font row 0 (blank) down to the baseline
+
+typedef struct {
+    short x0, y0, x1, y1; // interior, inclusive: all its lettering is erased
+    uchar color;          // text colour
+    short x, right;       // left edge of the lines (or OLH_CENTRED), right edge of the right-aligned column
+    short top[4];         // first row of each line's capitals
+    const char *left[4], *right_text[4];
+} olh_box;
+
+// every box of each image, at the positions of its original lettering
+static const olh_box olh_boxes_en[] = {
+    {190, 2, 230, 9, 0x35, OLH_CENTRED, 0, {4}, {"HEALTH"}, {NULL}},
+    {190, 13, 230, 20, 0x35, OLH_CENTRED, 0, {15}, {"ENERGY"}, {NULL}},
+    {35, 24, 75, 31, 0x35, OLH_CENTRED, 0, {26}, {"BIOMETER"}, {NULL}},
+    // posture panel, look half
+    {112, 29, 157, 50, 0x35, 116, 0, {32, 38, 44}, {"TAP HERE", "TO LOOK UP", "AND DOWN"}, {NULL}},
+    // posture panel, stance half
+    {166, 29, 211, 50, 0x35, 170, 0, {32, 38, 44}, {"TAP HERE", "TO CROUCH", "AND LEAN"}, {NULL}},
+    // was "click here for fullscreen mode", out of the pad's reach
+    {23, 48, 91, 61, 0x35, 28, 0, {50, 56}, {"SWIPE REAR PAD", "FOR MFD PAGES"}, {NULL}},
+    {134, 66, 174, 73, 0x35, OLH_CENTRED, 0, {68}, {"3D VIEW"}, {NULL}},
+    {232, 66, 279, 87, 0x35, 234, 0, {69, 75, 81}, {"SOCKETS FOR", "NEUROGRAFT", "HARDWARE"}, {NULL}},
+    // keys
+    {85, 78, 222, 99, 0x31, 87, 220, {80, 86, 93},
+     {OLH_CROSS " " OLH_CIRCLE " " OLH_TRIANGLE, "START, " OLH_TRIANGLE, "L / R"},
+     {"CONTINUE GAME", "BRINGS THIS SCREEN BACK", "USE / ATTACK"}},
+    // inventory
+    {90, 118, 228, 143, 0x35, 93, 0, {122, 128, 135},
+     {"TAP OBJECTS IN INVENTORY", "TO SELECT, DOUBLE TAP TO USE,", "POINT AND PRESS R TO REMOVE"},
+     {NULL}},
+    {283, 140, 310, 145, 0x35, OLH_CENTRED, 0, {141}, {"WEAPON"}, {NULL}},
+    {16, 148, 72, 161, 0x35, 17, 0, {150, 156}, {"MULTI-FUNCTION", "DISPLAY (MFD)"}, {NULL}},
+    {283, 150, 310, 155, 0x35, OLH_CENTRED, 0, {151}, {"ITEM"}, {NULL}},
+    {234, 155, 271, 176, 0x35, 237, 0, {158, 164, 170}, {"MFD", "SELECTION", "BUTTONS"}, {NULL}},
+    {95, 158, 208, 165, 0x35, OLH_CENTRED, 0, {160}, {"INVENTORY SELECTION BUTTONS"}, {NULL}},
+    {283, 161, 310, 166, 0x35, OLH_CENTRED, 0, {162}, {"MAP"}, {NULL}},
+    {283, 172, 310, 177, 0x35, OLH_CENTRED, 0, {173}, {"TARGET"}, {NULL}},
+    {106, 179, 140, 184, 0x35, OLH_CENTRED, 0, {180}, {"HARDWARE"}, {NULL}},
+    {283, 183, 310, 188, 0x35, OLH_CENTRED, 0, {184}, {"DATA"}, {NULL}},
+    {194, 185, 229, 190, 0x35, OLH_CENTRED, 0, {186}, {"SOFTWARE"}, {NULL}},
+    {89, 188, 106, 193, 0x35, OLH_CENTRED, 0, {189}, {"MAIN"}, {NULL}},
+    {132, 188, 161, 193, 0x35, OLH_CENTRED, 0, {189}, {"GENERAL"}, {NULL}},
+};
+
+static const olh_box olh_boxes_fr[] = {
+    {190, 2, 230, 9, 0x35, OLH_CENTRED, 0, {4}, {"SANTE"}, {NULL}},
+    {190, 13, 230, 20, 0x35, OLH_CENTRED, 0, {15}, {"ENERGIE"}, {NULL}},
+    {35, 24, 75, 31, 0x35, OLH_CENTRED, 0, {26}, {"BIOMETRE"}, {NULL}},
+    // posture panel, look half
+    {112, 29, 157, 50, 0x35, 116, 0, {32, 38, 44}, {"TOUCHER ICI", "POUR VUE", "HAUT ET BAS"}, {NULL}},
+    // posture panel, stance half
+    {166, 29, 211, 50, 0x35, 170, 0, {32, 38, 44}, {"TOUCHER ICI", "-SE TAPIR", "-PENCHER"}, {NULL}},
+    // was fullscreen mode
+    {23, 48, 84, 61, 0x35, 28, 0, {50, 56}, {"PAVE ARRIERE :", "PAGES DES VMF"}, {NULL}},
+    {134, 66, 174, 73, 0x35, OLH_CENTRED, 0, {68}, {"VUE 3D"}, {NULL}},
+    {232, 66, 279, 87, 0x35, 234, 0, {69, 75, 81}, {"PRISES POUR", "IMPLANTS", "NEUROL."}, {NULL}},
+    // keys
+    {90, 80, 227, 101, 0x31, 92, 225, {82, 88, 94},
+     {OLH_CROSS " " OLH_CIRCLE " " OLH_TRIANGLE, "START, " OLH_TRIANGLE, "L / R"},
+     {"CONTINUER LE JEU", "REVOIR CET ECRAN", "UTILISER / ATTAQUER"}},
+    // inventory
+    {90, 118, 228, 143, 0x35, 93, 0, {122, 128, 135},
+     {"TOUCHER UN OBJET POUR LE CHOISIR,", "TOUCHER DEUX FOIS POUR L'UTILISER,", "VISER ET PRESSER R POUR L'ENLEVER"},
+     {NULL}},
+    {283, 140, 310, 145, 0x35, OLH_CENTRED, 0, {141}, {"ARME"}, {NULL}},
+    {16, 148, 72, 161, 0x35, 17, 0, {150, 156}, {"(VMF) VISUEL", "MULTI-FONCTION"}, {NULL}},
+    {283, 150, 310, 155, 0x35, OLH_CENTRED, 0, {151}, {"OBJET"}, {NULL}},
+    {234, 155, 271, 176, 0x35, 237, 0, {158, 164, 170}, {"TOUCHES", "SELECTION", "VMF"}, {NULL}},
+    {95, 158, 208, 165, 0x35, OLH_CENTRED, 0, {160}, {"TOUCHES SELECTION STOCK"}, {NULL}},
+    {283, 161, 310, 166, 0x35, OLH_CENTRED, 0, {162}, {"CARTE"}, {NULL}},
+    {283, 172, 310, 177, 0x35, OLH_CENTRED, 0, {173}, {"CIBLE"}, {NULL}},
+    {106, 179, 140, 184, 0x35, OLH_CENTRED, 0, {180}, {"MATERIEL"}, {NULL}},
+    {283, 183, 310, 188, 0x35, OLH_CENTRED, 0, {184}, {"DATA"}, {NULL}},
+    {194, 185, 229, 190, 0x35, OLH_CENTRED, 0, {186}, {"LOGICIEL"}, {NULL}},
+    {83, 188, 114, 193, 0x35, OLH_CENTRED, 0, {189}, {"ARMES"}, {NULL}},
+    {132, 188, 161, 193, 0x35, OLH_CENTRED, 0, {189}, {"GENERAL"}, {NULL}},
+};
+
+static const olh_box olh_boxes_de[] = {
+    {190, 2, 230, 9, 0x35, OLH_CENTRED, 0, {4}, {"GESUNDHEIT"}, {NULL}},
+    {190, 13, 230, 20, 0x35, OLH_CENTRED, 0, {15}, {"ENERGIE"}, {NULL}},
+    {35, 24, 75, 31, 0x35, OLH_CENTRED, 0, {26}, {"BIOMETER"}, {NULL}},
+    // posture panel, look half
+    {112, 29, 157, 50, 0x35, 116, 0, {32, 38, 44}, {"HIER TIPPEN:", "AUF- UND", "ABBLICKEN"}, {NULL}},
+    // posture panel, stance half
+    {166, 29, 211, 50, 0x35, 170, 0, {32, 38, 44}, {"HIER TIPPEN:", "KAUERN UND", "LEHNEN"}, {NULL}},
+    // was fullscreen mode
+    {23, 48, 91, 61, 0x35, 28, 0, {50, 56}, {"HINTEN WISCHEN:", "MFD-SEITEN"}, {NULL}},
+    {134, 66, 174, 73, 0x35, OLH_CENTRED, 0, {68}, {"3D BILD"}, {NULL}},
+    {232, 66, 279, 87, 0x35, 236, 0, {69, 75, 81}, {"STECKER F\x9AR", "NEURALE", "HARDWARE"}, {NULL}},
+    // keys
+    {89, 86, 226, 107, 0x31, 91, 224, {89, 95, 101},
+     {OLH_CROSS " " OLH_CIRCLE " " OLH_TRIANGLE, "START, " OLH_TRIANGLE, "L / R"},
+     {"SPIEL FORTSETZEN", "DIESEN BILDSCHIRM ZEIGEN", "BENUTZEN / ANGREIFEN"}},
+    // inventory
+    {90, 118, 228, 143, 0x35, 93, 0, {119, 126, 132, 138},
+     {"OBJEKTE IM INVENTAR ANTIPPEN,", "UM SIE ZU W\x8EHLEN, DOPPELT TIPPEN,", "UM SIE ZU BENUTZEN, ZIELEN UND R", "DR\x9A" "CKEN, UM SIE ZU ENTFERNEN"},
+     {NULL}},
+    {283, 140, 310, 145, 0x35, OLH_CENTRED, 0, {141}, {"WAFFEN"}, {NULL}},
+    {16, 148, 72, 161, 0x35, OLH_CENTRED, 0, {150, 156}, {"MULTIFUNKTIONS", "ANZEIGE (MFD)"}, {NULL}},
+    {283, 150, 311, 155, 0x35, OLH_CENTRED, 0, {151}, {"GEGENST"}, {NULL}},
+    {234, 155, 271, 176, 0x35, 239, 0, {161, 167}, {"MFD", "AUSWAHL"}, {NULL}},
+    {95, 158, 208, 165, 0x35, OLH_CENTRED, 0, {161}, {"INVENTARAUSWAHLKN\x99PFE"}, {NULL}},
+    {283, 161, 310, 166, 0x35, OLH_CENTRED, 0, {162}, {"KARTE"}, {NULL}},
+    {283, 172, 310, 177, 0x35, OLH_CENTRED, 0, {173}, {"ZIEL"}, {NULL}},
+    {106, 179, 140, 184, 0x35, OLH_CENTRED, 0, {180}, {"HARDWARE"}, {NULL}},
+    {283, 183, 310, 188, 0x35, OLH_CENTRED, 0, {184}, {"DATEN"}, {NULL}},
+    {194, 185, 229, 190, 0x35, OLH_CENTRED, 0, {186}, {"SOFTWARE"}, {NULL}},
+    {83, 188, 114, 193, 0x35, OLH_CENTRED, 0, {189}, {"WAFFEN"}, {NULL}},
+    {132, 188, 167, 193, 0x35, OLH_CENTRED, 0, {189}, {"ALLGEMEIN"}, {NULL}},
+};
+
+// indexed by which_lang
+static const struct {
+    const olh_box *boxes;
+    int count;
+} olh_langs[] = {
+    {olh_boxes_en, sizeof(olh_boxes_en) / sizeof(olh_boxes_en[0])},
+    {olh_boxes_fr, sizeof(olh_boxes_fr) / sizeof(olh_boxes_fr[0])},
+    {olh_boxes_de, sizeof(olh_boxes_de) / sizeof(olh_boxes_de[0])},
+};
+
+#define OLH_NUM_LANGS (sizeof(olh_langs) / sizeof(olh_langs[0]))
+
+// draws (or with draw FALSE, only measures) a line: text runs with the current font, pad
+// buttons as glyphs; returns its width
+static short olh_line(const char *s, short x, short y, uchar draw) {
+    char run[64];
+    short start = x;
+
+    while (*s) {
+        if (*s >= '\001' && *s <= '\003') {
+            if (draw)
+                draw_pad_glyph(*s == '\001' ? 'x' : *s == '\002' ? 'o' : 't', x, y, OLH_GLYPH_SIZE);
+            x += OLH_GLYPH_SIZE + 2;
+            s++;
+        } else {
+            short w, h;
+            int n = 0;
+
+            while (s[n] && (s[n] < '\001' || s[n] > '\003') && n < sizeof(run) - 1) {
+                run[n] = s[n];
+                n++;
+            }
+            run[n] = '\0';
+            gr_string_size(run, &w, &h);
+            if (draw)
+                ss_string(run, x, y);
+            x += w;
+            s += n;
+        }
+    }
+    return x - start;
+}
+
+// The old text is filled in from the box's fill, which is a smooth texture: ring by ring, each
+// text pixel takes the commonest colour among its already filled neighbours, which leaves no
+// letter shapes behind. Colour 0 (transparent) never occurs inside a box, so it marks the holes.
+static void olh_erase_text(grs_bitmap *bm, const olh_box *b) {
+    int w = b->x1 - b->x0 + 1, h = b->y1 - b->y0 + 1;
+    uchar *next = malloc(w * h); // this ring's colours, 0 = pixel not filled yet
+    uchar filled;
+    int x, y, dx, dy, i, j;
+
+    if (next == NULL)
+        return;
+    for (y = b->y0; y <= b->y1; y++)
+        for (x = b->x0; x <= b->x1; x++)
+            if (OLH_BOX_TEXT(bm->bits[y * bm->row + x]))
+                bm->bits[y * bm->row + x] = 0;
+
+    do {
+        filled = FALSE;
+        memset(next, 0, w * h);
+        for (y = b->y0; y <= b->y1; y++)
+            for (x = b->x0; x <= b->x1; x++) {
+                uchar near[8], best = 0;
+                int n = 0, best_count = 0;
+
+                if (bm->bits[y * bm->row + x])
+                    continue;
+                for (dy = -1; dy <= 1; dy++)
+                    for (dx = -1; dx <= 1; dx++) {
+                        uchar c;
+                        if ((!dx && !dy) || x + dx < b->x0 || x + dx > b->x1 || y + dy < b->y0 || y + dy > b->y1)
+                            continue;
+                        c = bm->bits[(y + dy) * bm->row + x + dx];
+                        if (c)
+                            near[n++] = c;
+                    }
+                for (i = 0; i < n; i++) {
+                    int count = 0;
+                    for (j = 0; j < n; j++)
+                        count += near[j] == near[i];
+                    if (count > best_count || (count == best_count && near[i] < best)) {
+                        best = near[i];
+                        best_count = count;
+                    }
+                }
+                next[(y - b->y0) * w + x - b->x0] = best;
+            }
+        for (y = b->y0; y <= b->y1; y++)
+            for (x = b->x0; x <= b->x1; x++)
+                if (next[(y - b->y0) * w + x - b->x0]) {
+                    bm->bits[y * bm->row + x] = next[(y - b->y0) * w + x - b->x0];
+                    filled = TRUE;
+                }
+    } while (filled);
+    free(next);
+}
+
+// draws the help screen of language lang with the Vita wording; FALSE if it couldn't be loaded
+static uchar olh_draw_vita_overlay(int lang) {
+    const olh_box *boxes = olh_langs[lang].boxes;
+    grs_bitmap bm;
+    uchar old_over = gr2ss_override;
+    int i, l;
+
+    if (simple_load_res_bitmap(&bm, REF_IMG_bmHelpOverlayEnglish + MKREF(lang, 0)) != OK)
+        return FALSE;
+    if (bm.type != BMT_FLAT8 || bm.w < 320 || bm.h < 200) {
+        free(bm.bits);
+        return FALSE;
+    }
+    for (i = 0; i < olh_langs[lang].count; i++)
+        olh_erase_text(&bm, &boxes[i]);
+    ss_bitmap(&bm, 0, 0);
+    free(bm.bits);
+
+    gr2ss_override = OVERRIDE_ALL;
+    gr_set_font((grs_font *)ResLock(RES_tinyTechFont));
+    for (i = 0; i < olh_langs[lang].count; i++) {
+        const olh_box *b = &boxes[i];
+
+        gr_set_fcolor(b->color);
+        for (l = 0; l < 4; l++) {
+            // the font's row 0 is blank: its capitals start one row down
+            short y = b->top[l] - 1;
+
+            if (b->left[l]) {
+                short x = b->x;
+                // widths end with the last letter's blank column, hence the + 2
+                if (x == OLH_CENTRED)
+                    x = (b->x0 + b->x1 + 2 - olh_line(b->left[l], 0, 0, FALSE)) / 2;
+                olh_line(b->left[l], x, y, TRUE);
+            }
+            if (b->right_text[l])
+                olh_line(b->right_text[l], b->right + 2 - olh_line(b->right_text[l], 0, 0, FALSE), y, TRUE);
+        }
+    }
+    ResUnlock(RES_tinyTechFont);
+    gr2ss_override = old_over;
+    return TRUE;
+}
+#endif
+
 void olh_overlay(void) {
     extern LGCursor globcursor;
     extern char which_lang;
@@ -448,7 +721,10 @@ void olh_overlay(void) {
     uiPushGlobalCursor(&globcursor);
     gr_push_canvas(grd_screen_canvas);
     uiHideMouse(NULL);
-    draw_res_bm(REF_IMG_bmHelpOverlayEnglish + MKREF(which_lang, 0), 0, 0);
+#ifdef VITA
+    if (which_lang < 0 || which_lang >= OLH_NUM_LANGS || !olh_draw_vita_overlay(which_lang))
+#endif
+        draw_res_bm(REF_IMG_bmHelpOverlayEnglish + MKREF(which_lang, 0), 0, 0);
     uiShowMouse(NULL);
     gr_pop_canvas();
     uiFlush();
@@ -482,8 +758,11 @@ void olh_overlay(void) {
     uiPopGlobalCursor();
     uiFlush();
     olh_overlay_on = FALSE;
-	gr_clear(0); //makes red pixels go away, but real problem is probably in REF_IMG_bmBlankMFD
-    screen_draw();
+    // in fullscreen, the caller's render_run() repaints it all; screen_draw() is the normal HUD
+    if (!full_game_3d) {
+        gr_clear(0); //makes red pixels go away, but real problem is probably in REF_IMG_bmBlankMFD
+        screen_draw();
+    }
     status_bio_start();
 }
 

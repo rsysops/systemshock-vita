@@ -302,6 +302,60 @@ void simple_text_button(char *text, int xc, int yc, int col) {
 
 void Rect_gr_rect(LGRect *r) { ss_rect(r->ul.x, r->ul.y, r->lr.x, r->lr.y); }
 
+// ring filling the logical square x,y,size, one logical pixel thick; plotted per screen pixel,
+// since a circle this small drawn with lines reads as a square
+static void pad_glyph_ring(short x, short y, short size) {
+    int x0 = x, y0 = y, x1 = x + size, y1 = y + size; // screen rect, lr exclusive
+    int d, t, cx2, cy2, px, py;
+    long color = gr_get_fcolor();
+
+#ifdef SVGA_SUPPORT
+    if (perform_svga_conversion(OVERRIDE_SCALE)) {
+        x0 = SCONV_X(x);
+        y0 = SCONV_Y(y);
+        x1 = SCONV_X(x + size);
+        y1 = SCONV_Y(y + size);
+    }
+#endif
+    d = (x1 - x0 < y1 - y0) ? x1 - x0 : y1 - y0; // diameter
+    t = (d / size > 1) ? d / size : 1;            // one logical pixel
+    cx2 = x0 + x1 - 1;                            // doubled centre
+    cy2 = y0 + y1 - 1;
+    for (py = y0; py < y1; py++)
+        for (px = x0; px < x1; px++) {
+            int dx = 2 * px - cx2, dy = 2 * py - cy2, r2 = dx * dx + dy * dy;
+            if (r2 <= d * d && r2 >= (d - 2 * t) * (d - 2 * t))
+                gr_set_pixel(color, px, py);
+        }
+}
+
+// outline of a pad button in the current colour, size x size at x,y: 'x' cross, 'o' circle,
+// 't' triangle, 's' square. Lines are one logical pixel thick, so they scale like the rest.
+void draw_pad_glyph(char button, short x, short y, short size) {
+    short r = x + size - 1, b = y + size - 1;
+
+    switch (button) {
+    case 'x':
+        ss_thick_int_line(x, y, r, b);
+        ss_thick_int_line(r, y, x, b);
+        break;
+    case 'o':
+        pad_glyph_ring(x, y, size);
+        break;
+    case 't':
+        ss_thick_int_line(x + size / 2, y, x, b);
+        ss_thick_int_line(x + size / 2, y, r, b);
+        ss_thick_int_line(x, b, r, b);
+        break;
+    case 's':
+        ss_thick_int_line(x, y, r, y);
+        ss_thick_int_line(r, y, r, b);
+        ss_thick_int_line(x, b, r, b);
+        ss_thick_int_line(x, y, x, b);
+        break;
+    }
+}
+
 void Rect_gr_box(LGRect *r) { ss_box(r->ul.x, r->ul.y, r->lr.x, r->lr.y); }
 
 char *itoa_2_10(char *s, int val) {

@@ -146,7 +146,11 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - □ and △ do nothing in the main menu. In the in-game menu, a "△ Help
   □ Music" hint is shown at the top left of the view.
 - **Help / controls screen**: ×, ○ or △ close it. This also applies to the one
-  shown automatically at new game start. It isn't available in cyberspace.
+  shown automatically at new game start. It works in fullscreen mode too (drawn
+  over the view), but isn't available in cyberspace. Its keyboard and mouse
+  boxes are reworded for the Vita (touch, pad buttons, rear touch), in English,
+  French and German, and all its labels are redrawn with the game font for the
+  current resolution, so they're sharp in hi-res modes.
 - In the in-game menu, **Return** and ○ go back one screen (e.g. Audio
   options → Audio → main list, focusing the entry you came from); START closes
   the whole menu from any screen.

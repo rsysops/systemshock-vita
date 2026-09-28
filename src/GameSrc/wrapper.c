@@ -1405,19 +1405,6 @@ static void opanel_hover(LGPoint pos) {
 #define OPANEL_HINT_Y (SCREEN_VIEW_Y + 2)
 #define OPANEL_HINT_PAD 2 // between the box border, glyphs and labels
 
-static void opanel_hint_glyph_triangle(short x, short y, short g) {
-    ss_thick_int_line(x + g / 2, y, x, y + g - 1);
-    ss_thick_int_line(x + g / 2, y, x + g - 1, y + g - 1);
-    ss_thick_int_line(x, y + g - 1, x + g - 1, y + g - 1);
-}
-
-static void opanel_hint_glyph_square(short x, short y, short g) {
-    ss_rect(x, y, x + g, y + g);
-    gr_set_fcolor(BUTTON_COLOR + BUTTON_SHADOW);
-    ss_rect(x + 1, y + 1, x + g - 1, y + g - 1);
-    gr_set_fcolor(BUTTON_COLOR);
-}
-
 // "(triangle) Help (square) Music": the pad's F1 / F2 in opanel_nav_key(), drawn in the
 // button style. The 3D view doesn't redraw while the panel keeps the game paused, so this
 // only needs drawing again after an explicit render_run() (see opanel_render_view()).
@@ -1449,11 +1436,11 @@ static void opanel_draw_hints(void) {
 
     x += OPANEL_HINT_PAD;
     y += OPANEL_HINT_PAD;
-    opanel_hint_glyph_triangle(x, y, g);
+    draw_pad_glyph('t', x, y, g);
     x += g + OPANEL_HINT_PAD;
     ss_string(help, x, y);
     x += hw + 2 * OPANEL_HINT_PAD;
-    opanel_hint_glyph_square(x, y, g);
+    draw_pad_glyph('s', x, y, g);
     x += g + OPANEL_HINT_PAD;
     ss_string(music, x, y);
 
@@ -1479,27 +1466,33 @@ static void opanel_show_help(void) {
         string_message_info(REF_STR_NotAvailCspace);
         return;
     }
-    if (full_game_3d)
-        return; // it labels the normal HUD
 
     // it labels the HUD underneath: show the inventory instead of the panel, and the 3D view
-    // without the hints
+    // without the hints (in fullscreen, render_run() repaints the whole screen, panel included)
     render_run();
-    if (page >= 0) {
-        inventory_page = page;
-        inv_last_page = -1; // draw it whole
-        inventory_draw();
-        inventory_page = -1;
-        inv_last_page = page;
-    } else {
-        inventory_clear();
+    if (!full_game_3d) {
+        if (page >= 0) {
+            inventory_page = page;
+            inv_last_page = -1; // draw it whole
+            inventory_draw();
+            inventory_page = -1;
+            inv_last_page = page;
+        } else {
+            inventory_clear();
+        }
     }
 
     olh_overlay_on = TRUE;
     olh_overlay();
-    // it redraws the HUD, but not the 3D view, the panel or "Pause"
+    // it redraws the normal HUD, but not the 3D view, the panel or "Pause"
     render_run();
-    opanel_redraw(TRUE);
+    if (full_game_3d) {
+        // the panel's background is the view under it (see wrapper_start())
+        ss_get_bitmap(&inv_view360_canvas.bm, GAME_MESSAGE_X, GAME_MESSAGE_Y);
+        opanel_redraw(FALSE);
+    } else {
+        opanel_redraw(TRUE);
+    }
     redraw_paused = TRUE;
 }
 

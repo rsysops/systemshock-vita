@@ -131,6 +131,7 @@ int str_to_hex(char val);
 void strip_newlines(char *buf);
 
 void text_button(char *text, int xc, int yc, int col, int shad, int w, int h);
+void draw_pad_glyph(char button, short x, short y, short size);
 
 void zoom_rect(LGRect *start, LGRect *end);
 
