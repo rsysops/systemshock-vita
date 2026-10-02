@@ -287,6 +287,9 @@ typedef uint16_t fixang;
 fix fix_mul(fix a, fix b);
 fix fix_mul_asm_safe(fix a, fix b);
 fix fix_div(fix a, fix b);
+#ifdef VITA_PROFILE
+int fix_div_selfcheck(unsigned n, unsigned *checked);
+#endif
 fix fix_div_int(fix a, fix b);
 fix fix_div_safe_cint(fix a, fix b);
 fix fix_mul_div(fix m0, fix m1, fix d);

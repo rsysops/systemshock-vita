@@ -8,8 +8,12 @@
 #include <vita2d.h>
 
 #include "Shock.h"
+#include "fix.h"
 #include "mainloop.h"
 #include "vprof.h"
+
+#define VPROF_WINDOWS_PER_VARIANT 5
+#define VPROF_FIXDIV_CHECK_CASES 1000000
 
 // Per-call stats (one sample per VPROF_RUN/VPROF_MARK_END invocation).
 // Phases other than VPROF_RASTER fire exactly once per mainloop iteration,
@@ -49,9 +53,35 @@ static SceInt64 g_window_start_us;
 static short g_window_loop_mode = -1;
 static int g_window_open = 0;
 
+int vprof_variant = 0;
+static int g_windows_in_variant = 0;
+
+static int g_startup_done = 0;
+static int g_fixdiv_mismatches = -1;
+static unsigned g_fixdiv_checked = 0;
+
 static vita2d_pgf *g_pgf = NULL;
 
 static const char *PROFILE_FILENAME = "profile.txt";
+
+static FILE *vprof_open_log(void) {
+    char path[256];
+    snprintf(path, sizeof(path), "%s%s", VITA_PATH, PROFILE_FILENAME);
+    return fopen(path, "a");
+}
+
+// One-off checks run before the first frame, logged once at the top of the
+// session.
+static void vprof_startup_checks(void) {
+    FILE *fp;
+
+    g_fixdiv_mismatches = fix_div_selfcheck(VPROF_FIXDIV_CHECK_CASES, &g_fixdiv_checked);
+    fp = vprof_open_log();
+    if (fp != NULL) {
+        fprintf(fp, "fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
+        fclose(fp);
+    }
+}
 
 static void vprof_window_reset(SceInt64 now, short loop_mode) {
     int i;
@@ -87,7 +117,6 @@ static double frame_max_ms(vprof_phase_t phase) {
 }
 
 static void vprof_window_flush(SceInt64 now) {
-    char path[256];
     FILE *fp;
     double fps;
     double frame_avg, frame_max;
@@ -105,17 +134,17 @@ static void vprof_window_flush(SceInt64 now) {
     raster_call_avg_ms = us_to_ms(g_call_accum[VPROF_RASTER].total_us) /
                           (g_call_accum[VPROF_RASTER].samples ? g_call_accum[VPROF_RASTER].samples : 1);
 
-    snprintf(path, sizeof(path), "%s%s", VITA_PATH, PROFILE_FILENAME);
-    fp = fopen(path, "a");
+    fp = vprof_open_log();
     if (fp != NULL) {
         fprintf(fp,
-                "t=%lld mode=%d fps=%.1f frame_avg=%.2f frame_max=%.2f "
+                "t=%lld mode=%d var=%d fps=%.1f frame_avg=%.2f frame_max=%.2f "
                 "input=%.2f/%.2f sim=%.2f/%.2f render3d=%.2f/%.2f "
                 "ui2d=%.2f/%.2f present=%.2f/%.2f | "
                 "traverse=%.2f/%.2f sendview=%.2f/%.2f raster=%.2f/%.2f "
                 "calls_per_frame=%.1f raster_call_avg=%.3f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
+                vprof_variant,
                 fps,
                 frame_avg,
                 frame_max,
@@ -156,9 +185,15 @@ void vprof_mark_end(vprof_phase_t phase) {
 }
 
 void vprof_frame_begin(void) {
-    SceInt64 now = sceKernelGetProcessTimeWide();
+    SceInt64 now;
     int i;
 
+    if (!g_startup_done) {
+        g_startup_done = 1;
+        vprof_startup_checks();
+    }
+
+    now = sceKernelGetProcessTimeWide();
     if (!g_window_open) {
         vprof_window_reset(now, _current_loop);
     } else if (_current_loop != g_window_loop_mode) {
@@ -194,6 +229,11 @@ void vprof_frame_end(void) {
 
     if (now - g_window_start_us >= 1000000) {
         vprof_window_flush(now);
+        // Switch only at a window boundary, so no window mixes two variants.
+        if (++g_windows_in_variant >= VPROF_WINDOWS_PER_VARIANT) {
+            g_windows_in_variant = 0;
+            vprof_variant = (vprof_variant + 1) % VPROF_VARIANT_COUNT;
+        }
         vprof_window_reset(now, _current_loop);
     }
 }
@@ -239,8 +279,9 @@ void vprof_overlay_draw(void) {
              raster_calls_per_frame);
     vita2d_pgf_draw_text(g_pgf, 4, 48, 0xffffffff, 1.0f, line);
 
-    snprintf(line, sizeof(line), "mode=%d window_age=%llds call_avg=%.3fms", _current_loop,
-             (long long)(window_age_us / 1000000), raster_call_avg_ms);
+    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds call_avg=%.3fms chk=%d/%u", _current_loop,
+             vprof_variant, (long long)(window_age_us / 1000000), raster_call_avg_ms, g_fixdiv_mismatches,
+             g_fixdiv_checked);
     vita2d_pgf_draw_text(g_pgf, 4, 64, 0xffffffff, 1.0f, line);
 }
 

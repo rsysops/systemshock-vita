@@ -214,6 +214,11 @@ retry:
   between variants every few seconds (the first attempt used 5 s), and
   start a new log line at each switch. Never compare two runs taken at
   different spots.
+  - The retry's profile build does this itself: code under test reads
+    `vprof_variant`, which cycles through `VPROF_VARIANT_COUNT` values
+    (both in `src/Libraries/H/vprof.h`) every 5 windows. It only switches
+    at a window boundary, so no window mixes two variants, and each log
+    line carries `var=N`. Each step just redefines what the variants mean.
 - **What the profiler looked like (re-create it).**
   - **Build.**
     - A `VITA_PROFILE` CMake option adds `-DVITA_PROFILE` and links
@@ -315,15 +320,16 @@ Each of these can be done and measured on its own, before any threading.
 - **The bit-exact replacement.**
   - Compute `(double)a * 65536.0 / (double)b`. Both operands convert to
     double exactly, and `vdiv.f64` is a hardware instruction.
-  - If the result is not strictly inside ±2147483646, use the original
-    int64 code. That covers overflow and the edge cases.
-  - Otherwise convert to int32 and check the remainder
-    `(int64_t)a << 16 − q·b` against the sign rules of truncating
-    division:
-    - the remainder has the sign of the dividend and is smaller than `|b|`
-    - fix `q` by ±1 if not
-  - Keep the `b == 0` and overflow results and the `gOVResult` codes
-    exactly as before.
+  - If `b == 0` or the result is not strictly inside ±2147483646, use the
+    original int64 code. That covers overflow and the edge cases, and keeps
+    their results and `gOVResult` codes exactly as before.
+  - Otherwise just convert to int32. No remainder check is needed: a
+    non-integer quotient is at least `1/|b|` from an integer, and the
+    double's rounding (even a few ulps under `-Ofast`) could only cross one
+    if `|a · 65536| ≥ 2^53`, but it is below 2^47. So the first attempt's
+    ±1 remainder correction could never fire; with it removed, the retry's
+    harness (`tests/fix_div/run.sh`) still finds 0 differences in 10⁸
+    cases.
 - **Verification.**
   - 10⁸ random pairs of varied magnitudes, plus near-exact quotients and
     ± small offsets around edge values (0, ±1, ±65536, `INT32_MIN`/`MAX`,
@@ -335,15 +341,47 @@ Each of these can be done and measured on its own, before any threading.
   - 0 differences at `-O2` and at `-Ofast`.
   - Check the generated code with `arm-vita-eabi-objdump`: `vdiv.f64` on
     the fast path, `__aeabi_ldivmod` only on the fallback.
-- **Measured effect.** The first attempt measured it together with the
-  overhead cuts below: the recorded frames replayed on one core ran at
-  18.8 fps vs 17.0–19.9 for the other variants in that session. Measure
-  it alone in the retry.
+  - **Retry's results.**
+    - Host harness `tests/fix_div/run.sh`: 10⁸ generated cases plus 400
+      edge pairs, with gcc and clang at `-O2` and `-Ofast`, comparing the
+      return value and `gOVResult`. 0 differences. It does catch
+      deliberate mistakes: widening the positive range bound gave 16,351
+      mismatches in 10⁶ cases, and dropping the `gOVResult` reset was
+      caught too.
+    - On device, the profile build compares old and new at startup with
+      the real ARM compiler and flags: `fixdiv_check mismatches=0/1000400`.
+    - objdump of the normal build: convert, `vmul.f64`, `vdiv.f64`, range
+      check, convert, return; `__aeabi_ldivmod` only after a zero divisor
+      or an out-of-range result.
+- **Measured effect.**
+  - The first attempt measured it together with the overhead cuts below:
+    the recorded frames replayed on one core ran at 18.8 fps vs 17.0–19.9
+    for the other variants in that session.
+  - **Retry, measured alone** (`docs/profile-step-2.txt`): full 3D view
+    (`FULLSCREEN_LOOP`), 960×544, standing still in the first area for
+    3 min 17 s, the two variants alternating every 5 s. Medians of 95 and
+    98 windows:
+
+    | variant | fps | frame | render3d | traverse | raster | sim | raster call avg |
+    |---|---|---|---|---|---|---|---|
+    | original `fix_div` | 24.2 | 41.3 ms | 33.7 ms | 31.4 ms | 28.7 ms | 0.73 ms | 0.219 ms |
+    | FPU `fix_div` | 27.0 | 37.1 ms | 29.8 ms | 27.4 ms | 25.0 ms | 0.59 ms | 0.191 ms |
+
+  - That is **+11.6% fps, −4.2 ms per frame, raster −3.8 ms (−13%)**. The
+    FPU version won in all 20 pairs of neighbouring 5 s blocks (median
+    +2.8 fps, minimum +0.2), and the quartiles don't overlap (24.2–24.3
+    vs 26.7–27.0 fps).
+  - The profile build pays for choosing the variant on every call: the
+    original variant ran at 24.2 fps there vs 24.7 in the step 1 baseline.
+    Normal builds call the FPU version directly.
 - **`gOVResult`.** Also set `gOVResult = 0` only when it isn't 0 already.
   It is a global written by every `fix_div`/`fix_mul_div` call. Its only
   reader is `src/Libraries/3D/Source/points.c`, right after its own
   division. With several cores dividing, an unconditional store bounces
   that cache line between them.
+  - Do the check through `volatile`. `-Ofast` allows store data races, and
+    GCC turned `if (gOVResult) gOVResult = 0;` back into an unconditional
+    store.
 
 ### Music: DOSBox OPL3 instead of Nuked
 
@@ -671,7 +709,9 @@ across rows. Medians of in-game windows at 960×544:
 
 1. ~~**Profiler and baseline.** 960×544, standing still in the first
    area.~~ **Done** — see "Baseline" above and `docs/profile-step-1.txt`.
-2. **FPU `fix_div`**, measured alone (bit-exactness test first).
+2. ~~**FPU `fix_div`**, measured alone (bit-exactness test first).~~
+   **Done**: +11.6% fps — see "FPU `fix_div`" above and
+   `docs/profile-step-2.txt`.
 3. **DOSBox music** on Vita, measured alone.
 4. **Recording and single-thread replay only.**
    - Check it costs nothing and draws identical frames.

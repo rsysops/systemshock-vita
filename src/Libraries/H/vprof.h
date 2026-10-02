@@ -21,6 +21,12 @@ typedef enum {
 
 #include <psp2/kernel/processmgr.h>
 
+// Variants of the code under test, alternated every few 1 s windows so they
+// can be compared within one session. Current step: 0 = original int64
+// fix_div, 1 = FPU fix_div.
+#define VPROF_VARIANT_COUNT 2
+extern int vprof_variant;
+
 void vprof_record(vprof_phase_t phase, long long micros);
 void vprof_mark_begin(vprof_phase_t phase);
 void vprof_mark_end(vprof_phase_t phase);
