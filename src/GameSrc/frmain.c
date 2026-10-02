@@ -57,6 +57,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frparams.h"
 #include "frflags.h"
 #include "gr2ss.h"
+#include "vprof.h"
 
 int fr_pipe_go_2(void);
 int fr_pipe_go_3(void);
@@ -93,6 +94,8 @@ int fr_rend(frc *view) {
 #ifdef AUDIOLOGS
         audiolog_loop_callback();
 #endif
+        VPROF_MARK_BEGIN(VPROF_TRAVERSE);
+
         // printf(" fr_pipe_start\n");
         fr_pipe_start(-1); /* set environment up */
 
@@ -111,6 +114,8 @@ int fr_rend(frc *view) {
         // printf(" fr_pipe_end\n");
         fr_pipe_end(); /* clean environment up */
 
+        VPROF_MARK_END(VPROF_TRAVERSE);
+
         // MLA - does nothing!
         // synchronous_update();            // And one for the road.
 #ifdef AUDIOLOGS
@@ -123,7 +128,7 @@ int fr_rend(frc *view) {
     }
 
     // printf(" fr_pipe_end\n");
-    fr_send_view(); /* send it, whether it came from 3d or special */
+    VPROF_RUN(VPROF_SENDVIEW, fr_send_view()); /* send it, whether it came from 3d or special */
     if ((_fr->flags & FR_CURVIEW_MASK) == FR_CURVIEW_STRT)
         _frp.time.last_frame_cnt++;
     return 1;

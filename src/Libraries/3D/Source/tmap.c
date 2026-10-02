@@ -127,6 +127,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "3d.h"
 #include "GlobalV.h"
 #include "lg.h"
+#include "vprof.h"
 
 extern void per_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern void h_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
@@ -599,7 +600,7 @@ int draw_tmap_common(int n, g3s_phandle *vp, grs_bitmap *bm) {
     }
 
     if (!light_flag) {
-        ((void (*)(grs_bitmap * bm, int n, grs_vertex **vpl, grs_tmap_info *ti)) tmap_func)(bm, _n_verts, p_vpl, &ti);
+        VPROF_RUN(VPROF_RASTER, ((void (*)(grs_bitmap * bm, int n, grs_vertex **vpl, grs_tmap_info *ti)) tmap_func)(bm, _n_verts, p_vpl, &ti));
         return CLIP_NONE;
     } else {
         extern fix gr_clut_lit_tol;
@@ -620,8 +621,8 @@ int draw_tmap_common(int n, g3s_phandle *vp, grs_bitmap *bm) {
 
         temp_i = imax - imin;
         if (temp_i >= gr_clut_lit_tol) {
-            ((void (*)(grs_bitmap * bm, int n, grs_vertex **vpl, grs_tmap_info *ti)) tmap_func)(bm, _n_verts, p_vpl,
-                                                                                                &ti);
+            VPROF_RUN(VPROF_RASTER, ((void (*)(grs_bitmap * bm, int n, grs_vertex **vpl, grs_tmap_info *ti)) tmap_func)(bm, _n_verts, p_vpl,
+                                                                                                &ti));
             return CLIP_NONE;
         } else {
             uchar *temp_ptr;
@@ -634,8 +635,8 @@ int draw_tmap_common(int n, g3s_phandle *vp, grs_bitmap *bm) {
             ti.tmap_type += 2;
             ti.flags |= TMF_CLUT;
 
-            ((void (*)(grs_bitmap * bm, int n, grs_vertex **vpl, grs_tmap_info *ti)) tmap_func)(bm, _n_verts, p_vpl,
-                                                                                                &ti);
+            VPROF_RUN(VPROF_RASTER, ((void (*)(grs_bitmap * bm, int n, grs_vertex **vpl, grs_tmap_info *ti)) tmap_func)(bm, _n_verts, p_vpl,
+                                                                                                &ti));
             return CLIP_NONE;
         }
     }

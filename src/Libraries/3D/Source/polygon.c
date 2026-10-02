@@ -29,6 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "GlobalV.h"
 #include "lg.h"
 #include "OpenGL.h"
+#include "vprof.h"
 
 // prototypes
 int check_and_draw_common(long c, int n_verts, g3s_phandle *p);
@@ -321,7 +322,7 @@ draw_poly_common_raw:
     }
 
     // draw it
-    ((void (*)(long c, int n, grs_vertex **vpl))grd_canvas_table[poly_index[gour_flag]])(poly_color, n_verts, p_vpl);
+    VPROF_RUN(VPROF_RASTER, ((void (*)(long c, int n, grs_vertex **vpl))grd_canvas_table[poly_index[gour_flag]])(poly_color, n_verts, p_vpl));
 
     return CLIP_NONE;
 }

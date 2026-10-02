@@ -253,24 +253,54 @@ retry:
       drawn on top of the frame, so it never leaves pixels in the game's
       canvas.
 
-## Baseline (indicative)
+## Baseline
 
-From `docs/profile-960x544.txt`, original single-threaded game, detail
-Max. The spot differed from later runs, so treat the numbers as
-indicative. Medians of in-game windows:
+From `docs/profile-step-1.txt`, the retry's own profiler (see "How to measure"
+below), original single-threaded game, 960×544, detail Max, stock clocks,
+standing still in the first area for about 3 minutes. Two long steady
+segments appear, at two different in-game loop modes with different 3D
+viewport sizes — both are reported rather than picking one:
 
-| fps | frame | raster | traverse excl. raster | sim | sendview | present |
-|---|---|---|---|---|---|---|
-| 17.7 | 56.6 ms | 43.3 ms | ~1.5 ms | 1.9 ms (spikes to 12) | 3.9 ms | 2.9 ms |
+| mode | fps | frame | render3d | traverse | raster | sendview | sim | present | raster calls/frame |
+|---|---|---|---|---|---|---|---|---|---|
+| `FULLSCREEN_LOOP` (full 3D view) | 24.7 | 40.4 ms | 33.0 ms | 30.7 ms | 28.1 ms | 3.15 ms | 0.71 ms | 2.92 ms | 131 |
+| `GAME_LOOP` (paneled 3D view) | 45.5 | 22.0 ms | 16.2 ms | 16.4 ms | 14.0 ms | 0.55 ms | 0.64 ms | 2.87 ms | 115 |
 
-- **Pixel filling dominates.** Raster is two thirds of the mean frame.
-- **Polygons are few and large.** Only ~30–40 of them reach the 2D
-  mappers per frame (90 at most).
+- **Faster than the old indicative numbers.** The now-superseded
+  `docs/profile-960x544.txt` read 17.7 fps / 56.6 ms from a single,
+  unlabeled run. The current engine measures meaningfully faster in both
+  loop modes — whether from since-landed upstream fixes or a different
+  spot in the game is unclear and wasn't investigated further here.
+- **Render3d still dominates, and raster still dominates render3d.**
+  `render3d` is 82% (`FULLSCREEN_LOOP`) / 74% (`GAME_LOOP`) of the frame;
+  `raster` alone is 68% / 64% of the frame and 85–93% of `render3d`. This
+  matches the old finding ("raster is two thirds of the mean frame") and
+  confirms pixel filling is still the right thing to parallelize.
+  `traverse` fully contains `raster` and nests correctly throughout both
+  logs (`traverse` ≤ `render3d` ≤ `frame_avg` always holds) — see the
+  note on multi-view frames below for why that wasn't true on the first
+  attempt at this capture.
+- **`GAME_LOOP`'s paneled 3D view renders roughly half the pixels** of
+  `FULLSCREEN_LOOP`'s full 3D view: render3d/traverse/raster are all ~2×
+  smaller and fps is ~2× higher, consistent with a smaller 3D viewport
+  when the classic UI panels are up around it.
+- **Polygon/call count matches the old finding's order of magnitude.**
+  ~115–131 raster-handoff calls/frame is the same ballpark as the old
+  "~30–40 polygons, 90 at most" — this count is per handoff call (a
+  polygon can dispatch through more than one lit/CLUT variant), not
+  strictly one per polygon, so it runs a bit higher.
+- **Multi-view frames are real and already accounted for.** `render_run()`
+  can call `fr_rend()` more than once per game frame — once for the main
+  view, plus once per visible hacked security-camera monitor (see "One
+  split per 3D view" below). A brief transition in the log shows this
+  directly: `raster calls/frame` jumps from a steady 131 to 134–138 for a
+  couple of seconds while `render3d`/`traverse`/`raster` all tick up
+  together, then settles back down.
 - **Splitting by screen rows suits that.** Every thread has rows of
   nearly every polygon to draw.
 
-The same run at 480×272 (`docs/profile-480x272.txt`) gave 43.5 fps with
-raster 14.6 ms; the retry drops that resolution.
+The same run at 480×272 (`docs/profile-480x272.txt`, now superseded) gave
+43.5 fps with raster 14.6 ms; the retry drops that resolution.
 
 ## Speed-ups that don't need threads
 
@@ -529,6 +559,12 @@ pixels outside the band. Rules per loop family:
 - **One split per 3D view.** Some frames also draw a smaller 3D view (a
   181-row canvas was seen). Key the split on the canvas (bits, w, h); a
   shared split lets each view pull the other's balance.
+  **Confirmed by the retry's profiler:** this is `render_hack_cameras()`
+  in `src/GameSrc/render.c`, called unconditionally from `render_run()`
+  right after the main view's `fr_rend()`, once per visible hacked
+  security-camera monitor (`hack_cameras_needed` in `src/GameSrc/objsim.c`).
+  See "Baseline" above for a transition in `docs/profile-step-1.txt` where this
+  visibly adds an extra render pass within one game frame.
 
 ### Verification
 
@@ -633,7 +669,8 @@ across rows. Medians of in-game windows at 960×544:
 
 ## Recommended order for the retry
 
-1. **Profiler and baseline.** 960×544, standing still in the first area.
+1. ~~**Profiler and baseline.** 960×544, standing still in the first
+   area.~~ **Done** — see "Baseline" above and `docs/profile-step-1.txt`.
 2. **FPU `fix_div`**, measured alone (bit-exactness test first).
 3. **DOSBox music** on Vita, measured alone.
 4. **Recording and single-thread replay only.**
