@@ -14,6 +14,7 @@ typedef enum {
     VPROF_TRAVERSE,
     VPROF_SENDVIEW,
     VPROF_RASTER,
+    VPROF_RECORD,
     VPROF_PHASE_COUNT
 } vprof_phase_t;
 
@@ -23,10 +24,15 @@ typedef enum {
 #include <psp2/kernel/threadmgr.h>
 
 // Variants of the code under test, alternated every few 1 s windows so they
-// can be compared within one session. Current step: 0 = Nuked OPL3 music
-// (1.7.4), 1 = DOSBox OPL3 music.
-#define VPROF_VARIANT_COUNT 2
+// can be compared within one session. Current step, the rasterizer queue
+// (the RASTQ_ modes of rastq.h): 0 = draw directly, 1 = record and replay
+// copying every bitmap, 2 = record and replay without copying terrain
+// textures.
+#define VPROF_VARIANT_COUNT 3
 extern int vprof_variant;
+
+// Leaves the current frame out of the window's statistics.
+void vprof_frame_discard(void);
 
 // Called from the audio thread with the time spent synthesizing one buffer.
 void vprof_audio_add(unsigned micros, int cpu);

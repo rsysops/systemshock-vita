@@ -40,6 +40,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "statics.h"
 
 #include "OpenGL.h"
+#include "rastq.h"
 
 
 uchar textures_loaded = FALSE;
@@ -192,6 +193,11 @@ void load_textures(void) {
 
         setup_tmap_bitmaps();
         tmaps_setup = TRUE;
+
+        // Terrain texture pixels are only written when a level loads.
+        rastq_stable_pixels(tmap_static_mem, sizeof(tmap_static_mem));
+        if (all_textures)
+            rastq_stable_pixels(tmap_big_buffer, sizeof(tmap_big_buffer));
     }
 
     for (c = 0; c < NUM_LOADED_TEXTURES; c++) {

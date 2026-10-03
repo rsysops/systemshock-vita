@@ -10,6 +10,7 @@
 #include "Shock.h"
 #include "fix.h"
 #include "mainloop.h"
+#include "rastq.h"
 #include "vprof.h"
 
 #define VPROF_WINDOWS_PER_VARIANT 5
@@ -40,6 +41,11 @@ typedef struct {
 
 static vprof_call_accum_t g_call_accum[VPROF_PHASE_COUNT];
 static SceInt64 g_mark_t0[VPROF_PHASE_COUNT];
+
+// A discarded frame leaves no trace: its per-call stats are rolled back to
+// this copy, taken when the frame began.
+static vprof_call_accum_t g_call_accum_at_frame_begin[VPROF_PHASE_COUNT];
+static int g_frame_discard = 0;
 
 static SceInt64 g_frame_phase_total_us[VPROF_PHASE_COUNT];
 static vprof_frame_accum_t g_frame_accum[VPROF_PHASE_COUNT];
@@ -104,6 +110,9 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     g_frame_max_us = 0;
     g_frame_samples = 0;
     __atomic_store_n(&g_audio_us, 0, __ATOMIC_RELAXED);
+    rastq_stats.cmds = 0;
+    rastq_stats.flushes = 0;
+    rastq_stats.copied = 0;
     g_window_start_us = now;
     g_window_loop_mode = loop_mode;
     g_window_open = 1;
@@ -159,7 +168,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "input=%.2f/%.2f sim=%.2f/%.2f render3d=%.2f/%.2f "
                 "ui2d=%.2f/%.2f present=%.2f/%.2f | "
                 "traverse=%.2f/%.2f sendview=%.2f/%.2f raster=%.2f/%.2f "
-                "calls_per_frame=%.1f raster_call_avg=%.3f | music=%.1f%% acpu=%d mcpu=%d\n",
+                "calls_per_frame=%.1f raster_call_avg=%.3f | music=%.1f%% acpu=%d mcpu=%d | "
+                "record=%.2f/%.2f cmds=%.1f copied=%.1fKB flushes=%.2f check=%u/%u\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -178,7 +188,13 @@ static void vprof_window_flush(SceInt64 now) {
                 raster_call_avg_ms,
                 music_pct(now),
                 __atomic_load_n(&g_audio_cpu, __ATOMIC_RELAXED),
-                g_main_cpu);
+                g_main_cpu,
+                frame_avg_ms(VPROF_RECORD, g_frame_samples), frame_max_ms(VPROF_RECORD),
+                (double)rastq_stats.cmds / g_frame_samples,
+                (double)rastq_stats.copied / 1024.0 / g_frame_samples,
+                (double)rastq_stats.flushes / g_frame_samples,
+                rastq_stats.check_bad_rows,
+                rastq_stats.check_runs);
         fclose(fp);
     }
 }
@@ -225,9 +241,15 @@ void vprof_frame_begin(void) {
 
     for (i = 0; i < VPROF_PHASE_COUNT; i++) {
         g_frame_phase_total_us[i] = 0;
+        g_call_accum_at_frame_begin[i] = g_call_accum[i];
     }
+    g_frame_discard = 0;
 
     g_frame_t0 = now;
+}
+
+void vprof_frame_discard(void) {
+    g_frame_discard = 1;
 }
 
 void vprof_frame_end(void) {
@@ -235,17 +257,23 @@ void vprof_frame_end(void) {
     SceInt64 elapsed = now - g_frame_t0;
     int i;
 
-    g_frame_total_us += elapsed;
-    g_frame_samples++;
-    if (elapsed > g_frame_max_us) {
-        g_frame_max_us = elapsed;
-    }
     g_main_cpu = sceKernelGetCpuId();
 
-    for (i = 0; i < VPROF_PHASE_COUNT; i++) {
-        g_frame_accum[i].total_us += g_frame_phase_total_us[i];
-        if (g_frame_phase_total_us[i] > g_frame_accum[i].max_us) {
-            g_frame_accum[i].max_us = g_frame_phase_total_us[i];
+    if (g_frame_discard) {
+        for (i = 0; i < VPROF_PHASE_COUNT; i++) {
+            g_call_accum[i] = g_call_accum_at_frame_begin[i];
+        }
+    } else {
+        g_frame_total_us += elapsed;
+        g_frame_samples++;
+        if (elapsed > g_frame_max_us) {
+            g_frame_max_us = elapsed;
+        }
+        for (i = 0; i < VPROF_PHASE_COUNT; i++) {
+            g_frame_accum[i].total_us += g_frame_phase_total_us[i];
+            if (g_frame_phase_total_us[i] > g_frame_accum[i].max_us) {
+                g_frame_accum[i].max_us = g_frame_phase_total_us[i];
+            }
         }
     }
 
@@ -296,16 +324,18 @@ void vprof_overlay_draw(void) {
     raster_call_avg_ms = us_to_ms(g_call_accum[VPROF_RASTER].total_us) /
                           (g_call_accum[VPROF_RASTER].samples ? g_call_accum[VPROF_RASTER].samples : 1);
 
-    snprintf(line, sizeof(line), "traverse=%.1f sendview=%.1f raster=%.1fms calls/f=%.0f",
+    snprintf(line, sizeof(line), "traverse=%.1f sendview=%.1f raster=%.1fms calls/f=%.0f record=%.2fms cmds=%.0f",
              frame_avg_ms(VPROF_TRAVERSE, samples),
              frame_avg_ms(VPROF_SENDVIEW, samples),
              frame_avg_ms(VPROF_RASTER, samples),
-             raster_calls_per_frame);
+             raster_calls_per_frame,
+             frame_avg_ms(VPROF_RECORD, samples),
+             (double)rastq_stats.cmds / samples);
     vita2d_pgf_draw_text(g_pgf, 4, 48, 0xffffffff, 1.0f, line);
 
-    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds call_avg=%.3fms chk=%d/%u", _current_loop,
-             vprof_variant, (long long)(window_age_us / 1000000), raster_call_avg_ms, g_fixdiv_mismatches,
-             g_fixdiv_checked);
+    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds call_avg=%.3fms check=%u/%u", _current_loop,
+             vprof_variant, (long long)(window_age_us / 1000000), raster_call_avg_ms, rastq_stats.check_bad_rows,
+             rastq_stats.check_runs);
     vita2d_pgf_draw_text(g_pgf, 4, 64, 0xffffffff, 1.0f, line);
 }
 

@@ -175,6 +175,7 @@ set(3D_SRC
 	3D/Source/matrix.c
 	3D/Source/points.c
 	3D/Source/polygon.c
+	3D/Source/rastq.c
 	3D/Source/slew.c
 	3D/Source/tmap.c
 	3D/Source/vector.c

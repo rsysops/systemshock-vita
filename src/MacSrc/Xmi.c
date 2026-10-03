@@ -39,8 +39,6 @@ void MusicCallback(void *userdata, Uint8 *stream, int len) {
 
     SDL_memset(stream, 0, (size_t)len); // in case we don't get anything
 #ifdef VITA_PROFILE
-    // Profile builds alternate the OPL3 emulator to compare them (see vprof.h).
-    AdlMidiSetEmulator(dev, vprof_variant ? Music_Opl3DosBox : Music_Opl3Nuked);
     SceInt64 t0 = sceKernelGetProcessTimeWide();
 #endif
     dev->generate(dev, (short *)((void *)stream), len / (int)(2 * sizeof(short)));

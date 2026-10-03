@@ -227,6 +227,9 @@ retry:
     audio and main threads were seen on). The music time is measured on
     the audio thread and handed over atomically (`vprof_audio_add`),
     because `vprof_record` is for the main thread only.
+  - Since step 4 it also carries the recorder's figures: `record=` (time
+    spent recording), `cmds=`, `copied=` and `flushes=` per frame, and
+    `check=` (rows that differed / self-checks run).
 - **What the profiler looked like (re-create it).**
   - **Build.**
     - A `VITA_PROFILE` CMake option adds `-DVITA_PROFILE` and links
@@ -512,45 +515,104 @@ Each of these can be done and measured on its own, before any threading.
 
 ### Record, then replay
 
+Built in the retry's step 4 as `src/Libraries/3D/Source/rastq.c`, on one
+thread and without bands. The notes below say what the code does; the items
+marked "step 5" are from the first attempt and not rebuilt yet.
+
 - **Recording.** Between `fr_pipe_start` and `fr_pipe_end` in `fr_rend`,
   each handoff call is recorded instead of drawn. A record holds:
-  - copies of the vertices, the `grs_tmap_info` and the `grs_bitmap`
-  - a copy of the bitmap pixels, `row*(h−1)+w` bytes. Several bitmaps
-    live in buffers that are reused within a frame: the RSD unpack buffer
-    `grd_unpack_buf`, the teleport effect buffer, critter caches.
+  - copies of the vertices (taken through the pointer list), the
+    `grs_tmap_info` and the `grs_bitmap`. The 3D library passes pointers
+    into reused globals, and the mappers modify them.
   - the canvas `fill_type`, `fill_parm` and `clip`
-  - a flag saying whether it is safe to split into bands (see below)
+  - the bitmap pixels, **plus one row on each side**, unless they are
+    stable (next point). Polygon records copy no pixels: there `bits` is a
+    colour.
+  - step 5: a flag saying whether it is safe to split into bands
+- **Which pixels must be copied.**
+  - Reused within a frame, so copied: the RSD unpack buffer
+    `grd_unpack_buf`, the teleport effect buffer, the shared text-screen
+    bitmaps, `static_bitmap`, and sprite frames in resource memory, which
+    are unlocked right after the draw. The `grs_bitmap` struct
+    `get_texture_map` returns is shared too.
+  - Stable for the whole frame, so used in place: terrain texture pixels
+    in `tmap_static_mem` and `tmap_big_buffer`, written only when a level
+    loads. They are registered with `rastq_stable_pixels`.
+  - Why the extra rows: the 1D wall loop (`HandleWallLoop1D_C` in
+    `Flat8/fl8w.c`) masks the texture row but not the column, which can
+    land up to a dozen texels outside the bitmap. A copy has to show it
+    what the original's neighbours would.
 - **Recording-time conversions.**
   - **RSD8 bitmaps** are unpacked at record time with `gr_rsd8_convert`
     and recorded as the resulting FLAT8/TLUC8 bitmap. That is the same
     init function the RSD path would chain to. If unpacking fails,
     nothing is drawn, like the original.
-  - **`h_map`** is clipped once at record time (`gr_clip_poly(n,4,…)`)
-    and recorded as `h_umap`, so every band uses the same clipped
-    vertices, including the same garbage lighting.
+  - **Except for `per_umap`.** `rsd8_pm_init` always takes the
+    horizontal-scan mapper, while the unpacked bitmap may get the
+    vertical-scan one. Those calls are drawn directly.
+  - **`h_map`** (sprites) is recorded unclipped and replayed through
+    `h_map`, so clipping and temporary memory are used exactly as in
+    direct drawing. Step 5: clip once at record time
+    (`gr_clip_poly(n,4,…)`) and record as `h_umap`, so every band uses the
+    same clipped vertices, including the same garbage lighting.
+- **Drawn directly, after a flush.**
+  - Translucent shaded polygons (`FIX_TLUC8_SPOLY`, `temp_stpoly`): they
+    clip when drawn and light the new vertices from stale temporary
+    memory.
+  - RSD8 through `per_umap`, as above.
+  - Bitmap types other than FLAT8, TLUC8 and RSD8.
 - **Flushing.** Draw everything recorded before any draw that isn't
   recorded:
-  - `g3_draw_point`
   - `draw_line_common` (3D lines)
-  - a handoff call while `grd_canvas` isn't the recorded canvas
+  - `vx_render` (cyberspace voxels, called from `gameobj.c`); the first
+    attempt missed this one
+  - `g3_draw_point`, which has no callers
   - the end of the pass, before `fr_send_view`, because `star_render`
     reads the sky pixels
-  
-  Bound the arena and command list (4 MB and 4096 commands were plenty)
-  and flush when full.
+
+  A handoff call while `grd_canvas` isn't the recorded canvas is drawn
+  directly without a flush: draw order only matters within one canvas.
+  The only canvas switch inside the pass is text-screen rendering
+  (`objsim.c`), which makes no 3D calls.
+- **The arena.** 4 MB and 4096 records. Flush **after** storing a record
+  once less than 256 KB remains, never before: a replay can overwrite the
+  unpack buffer the current call's pixels live in (the sprite blend
+  mapper doubles its bitmap into it), so they must be copied first.
 - **Replay.**
-  - Walk the list in order.
-  - A run of consecutive band-safe commands with the same
-    fill_type/fill_parm/clip is one batch, drawn by all threads at once,
-    one row band each.
-  - Before each batch, the main thread sets the canvas state
-    (`gr_set_fill_type`, `gr_set_fill_parm`, `grd_gc.clip`). Workers only
-    read it.
-  - Commands that aren't band-safe are drawn by the main thread alone
-    with a full band.
+  - Walk the list in order on the recorded canvas.
+  - Set the canvas state per record: `gr_set_fill_type` (the macro, which
+    also re-derives `grd_function_table`), `fill_parm` and `clip`.
   - Restore the canvas state afterwards. If the flush happens while
     another canvas is current, switch to the recorded canvas for the
     replay and back.
+  - Step 5: a run of consecutive band-safe commands with the same
+    fill_type/fill_parm/clip is one batch, drawn by all threads at once,
+    one row band each. The main thread sets the canvas state before each
+    batch; workers only read it. Commands that aren't band-safe are drawn
+    by the main thread alone with a full band.
+- **Known limit.** A wall texture taken from the unpack buffer could see
+  different leftover bytes past its end than direct drawing would,
+  because the blend mapper's scratch use of that buffer is deferred to
+  the replay. Game walls use fixed texture memory, and the on-device
+  self-check found nothing.
+- **Measured cost** (`docs/profile-step-4.txt`): full 3D view, 960×544,
+  standing still in the first area, three variants alternating every 5 s,
+  self-checked frames left out. Medians:
+
+  | variant | windows | fps | frame | raster | record | pixels copied / frame |
+  |---|---|---|---|---|---|---|
+  | direct drawing | 130 | 27.0 | 37.0 ms | 24.8 ms | – | – |
+  | replay, copying every bitmap | 134 | 24.4 | 41.0 ms | 25.9 ms | 1.71 ms | 831 KB |
+  | replay, terrain textures in place | 129 | 26.8 | 37.4 ms | 24.7 ms | 0.28 ms | 41 KB |
+
+  - Against neighbouring direct-drawing blocks, copying everything costs
+    **+4.0 ms per frame (−2.6 fps)** over 27 comparisons, and leaving
+    terrain textures in place costs **+0.3 ms (−0.2 fps)** over 26.
+  - Copying is paid twice: the copy itself (1.7 ms), then drawing from
+    freshly copied memory (raster +1.2 ms).
+  - About 133 records and 2 flushes per frame.
+  - So recording is close to free only with terrain textures used in
+    place (`RASTQ_TRUST_STABLE`). Step 5 builds on that mode.
 
 ### Row bands, bit-exact
 
@@ -699,8 +761,11 @@ pixels outside the band. Rules per loop family:
   - **Gotchas.**
     - Skip combinations whose init entry is `gr_null` or `gr_not_imp`;
       they hang `h_umap`.
-    - Pad textures, e.g. +64 KB with a fixed byte, because of the
-      one-texel overread.
+    - Pad textures on both sides, e.g. 64 KB of a fixed byte, because
+      mappers read just outside them.
+    - Give the 1D wall mapper textures from fixed memory only, as the game
+      does. From the unpack buffer it reads leftovers whose timing a
+      replay changes (see "Known limit" under "Record, then replay").
   - **Test.** Draw each list once in a single pass, then again band by
     band with the replay's batching rules, and compare all pixels. Also
     check that a single command drawn with one band writes nothing
@@ -711,11 +776,36 @@ pixels outside the band. Rules per loop family:
     clipped-lighting bug above.
   - **First attempt's result:** 36,000 random frames at 320×200, 480×272
     and 960×544, 0 differing pixels.
-- **On-device self-check (profile builds).** Every ~100 views, replay the
-  view normally, then again on one thread, and compare row by row
-  (`check=rows/checks`, always `0/N`). Then replay once more with an
-  empty band: it must write nothing (`leaks`, always 0), and its time is
-  the work every band repeats.
+  - **Retry, step 4:** the harness exists as `tests/rastq/run.sh`, without
+    bands yet.
+    - Each random scene is drawn directly, then through record and replay
+      in both modes (copying every bitmap, and with stable textures in
+      place), and once more with the recorder's own self-check on. All
+      pixels are compared.
+    - Scenes also include bitmaps whose buffer is overwritten between
+      calls, RSD8 bitmaps, and draws outside the recorder between
+      polygons.
+    - It builds three ways: the default arena, a 320 KB arena that forces
+      flushes inside a scene, and with the address and undefined-behaviour
+      sanitizers on the recorder and the test.
+    - It fails on deliberate mistakes in the recorder: not copying pixels,
+      trusting every buffer as stable, not replaying the clip, the fill
+      type or the fill parm.
+    - Result: 0 differing frames over about 108,000 scenes (six seeds, two
+      arena sizes, three canvas sizes).
+- **On-device self-check (profile builds).**
+  - First attempt: every ~100 views, replay the view normally, then again
+    on one thread, and compare row by row (`check=rows/checks`, always
+    `0/N`). Then replay once more with an empty band: it must write
+    nothing (`leaks`, always 0), and its time is the work every band
+    repeats.
+  - Retry, step 4: every 64th recorded view is recorded **and** drawn
+    directly. At each flush the directly drawn canvas is kept aside, the
+    canvas is rewound to its state at the start of the batch, the batch is
+    replayed, and the two are compared row by row. That frame is left out
+    of the timings (`vprof_frame_discard`).
+  - Result (`docs/profile-step-4.txt`): `check=0/400`, 200 checks standing
+    still and 200 walking from the medical room to the main hallway.
 
 ## Pitfalls found, in the order they were hit
 
@@ -788,10 +878,14 @@ across rows. Medians of in-game windows at 960×544:
    a core freed, fps unchanged — see "Music: DOSBox OPL3 instead of
    Nuked" above, `docs/profile-step-3.txt` and
    `docs/profile-step-3b.txt`.
-4. **Recording and single-thread replay only.**
-   - Check it costs nothing and draws identical frames.
-   - Run the self-check from the start.
+4. ~~**Recording and single-thread replay only.**~~ **Done**: identical
+   frames (`check=0/400` on device) at +0.3 ms per frame with terrain
+   textures used in place — see "Record, then replay" above and
+   `docs/profile-step-4.txt`.
 5. **Bands and workers, straight in the final form:**
+   - build on the recorder's `RASTQ_TRUST_STABLE` mode
+   - first find what causes the second flush per frame seen in step 4:
+     each flush ends a batch
    - band-aware loops with all the early rejects and the whitelist
    - workers that spin between frames and sleep after 100 ms idle
    - priority main + 1

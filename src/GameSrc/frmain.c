@@ -57,6 +57,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frparams.h"
 #include "frflags.h"
 #include "gr2ss.h"
+#include "rastq.h"
 #include "vprof.h"
 
 int fr_pipe_go_2(void);
@@ -96,6 +97,8 @@ int fr_rend(frc *view) {
 #endif
         VPROF_MARK_BEGIN(VPROF_TRAVERSE);
 
+        rastq_begin();
+
         // printf(" fr_pipe_start\n");
         fr_pipe_start(-1); /* set environment up */
 
@@ -113,6 +116,10 @@ int fr_rend(frc *view) {
 
         // printf(" fr_pipe_end\n");
         fr_pipe_end(); /* clean environment up */
+
+        // Everything recorded must be on the canvas before fr_send_view:
+        // star_render reads its pixels.
+        rastq_end();
 
         VPROF_MARK_END(VPROF_TRAVERSE);
 

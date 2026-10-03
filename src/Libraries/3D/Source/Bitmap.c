@@ -77,7 +77,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "GlobalV.h"
 #include "lg.h"
 #include "OpenGL.h"
-#include "vprof.h"
+#include "rastq.h"
 #include <stdbool.h>
 
 // need this from 2D lib
@@ -394,7 +394,7 @@ grs_vertex **g3_bitmap_common(grs_bitmap *bm, g3s_phandle p) {
 
                     tmap_info.tmap_type = GRC_POLY;
                     if (!use_opengl()) {
-                        VPROF_RUN(VPROF_RASTER, h_map(bm, 4, _g3d_bitmap_poly, &tmap_info));
+                        rastq_hmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
                     } else {
                         int opengl_bitmap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
                         opengl_bitmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
@@ -407,7 +407,7 @@ grs_vertex **g3_bitmap_common(grs_bitmap *bm, g3s_phandle p) {
     tmap_info.tmap_type = (_g3d_light_flag << 1) + GRC_BILIN;
     extern bool use_opengl();
     if (!use_opengl()) {
-        VPROF_RUN(VPROF_RASTER, h_map(bm, 4, _g3d_bitmap_poly, &tmap_info));
+        rastq_hmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
     } else {
         int opengl_bitmap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
         opengl_bitmap(bm, 4, _g3d_bitmap_poly, &tmap_info);

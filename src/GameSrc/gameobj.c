@@ -70,6 +70,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 #include "OpenGL.h"
+#include "rastq.h"
 
 #define VOXEL_PIX_DIST_BASE (fix_make(0, 0x1000))
 #define VOXEL_PIX_DIST_DELTA (fix_make(0, 0x6000))
@@ -1033,6 +1034,7 @@ void show_obj(ObjID cobjid) {
         g3_start_object_angles_xyz(&_fr_p, _fr_cobj->loc.p << 8, _fr_cobj->loc.h << 8, _fr_cobj->loc.b << 8,
                                    ANGLE_ORDER);
         vx_init_vox(&vvv, pdist, psize, VOXEL_DEPTH, bitmaps_3d[o3drep], bitmaps_3d[o3drep + 1]);
+        rastq_flush(); // voxels are drawn straight to the canvas
         vx_render(&vvv);
         g3_end_object();
     } break;
