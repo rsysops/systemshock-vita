@@ -417,8 +417,14 @@ static struct {
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 
     {REF_STR_Seqer, {"Midi Player", "Lecteur MIDI", "MIDI-Player"}},
+#ifdef VITA
+    // ADLMIDI with either OPL3 emulator; the Vita has no native MIDI
+    {REF_STR_ADLMIDI, {"DOSBox OPL3", "DOSBox OPL3", "DOSBox OPL3"}},
+    {REF_STR_NativeMI, {"Nuked OPL3", "Nuked OPL3", "Nuked OPL3"}},
+#else
     {REF_STR_ADLMIDI, {"ADLMIDI", "ADLMIDI", "ADLMIDI"}},
     {REF_STR_NativeMI, {"Native MIDI", "MIDI natif", "System-MIDI"}},
+#endif
 #ifdef USE_FLUIDSYNTH
     {REF_STR_FluidSyn, {"FluidSynth", "FluidSynth", "FluidSynth"}},
 #endif

@@ -253,7 +253,7 @@ int16_t LoadPrefs(void) {
                 audiolog_setting = as;
         } else if (strcasecmp(key, PREF_MIDI_BACKEND) == 0) {
             int mb = atoi(value);
-            if (mb >= 0 && mb <= 2)
+            if (mb >= 0 && mb < OPT_SEQ_Max)
                 gShockPrefs.soMidiBackend = (short)mb;
         } else if (strcasecmp(key, PREF_MIDI_OUTPUT) == 0) {
             int mo = atoi(value);

@@ -56,6 +56,12 @@ static int g_window_open = 0;
 int vprof_variant = 0;
 static int g_windows_in_variant = 0;
 
+// Music synthesis time, added by the audio thread and taken by the main
+// thread once per window, so only these two touch it, atomically.
+static unsigned g_audio_us = 0;
+static int g_audio_cpu = -1;
+static int g_main_cpu = -1;
+
 static int g_startup_done = 0;
 static int g_fixdiv_mismatches = -1;
 static unsigned g_fixdiv_checked = 0;
@@ -97,6 +103,7 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     g_frame_total_us = 0;
     g_frame_max_us = 0;
     g_frame_samples = 0;
+    __atomic_store_n(&g_audio_us, 0, __ATOMIC_RELAXED);
     g_window_start_us = now;
     g_window_loop_mode = loop_mode;
     g_window_open = 1;
@@ -114,6 +121,17 @@ static double frame_avg_ms(vprof_phase_t phase, int frames) {
 
 static double frame_max_ms(vprof_phase_t phase) {
     return us_to_ms(g_frame_accum[phase].max_us);
+}
+
+// Music synthesis so far in this window, as a percentage of one core.
+static double music_pct(SceInt64 now) {
+    SceInt64 elapsed = now - g_window_start_us;
+    return elapsed > 0 ? 100.0 * __atomic_load_n(&g_audio_us, __ATOMIC_RELAXED) / elapsed : 0.0;
+}
+
+void vprof_audio_add(unsigned micros, int cpu) {
+    __atomic_fetch_add(&g_audio_us, micros, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_audio_cpu, cpu, __ATOMIC_RELAXED);
 }
 
 static void vprof_window_flush(SceInt64 now) {
@@ -141,7 +159,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "input=%.2f/%.2f sim=%.2f/%.2f render3d=%.2f/%.2f "
                 "ui2d=%.2f/%.2f present=%.2f/%.2f | "
                 "traverse=%.2f/%.2f sendview=%.2f/%.2f raster=%.2f/%.2f "
-                "calls_per_frame=%.1f raster_call_avg=%.3f\n",
+                "calls_per_frame=%.1f raster_call_avg=%.3f | music=%.1f%% acpu=%d mcpu=%d\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -157,7 +175,10 @@ static void vprof_window_flush(SceInt64 now) {
                 frame_avg_ms(VPROF_SENDVIEW, g_frame_samples), frame_max_ms(VPROF_SENDVIEW),
                 frame_avg_ms(VPROF_RASTER, g_frame_samples), frame_max_ms(VPROF_RASTER),
                 raster_calls_per_frame,
-                raster_call_avg_ms);
+                raster_call_avg_ms,
+                music_pct(now),
+                __atomic_load_n(&g_audio_cpu, __ATOMIC_RELAXED),
+                g_main_cpu);
         fclose(fp);
     }
 }
@@ -219,6 +240,7 @@ void vprof_frame_end(void) {
     if (elapsed > g_frame_max_us) {
         g_frame_max_us = elapsed;
     }
+    g_main_cpu = sceKernelGetCpuId();
 
     for (i = 0; i < VPROF_PHASE_COUNT; i++) {
         g_frame_accum[i].total_us += g_frame_phase_total_us[i];
@@ -243,7 +265,8 @@ void vprof_overlay_draw(void) {
     double frame_avg, frame_max, fps;
     double raster_calls_per_frame, raster_call_avg_ms;
     int samples = g_frame_samples > 0 ? g_frame_samples : 1;
-    SceInt64 window_age_us = sceKernelGetProcessTimeWide() - g_window_start_us;
+    SceInt64 now = sceKernelGetProcessTimeWide();
+    SceInt64 window_age_us = now - g_window_start_us;
 
     if (g_pgf == NULL) {
         g_pgf = vita2d_load_default_pgf();
@@ -256,7 +279,8 @@ void vprof_overlay_draw(void) {
     frame_max = us_to_ms(g_frame_max_us);
     fps = frame_avg > 0.0 ? 1000.0 / frame_avg : 0.0;
 
-    snprintf(line, sizeof(line), "fps=%.1f frame=%.2f/%.2fms", fps, frame_avg, frame_max);
+    snprintf(line, sizeof(line), "fps=%.1f frame=%.2f/%.2fms music=%.0f%%", fps, frame_avg, frame_max,
+             music_pct(now));
     vita2d_pgf_draw_text(g_pgf, 4, 16, 0xffffffff, 1.0f, line);
 
     snprintf(line, sizeof(line),

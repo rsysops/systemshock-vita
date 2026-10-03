@@ -93,7 +93,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "fix.h"
 #include "lg.h"
 #include "trigtab.h"
-#include "vprof.h"
 #include <stdint.h>
 #include <stdlib.h>
 
@@ -186,9 +185,7 @@ static fix fix_div_fpu(fix a, fix b) {
 #endif
 
 fix fix_div(fix a, fix b) {
-#if defined(VITA_PROFILE)
-    return vprof_variant ? fix_div_fpu(a, b) : fix_div_int64(a, b);
-#elif defined(FIX_DIV_FPU)
+#if defined(FIX_DIV_FPU)
     return fix_div_fpu(a, b);
 #else
     return fix_div_int64(a, b);

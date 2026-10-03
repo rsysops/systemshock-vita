@@ -34,7 +34,8 @@ without the old code:
   - A bit-exact FPU replacement for `fix_div` (the game's 64-bit software
     division).
   - Switching the music from the Nuked to the DOSBox OPL3 emulator. Nuked
-    keeps a core about 45% busy.
+    keeps a core about half busy (52% measured in the retry); DOSBox
+    takes 12%.
 - **Best result of the first attempt, at 960×544:** a median of 26.4 fps
   (p75 30.7) with the pixel filling on 3 cores, against 18.3 fps for the
   same recorded frames drawn on one core in the same session, and 17.7 fps
@@ -110,13 +111,15 @@ already are), is the practical approach.
   - SDL_mixer's audio callback thread
     (`Mix_OpenAudio(48000, AUDIO_S16SYS, 2, 2048)` in
     `src/MacSrc/SDLSound.c`)
-- **The music is expensive.** The audio callback synthesizes it with
-  libADLMIDI using the **Nuked OPL3** emulator
-  (`adl_switchEmulator(adl, ADLMIDI_EMU_NUKED_174)` in
-  `src/MusicSrc/MusicDevice.c`, `AdlMidiInit`) at the full 48 kHz rate. It
-  is the most accurate OPL3 emulator and by far the slowest. The
-  multicore attempt showed it keeps one core about **45% busy**. It is the
-  "40–60%" core in the PSVshell table below, not OS overhead.
+- **The music was expensive.** The audio callback synthesizes it with
+  libADLMIDI, which the game ran with the **Nuked OPL3** emulator
+  (`ADLMIDI_EMU_NUKED_174`, set in `AdlMidiInit`,
+  `src/MusicSrc/MusicDevice.c`) at the full 48 kHz rate. Nuked is the
+  accurate kind of OPL3 emulator and by far the slowest. The first attempt
+  saw it keep one core about **45% busy**, and the retry measured 52%. It
+  is the "40–60%" core in the PSVshell table below, not OS overhead. The
+  Vita now defaults to the DOSBox emulator (12%); see "Music: DOSBox OPL3
+  instead of Nuked".
 - **Games get 3 cores.** A Vita game can use cores 0, 1 and 2 (masks
   `SCE_KERNEL_CPU_MASK_USER_0..2`, `0x10000 << n`); core 3 belongs to the
   system. Apart from the music thread's share, two of those three cores
@@ -219,6 +222,11 @@ retry:
     (both in `src/Libraries/H/vprof.h`) every 5 windows. It only switches
     at a window boundary, so no window mixes two variants, and each log
     line carries `var=N`. Each step just redefines what the variants mean.
+  - Each log line also carries `music=` (the time spent synthesizing
+    music, as a share of one core), `acpu=` and `mcpu=` (the last core the
+    audio and main threads were seen on). The music time is measured on
+    the audio thread and handed over atomically (`vprof_audio_add`),
+    because `vprof_record` is for the main thread only.
 - **What the profiler looked like (re-create it).**
   - **Build.**
     - A `VITA_PROFILE` CMake option adds `-DVITA_PROFILE` and links
@@ -385,19 +393,83 @@ Each of these can be done and measured on its own, before any threading.
 
 ### Music: DOSBox OPL3 instead of Nuked
 
-- **The change.** In `AdlMidiInit` (`src/MusicSrc/MusicDevice.c`), use
-  `adl_switchEmulator(adl, ADLMIDI_EMU_DOSBOX)` under `#ifdef VITA`. Both
-  emulators are already compiled into `ADLMIDI_SRC`; keep Nuked on other
-  platforms.
-- **The cost of Nuked.** It occupied ~45% of a core: a worker on that
-  core started ~10 ms into every ~22 ms frame at 480×272.
-- **The effect.** With DOSBox, no worker start was delayed in any window
-  (0 of 90).
-- **Sound.** The DOSBox emulator is widely used and sounds very close.
+- **The change, as built.**
+  - The ADLMIDI device takes either emulator (`AdlMidiSetEmulator` in
+    `src/MusicSrc/MusicDevice.c`). Both are compiled into `ADLMIDI_SRC`.
+  - The Vita defaults to DOSBox. Other platforms keep Nuked 1.7.4
+    (`ADLMIDI_EMU_NUKED_174`), which is what the game has always used, not
+    libADLMIDI's default Nuked.
+  - On Vita, "Midi Player" in the sound options offers "DOSBox OPL3" and
+    "Nuked OPL3" in place of ADLMIDI and Native MIDI.
+- **First attempt.**
+  - Nuked occupied ~45% of a core: a worker on that core started ~10 ms
+    into every ~22 ms frame at 480×272.
+  - With DOSBox, no worker start was delayed in any window (0 of 90).
+- **Retry, measured alone** (`docs/profile-step-3b.txt`): full 3D view
+  (`FULLSCREEN_LOOP`), 960×544, standing still in the first area for
+  3 min 41 s, the two emulators alternating every 5 s. Medians of 109 and
+  106 windows:
+
+  | emulator | synth's share of one core | fps | frame | raster |
+  |---|---|---|---|---|
+  | Nuked 1.7.4 | 51.8% (p25–p75 51.0–53.0) | 27.1 | 37.0 ms | 24.8 ms |
+  | DOSBox | 11.6% (10.9–12.2) | 26.8 | 37.3 ms | 25.1 ms |
+
+  - DOSBox frees **about 40% of a core**: a median of 40.4 points per pair
+    of neighbouring 5 s blocks, 38.8–42.5 across 22 pairs.
+  - No meaningful fps change (median −0.2 fps per pair, range −0.7 to
+    +1.1), as expected while the game is single-threaded: the audio thread
+    was seen on all three cores, the main thread on cores 1 and 2, and
+    never both on the same core in any window.
+  - An earlier capture (`docs/profile-step-3.txt`, 5 min 47 s) read 53.7%
+    vs 9.2%, with DOSBox still run at the PCM rate. Running it at the
+    chip's native rate (see below) costs about 2.4 points of a core.
+- **Pitfalls found, and their fixes.**
+  - **DOSBox chip setup is expensive, and repeated.**
+    - `Chip::Setup` (`chips/dosbox/dbopl.cpp`) rebuilds its attack-rate
+      table by simulating every envelope sample by sample, and libADLMIDI
+      creates a new chip on every reset and bank change: 9 setups in
+      `AdlMidiInit`, 3 per `StopTheMusic`, about 24 before the intro's
+      first frame.
+    - Symptoms: the intro loaded slowly with its audio ahead of the video,
+      skipping it froze the game for 1–2 s, and the profile capture showed
+      ~700 ms frames after switches to DOSBox.
+    - Fix: the table only depends on the sample rate, so it is cached per
+      rate. Rendered audio is byte-identical with and without the cache.
+  - **The instrument bank is per device.**
+    - Only `ReadXMI` set it (`setupMode` → `adl_setBank(45)`), so a device
+      recreated by a "Midi Player" change played with libADLMIDI's default
+      bank until the next theme load. This bug is older than the Vita fork.
+    - Fix: `InitDecXMI` (`src/MacSrc/Xmi.c`) re-applies the last mode.
+  - **DOSBox must run at the chip's native rate.**
+    - The game sets `adl_setRunAtPcmRate(1)`. Nuked 1.7.4 can't
+      (`canRunAtPcmRate()` is false), so it ignores the setting and always
+      runs at 49716 Hz. DOSBox really runs at 48000 Hz: it then plays
+      about 7 cents sharp and feedback-heavy instruments lose their
+      movement.
+    - Fix: DOSBox runs natively and libADLMIDI resamples.
+  - **Nuked 1.7.4 has undefined shifts, and the Vita keeps their sound.**
+    - `OPL3_SlotGeneratePhase` (`chips/nuked/nukedopl3_174.c`) shifted by
+      32 bits or more in two places. x86 wraps the shift count, so it
+      mostly worked there; ARM gives 0.
+    - On the Vita this turned waveforms 6 and 7 into a one-sided pulse:
+      full level for half the period, silence for the other half. 19
+      programs of the game's bank use them, and ten came out 2–6 dB
+      quieter than on a PC.
+    - The shifts are now defined. The Vita keeps that pulse on purpose, on
+      both emulators, because its mix is the preferred one:
+      `OPL3_HALF_SQUARE_WAVES`, set for Vita builds in `CMakeLists.txt`.
+      Other platforms get the accurate waveforms.
+    - Checks, rendering every program of the bank on the host: the new
+      Nuked code is byte-identical to the original code under ARM's shift
+      rule; DOSBox is within about 1 dB of it on every audible instrument;
+      `-fsanitize=shift` reports nothing in either mode.
+- **Sound.** On the Vita the two emulators have the same mix by
+  construction; it was compared by ear on the new-game music.
 - **Native MIDI is not an alternative.** The "Native MIDI" backend sends
   notes to the OS synthesizer (winmm on Windows, ALSA on Linux); the Vita
-  has none. FluidSynth is disabled in the Vita build and costs more than
-  Nuked.
+  has none, and its setting no longer offers it. FluidSynth is disabled in
+  the Vita build and costs more than Nuked.
 
 ### Pre-existing engine bugs worth knowing
 
@@ -712,7 +784,10 @@ across rows. Medians of in-game windows at 960×544:
 2. ~~**FPU `fix_div`**, measured alone (bit-exactness test first).~~
    **Done**: +11.6% fps — see "FPU `fix_div`" above and
    `docs/profile-step-2.txt`.
-3. **DOSBox music** on Vita, measured alone.
+3. ~~**DOSBox music** on Vita, measured alone.~~ **Done**: about 40% of
+   a core freed, fps unchanged — see "Music: DOSBox OPL3 instead of
+   Nuked" above, `docs/profile-step-3.txt` and
+   `docs/profile-step-3b.txt`.
 4. **Recording and single-thread replay only.**
    - Check it costs nothing and draws identical frames.
    - Run the self-check from the start.

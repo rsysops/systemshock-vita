@@ -179,7 +179,40 @@ typedef struct AdlMidiDevice
 {
     MusicDevice dev;
     struct ADL_MIDIPlayer *adl;
+    MusicOpl3Emu emu;
 } AdlMidiDevice;
+
+static int AdlMidiEmulatorId(MusicOpl3Emu emu)
+{
+    return (emu == Music_Opl3DosBox) ? ADLMIDI_EMU_DOSBOX : ADLMIDI_EMU_NUKED_174;
+}
+
+// DOSBox only matches the real chip at its native rate: run at the PCM rate
+// it plays about 7 cents sharp and feedback-heavy instruments lose their
+// movement. Nuked 1.7.4 can't run at the PCM rate and ignores the setting.
+static int AdlMidiRunAtPcmRate(MusicOpl3Emu emu)
+{
+    return (emu == Music_Opl3DosBox) ? 0 : 1;
+}
+
+void AdlMidiSetEmulator(MusicDevice *dev, MusicOpl3Emu emu)
+{
+    AdlMidiDevice *adev = (AdlMidiDevice *)dev;
+    if (!adev || adev->dev.deviceType != Music_AdlMidi || adev->emu == emu) return;
+
+    adev->emu = emu;
+    if (adev->dev.isOpen)
+    {
+        adl_switchEmulator(adev->adl, AdlMidiEmulatorId(emu));
+        adl_setRunAtPcmRate(adev->adl, AdlMidiRunAtPcmRate(emu));
+    }
+}
+
+int AdlMidiGetEmulator(MusicDevice *dev)
+{
+    if (!dev || dev->deviceType != Music_AdlMidi) return -1;
+    return ((AdlMidiDevice *)dev)->emu;
+}
 
 static int AdlMidiInit(MusicDevice *dev, const unsigned int outputIndex, unsigned samplerate)
 {
@@ -187,10 +220,10 @@ static int AdlMidiInit(MusicDevice *dev, const unsigned int outputIndex, unsigne
     if (!adev || adev->dev.isOpen) return 0;
     struct ADL_MIDIPlayer *adl = adl_init(samplerate);
 
-    adl_switchEmulator(adl, ADLMIDI_EMU_NUKED_174);
+    adl_switchEmulator(adl, AdlMidiEmulatorId(adev->emu));
     adl_setNumChips(adl, 1);
     adl_setVolumeRangeModel(adl, ADLMIDI_VolumeModel_AUTO);
-    adl_setRunAtPcmRate(adl, 1);
+    adl_setRunAtPcmRate(adl, AdlMidiRunAtPcmRate(adev->emu));
 
     adev->adl = adl;
 
@@ -343,6 +376,12 @@ static MusicDevice *createAdlMidiDevice()
     adev->dev.outputIndex = 0;
     adev->dev.deviceType = Music_AdlMidi;
     adev->dev.musicType = MUSICTYPE_SBLASTER;
+#ifdef VITA
+    // Nuked keeps a Vita core about 45% busy; DOSBox sounds very close.
+    adev->emu = Music_Opl3DosBox;
+#else
+    adev->emu = Music_Opl3Nuked;
+#endif
     return &adev->dev;
 }
 

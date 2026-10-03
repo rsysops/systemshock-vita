@@ -20,12 +20,16 @@ typedef enum {
 #if defined(VITA) && defined(VITA_PROFILE)
 
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 
 // Variants of the code under test, alternated every few 1 s windows so they
-// can be compared within one session. Current step: 0 = original int64
-// fix_div, 1 = FPU fix_div.
+// can be compared within one session. Current step: 0 = Nuked OPL3 music
+// (1.7.4), 1 = DOSBox OPL3 music.
 #define VPROF_VARIANT_COUNT 2
 extern int vprof_variant;
+
+// Called from the audio thread with the time spent synthesizing one buffer.
+void vprof_audio_add(unsigned micros, int cpu);
 
 void vprof_record(vprof_phase_t phase, long long micros);
 void vprof_mark_begin(vprof_phase_t phase);
