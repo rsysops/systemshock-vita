@@ -353,7 +353,7 @@ static void SetShockGlobals(void) {
 
 #ifdef VITA
 // On: the 3D passes are recorded and their pixels filled on three cores (see
-// docs/PERFORMANCE.md). Off: the original drawing, call by call on one core.
+// docs/PERFORMANCE-CPU.md). Off: the original drawing, call by call on one core.
 void VitaApplyMulticore(void) {
     rastq_set_mode(gShockPrefs.multicore ? RASTQ_TRUST_STABLE : RASTQ_OFF);
     rastq_set_threads(gShockPrefs.multicore ? RASTQ_THREADS : 1);

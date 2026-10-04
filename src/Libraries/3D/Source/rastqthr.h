@@ -2,7 +2,7 @@
 #define __RASTQTHR_H
 
 // The rasterizer queue's worker threads: runs one job on every thread slot
-// at once. See docs/PERFORMANCE.md, "Threads".
+// at once. See docs/PERFORMANCE-CPU.md, "Threads".
 
 #include "lgslot.h"
 
