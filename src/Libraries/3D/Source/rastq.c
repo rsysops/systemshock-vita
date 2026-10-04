@@ -34,11 +34,20 @@
 #define RASTQ_MAX_BANDS 16
 // A band is never thinner than this share of the view.
 #define RASTQ_MIN_BAND 0.05f
+// Calls with more vertices than this are left to the CPU in a GPU view.
+#define RASTQ_GPU_VERTS 16
 
 _Static_assert(RASTQ_THREADS == RASTQ_MAX_THREADS, "one stats entry per thread slot");
 
 enum { RQ_TMAP, RQ_POLY };
 enum { RQ_RECORDED, RQ_DIRECT, RQ_DROPPED };
+// What becomes of a call in a view the GPU draws
+enum {
+    GPU_CPU,  // nothing the GPU path does yet: drawn by the CPU, in its place
+    GPU_FLAT, // a polygon in one palette index
+    GPU_TMAP, // a texture map
+    GPU_CULL, // wound the way the mappers draw nothing for
+};
 
 typedef struct {
     uchar kind;
@@ -54,6 +63,13 @@ typedef struct {
     intptr_t fill_parm;
     grs_clip clip;
     int row_top, row_bot; // the call writes no row outside [row_top, row_bot)
+    // set by gpu_classify:
+    uchar gpu;       // GPU_*
+    uchar gpu_flags; // RASTQ_GPU_*
+    uchar gpu_row;   // table row, or the colour of a GPU_FLAT
+    uchar gpu_lit;   // the row is each vertex's light level instead
+    uchar gpu_flat_light; // which doesn't go through the perspective division
+    uchar gpu_persp; // the vertices' w is the perspective divisor
 } rastq_cmd;
 
 // How one view's rows are shared between the threads. It is kept per canvas,
@@ -73,6 +89,8 @@ static struct {
     int use_gpu;   // hand views to the GPU
     int gpu_view;  // this view goes to the GPU
     int gpu_check; // this view: compare the GPU's result with the CPU's
+    int clear_pending; // the view's canvas is still to be cleared
+    int clear_color;
     int active;
     int checking;
     grs_canvas *canvas;
@@ -170,13 +188,29 @@ void rastq_set_gpu(const rastq_gpu *gpu) { rq.gpu = gpu; }
 
 void rastq_use_gpu(int on) { rq.use_gpu = on; }
 
-int rastq_gpu_next(void) {
+// Profile builds alternate what they compare (see vprof.h).
+static void profile_settings(void) {
 #if defined(VITA) && defined(VITA_PROFILE)
-    // Profile builds alternate what they compare (see vprof.h).
-    return rq.gpu != NULL && vprof_variant != 0;
-#else
-    return rq.gpu != NULL && rq.use_gpu;
+    rq.mode = RASTQ_TRUST_STABLE;
+    rq.use_gpu = vprof_variant != 0;
+    rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
 #endif
+}
+
+int rastq_gpu_next(void) {
+    profile_settings();
+    return rq.gpu != NULL && rq.use_gpu && rq.mode != RASTQ_OFF;
+}
+
+// Small views stay on the CPU, as they stay on one thread.
+static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next() && canvas->bm.h >= rq.min_rows; }
+
+int rastq_gpu_clear(int color) {
+    if (!gpu_takes(grd_canvas))
+        return 0;
+    rq.clear_pending = 1;
+    rq.clear_color = color;
+    return 1;
 }
 
 void rastq_stable_pixels(const uchar *pixels, size_t size) {
@@ -436,55 +470,289 @@ static void test_ranges(void) {
 
 // ---- replay on a GPU -------------------------------------------------------
 
-// The one palette index a call is filled with while the GPU path has no
-// textures: the polygon's colour, or the texel in the middle of the bitmap.
-static int flat_color(const rastq_cmd *c) {
-    if (c->kind == RQ_POLY)
-        return (int)(c->color & 0xff);
-    return c->bm.bits[(size_t)(c->bm.h / 2) * c->bm.row + c->bm.w / 2];
+static uchar gpu_tables[RASTQ_GPU_TABLE_ROWS][256];
+static const uchar *gpu_table_from[RASTQ_GPU_TABLE_ROWS]; // what each added row is a copy of
+static int gpu_rows;
+static long long gpu_lap_us;
+
+// Adds the time since the last lap to a counter.
+static void gpu_lap(unsigned long long *counter) {
+    long long now = rastq_clock_us();
+    if (!rq.gpu_check)
+        *counter += (unsigned long long)(now - gpu_lap_us);
+    gpu_lap_us = now;
 }
 
-static int gpu_draw(void) {
-    grs_bitmap *bm = &rq.canvas->bm;
-    long long start = rastq_clock_us(), sent, done;
-    unsigned k;
+// The clear a view starts with, when it wasn't left to the GPU after all
+static void clear_on_cpu(void) {
+    int32_t fill_type = grd_canvas->gc.fill_type;
 
-    if (!rq.gpu->begin(bm->bits, bm->w, bm->h, bm->row))
-        return 0;
-    for (k = 0; k < rq.count; k++)
-        rq.gpu->flat_poly(cmds[k].n, cmds[k].verts, flat_color(&cmds[k]));
-    sent = rastq_clock_us();
-    rq.gpu->end();
-    done = rastq_clock_us();
-    if (!rq.gpu_check) {
-        rastq_stats.gpu_scenes++;
-        rastq_stats.gpu_polys += rq.count;
-        rastq_stats.gpu_submit_us += sent - start;
-        rastq_stats.gpu_wait_us += done - sent;
+    if (!rq.clear_pending)
+        return;
+    rq.clear_pending = 0;
+    // as the view's own clear would be drawn, not as the last recorded call
+    if (fill_type != FILL_NORM)
+        gr_set_fill_type(FILL_NORM);
+    gr_clear(rq.clear_color);
+    if (fill_type != FILL_NORM)
+        gr_set_fill_type(fill_type);
+}
+
+// The row of the scene's tables that holds a colour table, added if need be.
+// -1 if there is no room for it.
+static int gpu_table_row(const uchar *clut) {
+    const uchar *ltab = gr_get_light_tab();
+    int r;
+
+    if (ltab != NULL && (uintptr_t)clut >= (uintptr_t)ltab &&
+        (uintptr_t)clut < (uintptr_t)ltab + RASTQ_GPU_LIGHT_ROWS * 256 && ((uintptr_t)clut - (uintptr_t)ltab) % 256 == 0)
+        return (int)(((uintptr_t)clut - (uintptr_t)ltab) / 256);
+    for (r = RASTQ_GPU_PLAIN_ROW + 1; r < gpu_rows; r++)
+        if (gpu_table_from[r] == clut)
+            return r;
+    if (gpu_rows == RASTQ_GPU_TABLE_ROWS)
+        return -1;
+    memcpy(gpu_tables[gpu_rows], clut, 256);
+    gpu_table_from[gpu_rows] = clut;
+    return gpu_rows++;
+}
+
+// The mappers stop at the first row whose right edge is left of its left
+// edge. For a polygon wound anticlockwise on screen that is its first row:
+// they draw nothing, and neither must the GPU.
+static int gpu_reversed(const rastq_cmd *c) {
+    double area = 0;
+    int i;
+
+    for (i = 0; i < c->n; i++) {
+        const grs_vertex *a = &c->verts[i], *b = &c->verts[(i + 1) % c->n];
+        area += (double)a->x * b->y - (double)b->x * a->y;
     }
-    return 1;
+    return area < 0;
 }
 
-#ifdef RASTQ_SELFCHECK
-// What the GPU draws so far, drawn by the CPU: every call as a flat polygon.
-static void cpu_flat_replay(void) {
-    grs_vertex verts[RASTQ_MAX_VERTS];
-    grs_vertex *vpl[RASTQ_MAX_VERTS];
+// Says what the GPU does with a call, and with which table and addressing.
+static int gpu_classify(rastq_cmd *c) {
+    int type, family, shade, pow2, i;
+
+    if (c->n > RASTQ_GPU_VERTS)
+        return GPU_CPU;
+
+    if (c->kind == RQ_POLY) {
+        if (c->index != FIX_UPOLY)
+            return GPU_CPU;
+        // as gri_poly_init, gri_clut_poly_init and gri_solid_poly_init
+        if (c->fill_type == FILL_NORM)
+            c->gpu_row = (uchar)c->color;
+        else if (c->fill_type == FILL_CLUT)
+            c->gpu_row = ((const uchar *)c->fill_parm)[(uchar)c->color];
+        else if (c->fill_type == FILL_SOLID)
+            c->gpu_row = (uchar)c->fill_parm;
+        else
+            return GPU_CPU;
+        return gpu_reversed(c) ? GPU_CULL : GPU_FLAT;
+    }
+
+    if (c->bm.type != BMT_FLAT8 || c->fill_type != FILL_NORM || c->bm.w != c->bm.row)
+        return GPU_CPU;
+    // The families the 3D library asks for, each with its mapper: plain,
+    // lit and through a colour table, in that order, two entries apart.
+    type = c->ti.tmap_type;
+    if (type >= GRC_BILIN && type <= GRC_CLUT_BILIN && c->func == h_umap)
+        family = GRC_BILIN;
+    else if (type >= GRC_FLOOR && type <= GRC_CLUT_FLOOR && c->func == h_umap)
+        family = GRC_FLOOR;
+    else if (type >= GRC_WALL1D && type <= GRC_CLUT_WALL1D && c->func == v_umap)
+        family = GRC_WALL1D;
+    else if (type >= GRC_PER && type <= GRC_CLUT_PER && c->func == per_umap)
+        family = GRC_PER;
+    else
+        return GPU_CPU;
+    shade = type - family;
+
+    c->gpu_flags = (c->bm.flags & BMF_TRANS) ? RASTQ_GPU_TRANS : 0;
+    pow2 = c->bm.row == (1 << c->bm.wlog) && c->bm.h == (1 << c->bm.hlog);
+    if (family == GRC_PER) {
+        const grs_clip *clip = &c->clip;
+        // the one mapper here that looks at the clip rectangle
+        if (!pow2 || clip->i.left > 0 || clip->i.top > 0 || clip->i.right < rq.canvas->bm.w ||
+            clip->i.bot < rq.canvas->bm.h)
+            return GPU_CPU;
+        c->gpu_flags |= RASTQ_GPU_WRAP_2D;
+    } else if (pow2) {
+        c->gpu_flags |= RASTQ_GPU_WRAP_1D;
+    } else if (family != GRC_BILIN) {
+        // Only sprites have other sizes, and those go through the linear
+        // mapper. (The lit floor mapper doesn't even step along a row of
+        // such a bitmap.)
+        return GPU_CPU;
+    }
+
+    // The linear mapper ignores w; the 3D library doesn't even set it then.
+    c->gpu_persp = family != GRC_BILIN;
+    if (c->gpu_persp)
+        for (i = 0; i < c->n; i++)
+            if (c->verts[i].w <= 0)
+                return GPU_CPU;
+
+    c->gpu_lit = 0;
+    if (shade == 0) {
+        c->gpu_row = RASTQ_GPU_PLAIN_ROW;
+    } else if (shade == GRC_LIT_BILIN - GRC_BILIN) {
+        // g_ltab[texel + fix_light(i)]: the light level picks the row
+        for (i = 0; i < c->n; i++)
+            if (c->verts[i].i < 0 || c->verts[i].i >= fix_make(RASTQ_GPU_LIGHT_ROWS, 0))
+                return GPU_CPU;
+        c->gpu_lit = 1;
+        // The floor and wall mappers divide the light level by w along with
+        // the texture coordinates; the perspective mapper steps it along
+        // its scanlines.
+        c->gpu_flat_light = family == GRC_PER;
+    } else if (shade == GRC_CLUT_BILIN - GRC_BILIN && (c->ti.flags & TMF_CLUT)) {
+        int row = gpu_table_row(c->ti.clut != NULL ? c->ti.clut : gr_get_clut());
+        if (row < 0)
+            return GPU_CPU;
+        c->gpu_row = (uchar)row;
+    } else {
+        return GPU_CPU;
+    }
+    return gpu_reversed(c) ? GPU_CULL : GPU_TMAP;
+}
+
+// The tables of the list's scenes, and what each call becomes.
+static void gpu_prepare(void) {
+    const uchar *ltab = gr_get_light_tab();
     unsigned k;
     int i;
 
-    if (grd_canvas->gc.fill_type != FILL_NORM)
-        gr_set_fill_type(FILL_NORM);
+    if (ltab != NULL)
+        memcpy(gpu_tables, ltab, RASTQ_GPU_LIGHT_ROWS * 256);
+    for (i = 0; i < 256; i++)
+        gpu_tables[RASTQ_GPU_PLAIN_ROW][i] = (uchar)i;
+    gpu_rows = RASTQ_GPU_PLAIN_ROW + 1;
+    for (k = 0; k < rq.count; k++)
+        cmds[k].gpu = (uchar)gpu_classify(&cmds[k]);
+}
+
+static int gpu_scene_begin(void) {
+    grs_bitmap *bm = &rq.canvas->bm;
+
+    if (!rq.gpu->begin(bm->bits, bm->w, bm->h, bm->row, &gpu_tables[0][0], gpu_rows))
+        return 0;
+    if (rq.clear_pending) {
+        rastq_gpu_vertex v[4] = {{0}};
+        v[1].x = v[2].x = (float)bm->w;
+        v[2].y = v[3].y = (float)bm->h;
+        rq.clear_pending = 0;
+        rq.gpu->flat(4, v, rq.clear_color);
+    }
+    if (!rq.gpu_check)
+        rastq_stats.gpu_scenes++;
+    return 1;
+}
+
+static void gpu_scene_end(void) {
+    gpu_lap(&rastq_stats.gpu_submit_us);
+    rq.gpu->end();
+    gpu_lap(&rastq_stats.gpu_wait_us);
+}
+
+// Hands a call to the scene under way. 0 if the scene has no room for it.
+static int gpu_emit(const rastq_cmd *c) {
+    rastq_gpu_vertex v[RASTQ_GPU_VERTS];
+    float w_max = 1.0f;
+    int i;
+
+    if (c->gpu == GPU_TMAP && c->gpu_persp) {
+        w_max = 0;
+        for (i = 0; i < c->n; i++)
+            if ((float)c->verts[i].w > w_max)
+                w_max = (float)c->verts[i].w;
+    }
+    for (i = 0; i < c->n; i++) {
+        const grs_vertex *p = &c->verts[i];
+
+        v[i].x = (float)(p->x / 65536.0);
+        v[i].y = (float)(p->y / 65536.0);
+        v[i].q = 1.0f;
+        v[i].u = v[i].v = 0;
+        v[i].row = RASTQ_GPU_PLAIN_ROW + 0.5f;
+        v[i].flat_row = 0;
+        if (c->gpu == GPU_TMAP) {
+            if (c->gpu_persp)
+                v[i].q = (float)p->w / w_max;
+            v[i].u = (float)(p->u / 65536.0) * v[i].q;
+            v[i].v = (float)(p->v / 65536.0) * v[i].q;
+            if (!c->gpu_lit) {
+                v[i].row = (c->gpu_row + 0.5f) * v[i].q;
+            } else if (c->gpu_flat_light) {
+                v[i].row = 0;
+                v[i].flat_row = (float)(p->i / 65536.0);
+            } else {
+                v[i].row = (float)(p->i / 65536.0) * v[i].q;
+            }
+        }
+    }
+    if (c->gpu == GPU_FLAT)
+        return rq.gpu->flat(c->n, v, c->gpu_row);
+    return rq.gpu->tmap(&c->bm, c->gpu_flags, c->n, v);
+}
+
+// Draws the list with the GPU, in as few scenes as it takes: what the GPU
+// path doesn't do yet is drawn by the CPU between two scenes, in its place.
+// Returns 0, having drawn nothing, if the GPU can't draw into the canvas.
+static int gpu_run(void) {
+    int in_scene, dead = 0;
+    unsigned k;
+
+    gpu_lap_us = rastq_clock_us();
+    gpu_prepare();
+    in_scene = gpu_scene_begin();
+    if (!in_scene)
+        return 0;
+
     for (k = 0; k < rq.count; k++) {
         const rastq_cmd *c = &cmds[k];
-        for (i = 0; i < c->n; i++) {
-            verts[i] = c->verts[i];
-            vpl[i] = &verts[i];
+        int sent = 0;
+
+        if (c->gpu == GPU_CULL) {
+            if (!rq.gpu_check)
+                rastq_stats.gpu_culled++;
+            continue;
         }
-        ((void (*)(long, int, grs_vertex **))grd_canvas_table[FIX_UPOLY])(flat_color(c), c->n, vpl);
+        if (c->gpu != GPU_CPU && !dead) {
+            if (!in_scene && !(in_scene = gpu_scene_begin()))
+                dead = 1;
+            if (in_scene && !(sent = gpu_emit(c))) {
+                // the scene is full: the call opens the next one
+                gpu_scene_end();
+                in_scene = gpu_scene_begin();
+                if (!in_scene)
+                    dead = 1;
+                else
+                    sent = gpu_emit(c);
+            }
+        }
+        if (sent) {
+            if (!rq.gpu_check)
+                rastq_stats.gpu_polys++;
+            continue;
+        }
+        if (in_scene) {
+            gpu_scene_end();
+            in_scene = 0;
+        }
+        clear_on_cpu();
+        apply_state(c);
+        draw_cmd(c, &full_band);
+        if (!rq.gpu_check)
+            rastq_stats.gpu_cpu_calls++;
+        gpu_lap(&rastq_stats.gpu_cpu_us);
     }
+    if (in_scene)
+        gpu_scene_end();
+    return 1;
 }
-#endif
 
 // Has the GPU draw the list. Returns 0 if it wouldn't, with the canvas as it
 // was.
@@ -493,18 +761,21 @@ static int gpu_replay(void) {
 
 #ifdef RASTQ_SELFCHECK
     if (rq.gpu_check) {
-        // A GPU doesn't fill exactly the pixels the software mappers do, so
-        // this counts how many differ instead of expecting none.
+        // A GPU doesn't fill exactly the pixels the software mappers do, nor
+        // pick exactly their texels along the edges of one, so this counts
+        // how many pixels differ instead of expecting none. Both renderings
+        // start from the cleared canvas.
         grs_bitmap *bm = &rq.canvas->bm;
         unsigned differing = 0;
         int x, y;
 
+        clear_on_cpu();
         memcpy(check_before, bm->bits, canvas_bytes());
-        if (!gpu_draw())
+        if (!gpu_run())
             return 0;
         memcpy(check_direct, bm->bits, canvas_bytes());
         memcpy(bm->bits, check_before, canvas_bytes());
-        cpu_flat_replay();
+        replay();
         for (y = 0; y < bm->h; y++) {
             const uchar *cpu = bm->bits + (size_t)y * bm->row, *gpu = check_direct + (size_t)y * bm->row;
             for (x = 0; x < bm->w; x++)
@@ -517,7 +788,7 @@ static int gpu_replay(void) {
         return 1;
     }
 #endif
-    VPROF_RUN(VPROF_RASTER, ok = gpu_draw());
+    VPROF_RUN(VPROF_RASTER, ok = gpu_run());
     return ok;
 }
 
@@ -527,7 +798,7 @@ void rastq_flush(void) {
     intptr_t fill_parm;
     grs_clip clip;
 
-    if (!rq.active || rq.count == 0)
+    if (!rq.active || (rq.count == 0 && !rq.clear_pending))
         return;
 
     prev = grd_canvas;
@@ -536,6 +807,11 @@ void rastq_flush(void) {
     fill_type = grd_canvas->gc.fill_type;
     fill_parm = grd_canvas->gc.fill_parm;
     clip = grd_canvas->gc.clip;
+    if (rq.count == 0) {
+        // whatever comes next is drawn straight to the canvas
+        clear_on_cpu();
+        goto drawn;
+    }
     choose_bands();
 
     if (rq.gpu_view) {
@@ -544,6 +820,7 @@ void rastq_flush(void) {
             goto drawn;
         }
         rastq_stats.gpu_fallbacks++;
+        clear_on_cpu();
     }
 
 #ifdef RASTQ_SELFCHECK
@@ -593,14 +870,14 @@ void rastq_begin(void) {
     unsigned view = rastq_stats.views++;
     int i;
 
+    profile_settings();
 #if defined(VITA) && defined(VITA_PROFILE)
-    // Profile builds alternate what they compare (see vprof.h).
-    rq.mode = RASTQ_TRUST_STABLE;
-    rq.use_gpu = vprof_variant != 0;
-    rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
     if (rq.threads != RASTQ_THREADS)
         rastq_set_threads(RASTQ_THREADS);
 #endif
+    // a clear left to a GPU that doesn't get this view after all
+    if (rq.clear_pending && !gpu_takes(grd_canvas))
+        clear_on_cpu();
     if (rq.mode == RASTQ_OFF)
         return;
 
@@ -610,8 +887,7 @@ void rastq_begin(void) {
     rq.used = 0;
     rq.checking = 0;
     rq.gpu_check = 0;
-    // small views stay on the CPU, as they stay on one thread
-    rq.gpu_view = rq.use_gpu && rq.gpu != NULL && rq.canvas->bm.h >= rq.min_rows;
+    rq.gpu_view = gpu_takes(rq.canvas);
     rq.balance = NULL;
     if (rq.threads > 1 && rq.canvas->bm.h >= rq.min_rows)
         rq.balance = find_split(rq.canvas, rq.threads);

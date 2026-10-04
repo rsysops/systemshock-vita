@@ -47,6 +47,7 @@ static SceInt64 g_mark_t0[VPROF_PHASE_COUNT];
 // this copy, taken when the frame began.
 static vprof_call_accum_t g_call_accum_at_frame_begin[VPROF_PHASE_COUNT];
 static rastq_stats_t g_rastq_at_frame_begin;
+static unsigned long long g_texture_bytes_at_frame_begin, g_swap_wait_at_frame_begin;
 static int g_frame_discard = 0;
 
 // 3D views drawn in the window's frames
@@ -124,8 +125,13 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.late_us = 0;
     rastq_stats.gpu_scenes = 0;
     rastq_stats.gpu_polys = 0;
+    rastq_stats.gpu_culled = 0;
+    rastq_stats.gpu_cpu_calls = 0;
     rastq_stats.gpu_submit_us = 0;
     rastq_stats.gpu_wait_us = 0;
+    rastq_stats.gpu_cpu_us = 0;
+    vgpu_texture_bytes = 0;
+    vgpu_swap_wait_us = 0;
     for (i = 0; i < RASTQ_SOLO_REASONS; i++)
         rastq_stats.solo[i] = 0;
     for (i = 0; i < RASTQ_THREADS; i++)
@@ -190,7 +196,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "record=%.2f/%.2f cmds=%.1f copied=%.1fKB flushes=%.2f check=%u/%u | "
                 "views=%.2f batches=%.1f solo=%.1f/%.1f wait=%.2f busy=%.2f/%.2f/%.2f late=%u "
                 "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f | "
-                "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu\n",
+                "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu "
+                "gpuculled=%.1f gpucpu=%.1f/%.2f gputex=%.1fKB swapwait=%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -235,7 +242,12 @@ static void vprof_window_flush(SceInt64 now) {
                 us_to_ms(rastq_stats.gpu_wait_us) / g_frame_samples,
                 rastq_stats.gpu_fallbacks,
                 rastq_stats.gpu_check_diff,
-                rastq_stats.gpu_check_pixels);
+                rastq_stats.gpu_check_pixels,
+                (double)rastq_stats.gpu_culled / g_frame_samples,
+                (double)rastq_stats.gpu_cpu_calls / g_frame_samples,
+                us_to_ms(rastq_stats.gpu_cpu_us) / g_frame_samples,
+                (double)vgpu_texture_bytes / 1024.0 / g_frame_samples,
+                us_to_ms(vgpu_swap_wait_us) / g_frame_samples);
         fclose(fp);
     }
 }
@@ -285,6 +297,8 @@ void vprof_frame_begin(void) {
         g_call_accum_at_frame_begin[i] = g_call_accum[i];
     }
     g_rastq_at_frame_begin = rastq_stats;
+    g_texture_bytes_at_frame_begin = vgpu_texture_bytes;
+    g_swap_wait_at_frame_begin = vgpu_swap_wait_us;
     g_frame_discard = 0;
 
     g_frame_t0 = now;
@@ -317,6 +331,8 @@ void vprof_frame_end(void) {
         rastq_stats.gpu_fallbacks = now_stats.gpu_fallbacks;
         rastq_stats.gpu_check_pixels = now_stats.gpu_check_pixels;
         rastq_stats.gpu_check_diff = now_stats.gpu_check_diff;
+        vgpu_texture_bytes = g_texture_bytes_at_frame_begin;
+        vgpu_swap_wait_us = g_swap_wait_at_frame_begin;
     } else {
         g_views += rastq_stats.views - g_rastq_at_frame_begin.views;
         g_frame_total_us += elapsed;
@@ -390,9 +406,11 @@ void vprof_overlay_draw(void) {
     vita2d_pgf_draw_text(g_pgf, 4, 48, 0xffffffff, 1.0f, line);
 
     (void)raster_call_avg_ms;
-    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds check=%u/%u leaks=%u gpuwait=%.1fms gpudiff=%.1f/1000",
+    snprintf(line, sizeof(line),
+             "mode=%d var=%d age=%llds check=%u/%u leaks=%u gpuwait=%.1fms gpucpu=%.0f gpudiff=%.1f/1000",
              _current_loop, vprof_variant, (long long)(window_age_us / 1000000), rastq_stats.check_bad_rows,
              rastq_stats.check_runs, rastq_stats.check_leak_rows, us_to_ms(rastq_stats.gpu_wait_us) / samples,
+             (double)rastq_stats.gpu_cpu_calls / samples,
              rastq_stats.gpu_check_pixels
                  ? 1000.0 * (double)rastq_stats.gpu_check_diff / (double)rastq_stats.gpu_check_pixels
                  : 0.0);

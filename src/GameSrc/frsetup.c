@@ -636,6 +636,7 @@ int fr_start_view(void) {
     int use_zoom;
     uchar old_cam_type;
     int detail;
+    uchar *gpu_bits = NULL; // the GPU's canvas, if this view is drawn into one
 
     if(should_opengl_swap()) {
         opengl_start_frame();
@@ -646,7 +647,6 @@ int fr_start_view(void) {
     // the main view: not the help scan, the security cameras or the 360 view.
     if (_fr->flags & FR_DOUBLEB_MASK) {
         extern uchar view360_is_rendering;
-        uchar *gpu_bits = NULL;
 
         if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && rastq_gpu_next())
             gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, _fr->draw_canvas.bm.row);
@@ -791,7 +791,13 @@ int fr_start_view(void) {
         _fr->horizon_call(&_fr->draw_canvas.bm, _fr_curflags);
     // KLC      else if (global_fullmap->cyber)
 
-    gr_clear(_frp.view.clear_color);
+    // In a GPU canvas the clear is the GPU's too, as the first thing in its
+    // scene: the screen may still be drawn from the canvas of the last frame,
+    // and the CPU is slow in that memory. Not for a view that isn't really
+    // rendered: that one never reaches the GPU.
+    if (gpu_bits == NULL || (_fr_curflags & (FR_NORENDR_MASK | FR_SOLIDFR_MASK)) ||
+        !rastq_gpu_clear(_frp.view.clear_color))
+        gr_clear(_frp.view.clear_color);
 
     // HAX HAX HAX Why is this not 0 already?
     // gr_clear(0);

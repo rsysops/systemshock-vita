@@ -78,9 +78,9 @@ run something like it. It was not chosen:
 |---|---|---|
 | G1 | Feasibility: GPU set-up, a shader compiled on the Vita, the list drawn as flat-coloured polygons into an 8-bit canvas | **done**: the pieces work, coverage matches, a view costs about 1.4 ms |
 | G2 | Buffers: keep the CPU out of the memory the GPU draws into, and show the GPU's canvas without copying it | **done**: a GPU frame is faster overall in flat colours (45 fps → the screen's 60), with two faults to fix |
-| G3 | G2's two faults (the canvas shown while it is wiped; polygons the CPU skips), then textures, light-table and CLUT lookups, perspective | the look, on everything drawn from an ordinary 8-bit bitmap |
-| G4 | Sprites, transparency, flat and Gouraud polygons, clip rectangles | objects and creatures |
-| G5 | What needs the picture already drawn: translucent surfaces, lines, voxels; cyberspace policy | no holes left, or clean CPU fallbacks |
+| G3 | G2's two faults (the canvas shown while it is wiped; polygons the CPU skips), then textures, light-table and CLUT lookups, perspective, sprites, transparency | **done**: textures and geometry are right; light bands are angular where the CPU's are round; a textured scene costs the GPU 5.5 ms, so the frame is no faster than three cores yet |
+| G4 | Light interpolated the way the mappers do it; the shader's cost; which calls still go to the CPU and split the frame into scenes | the same picture as the CPU's, and a GPU frame clearly faster than three cores |
+| G5 | What needs the picture already drawn: translucent surfaces, shaded polygons, lines, voxels; cyberspace policy | no holes left, or clean CPU fallbacks |
 | G6 | A "Renderer" setting in Vita Options, compiled shaders shipped, the paneled view | players need no extra module |
 
 G2 was not in the first roadmap. G1 showed that the memory question
@@ -98,7 +98,9 @@ Open questions, and the step that answers each:
 - ~~Is a GPU frame faster overall once the CPU stays out of GPU
   memory?~~ Yes, in flat colours: it reaches the screen's refresh rate
   where three cores give 45 fps (G2).
-- What do textures and the table lookups cost the GPU? (G3)
+- ~~What do textures and the table lookups cost the GPU?~~ 5.5 ms for a
+  full-screen scene, against 1.3 ms in flat colours, whatever the number
+  of polygons: it is the shader's work per pixel (G3). G4 is about that.
 - Can a shader read the pixel already drawn? Translucent surfaces need
   it; if not, those calls fall back to the CPU. (G4)
 
@@ -108,15 +110,19 @@ GPU code only runs on the Vita, and its output isn't identical to the
 CPU's, so the multicore work's "0 differing rows" can't be the test.
 Instead the profile build:
 
-- compares, every 63rd view, the GPU's result with a CPU rendering of
-  the same list, and logs the share of pixels that differ;
+- compares, every 63rd view, the GPU's result with the CPU's rendering
+  of the same list (since G3 the real one, with textures), and logs the
+  share of pixels that differ;
 - writes some of those pairs to `ux0:data/systemshock/gpudumps/`, to be
-  looked at on a PC: the third comparison, and those that differ by more
-  than 1,000 pixels. Writing a pair stops the game for a second or two;
+  looked at on a PC: the third comparison, and each later one that
+  differs by more pixels than any before it and by more than 5% of them,
+  five in all. Writing a pair stops the game for a second or two;
+- draws known patterns at start-up and reads them back (`gpu.txt`);
 - logs the time spent sending the list and waiting for the GPU.
 
 The PC harness (`tests/rastq/run.sh`) keeps guarding the recorder and the
-CPU paths.
+CPU paths. Since G3 it also checks what the queue hands the GPU, with a
+stand-in that fills polygons in the shader's arithmetic: see step G3.
 
 ## Step G1: feasibility
 
@@ -342,3 +348,255 @@ Then textures: every software mapper ends by picking a texel and
 optionally passing it through a 256-entry table (a CLUT, a row of the
 light table, a solid colour). One shader can do that with the call's
 bitmap as one texture and the tables as rows of a second one.
+
+## Step G3: two fixes, then textures
+
+Profile builds only.
+
+### The two fixes
+
+- **Three GPU canvases, used in turn** (`MakeViewTextures` in
+  `src/MacSrc/Shock.c`, `vgpu_canvas` in `src/MacSrc/VitaGpu.c`). Each
+  frame takes the canvas used longest ago. vita2d lets at most two
+  frames wait for the screen, so by the time a canvas comes round again
+  two newer frames have been handed over and its own has been drawn. One
+  render target serves the three; each scene gets a colour surface over
+  the canvas it draws into.
+- **The clear is the GPU's.** `fr_start_view` asks `rastq_gpu_clear`
+  instead of clearing; the clear becomes the first rectangle of the
+  view's first scene. If the GPU doesn't take the view after all, or a
+  call has to be drawn straight to the canvas first, the queue clears on
+  the CPU.
+- **Winding.** A call wound anticlockwise on screen (`gpu_reversed` in
+  `rastq.c`) is dropped before it reaches the GPU: the mappers draw
+  nothing for it.
+
+### Textures
+
+What a mapper does for a pixel, and what the shader does:
+
+| mapper | texel | then |
+|---|---|---|
+| plain | `bits[...]` | as is |
+| colour table | `bits[...]` | `clut[texel]` |
+| lit | `bits[...]` | `ltab[texel + 256 * light level]` |
+| transparent | any of the above | skipped when the texel is 0 |
+
+- **Tables.** The scene's tables are one texture, 256 wide: rows 0 to 15
+  are the light table (`grd_screen->ltab`), row 16 leaves a texel as it
+  is, the rest are the colour tables its calls use (a table inside the
+  light table, as the 3D library builds for evenly lit polygons, is one
+  of rows 0 to 15). The shader looks the texel up in the call's bitmap,
+  then (texel, row) in the tables.
+- **Texel addressing**, as the mappers have it and not as a GPU would by
+  itself (`rastq.h`):
+  - the row, floor and wall mappers read
+    `bits[(v * width + u) mod (width * height)]`: u beyond the width
+    moves on to the next row. The shader carries u over the same way;
+  - the perspective mapper wraps u and v each on their own;
+  - sprites, the only bitmaps whose sides aren't powers of two, don't
+    wrap: clamped.
+- **Perspective.** Vertices carry (u·q, v·q, q) and the shader divides.
+  q is the vertex's w (1/z) for the floor, wall and perspective mappers,
+  and 1 for the linear mapper, which ignores w (the 3D library doesn't
+  set it then).
+- **Light level.** The floor and wall mappers carry it through the
+  perspective division with u and v; the perspective mapper steps it
+  along its scanlines, and the linear mapper has no division. So the
+  table row is `row / q + flat_row`, each mapper using one of the two.
+- **Bitmaps** are copied into GPU memory once per scene
+  (`texture_for`), as 8-bit textures sampled without filtering.
+- **One vertex format and one shader pair** (plus the pair's variant
+  that discards texel 0). A flat polygon goes through it too, as a
+  "texture map" of the tables texture's unchanged row at its colour, so
+  a scene is a run of draws that only change texture.
+
+What the GPU path covers, decided per call by `gpu_classify`:
+
+- texture maps on `BMT_FLAT8` bitmaps with the normal fill type, in the
+  families the 3D library asks for (linear, floor, wall, perspective;
+  plain, lit, colour table; opaque or transparent), sprites included;
+- flat polygons (`FIX_UPOLY`), in the normal, colour-table and solid
+  fill types.
+
+Everything else (translucent bitmaps and polygons, shaded polygons, more
+than 16 vertices, a light level outside the table, the perspective
+mapper under a clip rectangle) is drawn by the CPU, in its place in the
+list: the scene under way is ended and waited for, the CPU draws, and
+the next GPU call opens a new scene. The picture stays right; the cost
+is logged (`gpucpu=calls/ms`, `gpuscenes`).
+
+If the textured shaders don't compile on the Vita, the build draws in
+flat colours as in G2 and says so (`textures=off` in the report line).
+
+### Checked on the PC
+
+`tests/rastq/rastq_test.c` has a stand-in for the GPU: it implements the
+queue's GPU interface and fills polygons as triangle fans with the
+shader's arithmetic in single precision. Scenes made for it are drawn by
+the mappers and by the stand-in, and the two compared.
+
+They can't be equal, for three reasons that are not mistakes:
+
+- the mappers don't sample exactly where a GPU does. The floor and wall
+  mappers take the slope of 1/z from spans in whole pixels, which moves
+  texel boundaries by a pixel or two in the middle of a long wall; the
+  perspective mapper works in 16.16 fixed point with a w of 12 bits or
+  so;
+- a GPU interpolates a light level over triangles, the mappers along a
+  polygon's edges and then across each row. The two agree only when the
+  level is one linear function over the whole polygon. The comparison
+  scenes make it one; the game's quads often aren't, so on the Vita the
+  light bands of a wall will sit a little differently;
+- where one pixel covers several texels, the two pick different ones.
+
+So the test counts the pixels of the stand-in whose value the mappers
+have neither there nor within two pixels, on scenes with noise-free
+textures over a flat background. Over 900 frames:
+
+| | share of pixels |
+|---|---|
+| differ from the mappers' | 2.32% |
+| and have no match within two pixels | 0.157% |
+| limit on the second, per run / per frame | 0.5% / 6% |
+
+Flat polygons come out identical to the mappers', pixel for pixel.
+
+Deliberate mistakes in the translation, and the second figure with each:
+
+| mistake | no match within two pixels |
+|---|---|
+| none | 0.16% |
+| no culling / the other winding culled | 5.5% / 44% |
+| colour table ignored | 23% |
+| light table not sent | 36% |
+| light one row off (through the division / not) | 10.9% / 1.5% |
+| the two ways of carrying light swapped | 1.0% |
+| transparency dropped | 9.9% |
+| no perspective / perspective for the linear mapper | 10.4% / 8.2% |
+| u and v swapped | 38% |
+| u three texels off | 25% |
+| u carried over as two separate wraps | 0.71% |
+| clear dropped / in the wrong colour | 28% |
+| the CPU's calls skipped | 13% |
+| two separate wraps as u carried over (perspective mapper) | 0.34%, **under the limit** |
+| colour-table fill of a flat polygon not applied | 0.31%, **under the limit** |
+| solid fill of a flat polygon not applied | 0.19%, **under the limit** |
+
+The last three move the figure the right way but stay under the limit:
+few pixels are concerned, or the shift is within the two pixels. The
+queue's own comparison (as on the Vita) is exercised too: it must leave
+the mappers' picture on the canvas.
+
+One upstream bug met on the way: the lit floor mapper doesn't step along
+a row of a bitmap whose sides aren't powers of two
+(`gri_lit_floor_umap_loop`, the `GRL_OPAQUE` case). The game never gets
+there (the 3D library refuses such bitmaps for everything but sprites),
+and the GPU path leaves those calls to the CPU.
+
+### What the capture will show
+
+Variants, 5 s each: 0 = three cores, 1 = GPU with the view copied to the
+screen, 2 = GPU with the view shown from its canvas.
+
+- `gpu.txt`: the shaders' sizes, the texture units, and
+  `texture_check plain= table= light= wrap=`: wrong columns out of 256
+  for four patterns drawn with the textured shaders at start-up. All
+  four should be 0;
+- `gpudiff=`: pixels differing from the CPU's rendering in the periodic
+  comparisons. A few percent is expected, for the reasons above;
+- `gpuwait=`, `gpusubmit=`: what textures cost the GPU and the sending;
+- `gputex=`: KB of bitmaps copied to GPU memory per frame;
+- `gpuscenes=`, `gpucpu=calls/ms`: how often the CPU has to step in, and
+  what that costs: what G4 and G5 are worth;
+- `gpuculled=`: calls dropped for their winding;
+- `swapwait=`: ms per frame spent waiting to hand a frame to the screen,
+  so that the work in a frame is its time minus this.
+
+### Results (`docs/profiles-gpu/profile-step-3.txt`, `gpu.txt`, `gpudumps-step-3/`)
+
+What works:
+
+- **The shaders compile on the Vita** (356, 596 and 696 bytes) and the
+  start-up patterns come back exact: `texture_check plain=0 table=0
+  light=0 wrap=0`. Table lookups through an 8-bit texture are exact for
+  all 256 indices.
+- **The glitch of G2's third phase is gone**: no black blocks and no
+  flicker on the Vita with the three canvases and the GPU's clear.
+- **Textures and geometry are right.** In the dumped comparisons, 76 to
+  81% of the pixels are identical to the CPU's; of the rest, all but
+  0.6 to 1.0% of the frame are the same texel shown one light level
+  brighter or darker (found by looking each differing pair up in
+  `SHADTABL.DAT`). Edges, texel positions and winding account for that
+  last percent.
+- `check=0/292`, `leaks=0`; 10 calls a frame culled for their winding.
+
+What doesn't yet:
+
+- **Light bands are angular where the CPU's are round**, and whole
+  stretches of wall sit one level off. `gpudiff` is 16.6% standing
+  still. The cause is the one named in "Checked on the PC": a quad's
+  four corners rarely have light levels that fit one plane, the mappers
+  interpolate along the edges and then along each row (or column), and
+  the GPU interpolates over the two triangles of the quad. Confirmed on
+  the PC by giving the comparison scenes a light level of their own at
+  each corner:
+
+  | stand-in against the mappers | no match within two pixels |
+  |---|---|
+  | light level one linear function per polygon (G3's scenes) | 0.16% |
+  | a level of its own at each corner | 3.7% |
+  | the same, lit polygons cut into slabs 8 pixels thick along the mapper's scan lines | 0.5% |
+
+  A slab's two long sides are lines the mapper draws (rows for the
+  linear and floor mappers, columns for the wall mapper, lines of one
+  depth for the perspective mapper), with the values at their ends taken
+  along the polygon's edges. Between them the GPU's interpolation has
+  little room to differ. What is left of the 0.5% is in floors a few
+  rows high whose texture is squeezed several texels to the pixel.
+- **Once a second the picture shows the CPU's rendering for one frame**:
+  the periodic comparison leaves the CPU's result on the canvas. It
+  should put the GPU's back.
+- **The GPU path is not faster yet.** Standing still in the first area,
+  medians of the 1 s windows:
+
+  | ms per frame | 0: three cores | 1: GPU, view copied | 2: GPU, shown from its canvas | G2's variant 2 (flat) |
+  |---|---|---|---|---|
+  | pixel filling (`raster`) | 9.57 | 12.23 | 12.10 | 1.72 |
+  | of which waiting for the GPU | | 10.80 | 10.71 | 1.28 |
+  | of which sending (`gpusubmit`) | | 1.00 | 0.96 | 0.08 |
+  | `sendview` | 3.20 | 7.65 | 2.32 | 2.30 |
+  | `present` | 3.23 | 3.15 | 1.07 | 5.04 |
+  | whole frame | 22.45 | 29.06 | 21.38 | 15.92 |
+  | fps | 44.5 | 34.4 | 46.8 | 62.8 |
+
+  - **A textured scene takes the GPU about 5.5 ms**, and the number of
+    polygons has nothing to do with it: 5.0 to 6.6 ms in the windows
+    with one scene a frame, for 5 polygons as for 123. It is the work
+    per pixel: two texture reads at computed coordinates, a division
+    and three roundings, against a constant in G2.
+  - **Each further scene adds about 2.5 ms**: 5.8 ms with one scene a
+    frame, 8.7 with two, 10.75 with three (medians over all windows).
+    The test spot has three, because 9 calls a frame are drawn by the
+    CPU (`gpucpu=9.0/0.07`): the CPU's own time for them is nothing,
+    what costs is ending a scene and starting another.
+  - Sending is 1 ms, of which the copy of 158 KB of bitmaps a frame.
+  - `swapwait` is 0.08 ms: no variant waits for the screen any more
+    (the menus do, 5.8 ms).
+  - Variant 1 pays 4.4 ms for copying the view out of GPU memory, as in
+    G2. It has told what it could and can go.
+
+### Go for G4
+
+The look is one fix away and the speed two:
+
+- lit polygons cut into slabs along the mapper's scan lines, as tried
+  on the PC;
+- a cheaper shader. The GPU can do the perspective division and the
+  wrap itself if the vertices carry a real w and the bitmap is read at
+  interpolated coordinates; what stays computed is the table lookup.
+  The row, floor and wall mappers' carrying of u into the next row is
+  then not reproduced (a texture repeated along u would sit one texel
+  lower at each repeat on the CPU, not on the GPU);
+- fewer scenes: a count of the CPU-drawn calls by kind, to know which
+  kinds to move to the GPU first.

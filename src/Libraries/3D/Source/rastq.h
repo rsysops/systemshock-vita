@@ -48,11 +48,14 @@ typedef struct {
     int rows[RASTQ_THREADS + 1];        // the last split of the biggest view
     int cpu[RASTQ_THREADS];             // the core each thread last drew on
     // Replays handed to a GPU:
-    unsigned gpu_scenes;                // lists the GPU drew
+    unsigned gpu_scenes;                // scenes the GPU drew
     unsigned gpu_polys;                 // calls in them
+    unsigned gpu_culled;                // calls dropped for their winding
+    unsigned gpu_cpu_calls;             // calls of GPU views the CPU drew
     unsigned gpu_fallbacks;             // lists it refused, drawn by the CPU
-    unsigned long long gpu_submit_us;   // sending a list
-    unsigned long long gpu_wait_us;     // waiting for the GPU to finish it
+    unsigned long long gpu_submit_us;   // sending the scenes
+    unsigned long long gpu_wait_us;     // waiting for the GPU to finish them
+    unsigned long long gpu_cpu_us;      // the CPU drawing between scenes
     unsigned long long gpu_check_pixels; // pixels compared with the CPU's
     unsigned long long gpu_check_diff;  // of those, how many differed
 } rastq_stats_t;
@@ -67,12 +70,52 @@ int rastq_set_threads(int threads);
 void rastq_set_min_rows(int rows);
 
 // A GPU that can fill the recorded calls in place of the CPU. On Vita it is
-// src/MacSrc/VitaGpu.c; see docs/PERFORMANCE-GPU.md. So far it fills every
-// call as a polygon in one palette index.
+// src/MacSrc/VitaGpu.c; see docs/PERFORMANCE-GPU.md.
+//
+// Every software texture mapper ends the same way: it picks a texel from the
+// bitmap and passes it through a table of 256 entries, or through none. The
+// queue hands the GPU that, per call: the bitmap, how its texels are
+// addressed, and a row of the scene's tables.
+
+// A vertex of a call. A pixel belongs to the polygon when the point at its
+// integer coordinates is inside it, as for the mappers.
 typedef struct {
-    // Starts a scene on a canvas. 0 if it can't draw into that canvas.
-    int (*begin)(uchar *bits, int w, int h, int row);
-    void (*flat_poly)(int n, const grs_vertex *verts, int color);
+    float x, y;    // canvas pixels
+    float u, v, q; // texel coordinates times q, and q (1: no perspective)
+    // The table row to pass the texel through is the integer part of
+    // row / q + flat_row: a light level goes through the perspective
+    // division in some mappers and not in others.
+    float row, flat_row;
+} rastq_gpu_vertex;
+
+// How the texel at (u, v), both rounded down, is found
+enum {
+    RASTQ_GPU_TRANS = 1, // texel 0 leaves the pixel as it is
+    // Both sides of the bitmap are powers of two and the texel is
+    // bits[(v * width + u) mod (width * height)], as the row, floor and wall
+    // mappers have it: u beyond the width moves on to the next row.
+    RASTQ_GPU_WRAP_1D = 2,
+    // The same sizes, u and v each wrapped on their own (perspective mapper)
+    RASTQ_GPU_WRAP_2D = 4,
+    // Neither: u and v stay inside the bitmap, or are clamped to it
+};
+
+// The tables of a scene: rows of 256 palette indices. The first rows are
+// the light table, the next leaves a texel as it is, the rest are what the
+// scene's calls need.
+#define RASTQ_GPU_LIGHT_ROWS 16
+#define RASTQ_GPU_PLAIN_ROW 16
+#define RASTQ_GPU_TABLE_ROWS 64
+
+typedef struct {
+    // Starts a scene on a canvas, with its tables (`rows` of them, valid
+    // until the scene ends). 0 if it can't draw into that canvas.
+    int (*begin)(uchar *bits, int w, int h, int row, const uchar *tables, int rows);
+    // A polygon in one palette index. 0: no room left in this scene.
+    int (*flat)(int n, const rastq_gpu_vertex *v, int color);
+    // A texture-mapped polygon; the bitmap's pixels are valid until the
+    // scene ends. 0: no room left in this scene.
+    int (*tmap)(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v);
     // Ends the scene and returns once the canvas holds the result.
     void (*end)(void);
     // Told of each comparison of its result with the CPU's, and how many
@@ -86,6 +129,11 @@ void rastq_use_gpu(int on);
 // Will the next large view be handed to the GPU? Its caller then gives it a
 // canvas the GPU can draw into.
 int rastq_gpu_next(void);
+// In place of gr_clear before a view: if the GPU is to draw the view that
+// rastq_begin starts next on the current canvas, the clear becomes the first
+// thing in its scene and this returns 1. Otherwise it does nothing and
+// returns 0.
+int rastq_gpu_clear(int color);
 
 // Pixels that don't change between a draw call and the end of its pass.
 void rastq_stable_pixels(const uchar *pixels, size_t size);

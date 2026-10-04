@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Builds the 2D, LG and FIX libraries and the rasterizer queue natively and
 # checks that record + replay, on one thread or split into row bands across
-# several, draws the same pixels as drawing directly, and that direct drawing
-# still gives the pixels of the libraries as they were before row bands.
+# several, draws the same pixels as drawing directly, that direct drawing
+# still gives the pixels of the libraries as they were before row bands, and
+# that what the queue hands a GPU draws nearly what the mappers draw.
 # Usage: tests/rastq/run.sh [frames per canvas size] [seed]
 set -euo pipefail
 
