@@ -98,6 +98,7 @@ static struct {
     int use_gpu;   // hand views to the GPU
     int gpu_view;  // this view goes to the GPU
     int gpu_check; // this view: compare the GPU's result with the CPU's
+    int gpu_slabs; // lit polygons go to the GPU in slabs (see gpu_emit_cut)
     int clear_pending; // the view's canvas is still to be cleared
     int clear_color;
     int active;
@@ -162,6 +163,8 @@ void rastq_test_bands(int bands, const int *bounds) {
 
 void rastq_test_ranges(int on) { rq.test_ranges = on; }
 
+void rastq_test_gpu_slabs(int on) { rq.gpu_slabs = on; }
+
 static size_t canvas_bytes(void) { return (size_t)rq.canvas->bm.row * rq.canvas->bm.h; }
 
 // Rows of the canvas outside [top, bot) that differ from `before`
@@ -202,6 +205,7 @@ static void profile_settings(void) {
 #if defined(VITA) && defined(VITA_PROFILE)
     rq.mode = RASTQ_TRUST_STABLE;
     rq.use_gpu = vprof_variant != 0;
+    rq.gpu_slabs = vprof_variant == 1;
     rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
 #endif
 }
@@ -638,7 +642,11 @@ static int gpu_classify(rastq_cmd *c) {
 
     if (c->bm.type == BMT_TLUC8)
         return gpu_leave(c, RASTQ_GPU_WHY_TLUC_BITMAP);
-    if (c->fill_type != FILL_NORM)
+    // Under the colour-table fill type, which the game sets for 3D objects
+    // lit as a whole, every mapper is its colour-table one, with the fill's
+    // table (fl8ft.c): the light level and the call's own table count for
+    // nothing.
+    if (c->fill_type != FILL_NORM && c->fill_type != FILL_CLUT)
         return gpu_leave(c, RASTQ_GPU_WHY_FILL);
     if (c->bm.type != BMT_FLAT8 || c->bm.w != c->bm.row)
         return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
@@ -698,7 +706,13 @@ static int gpu_classify(rastq_cmd *c) {
     }
 
     c->gpu_lit = 0;
-    if (shade == 0) {
+    if (c->fill_type == FILL_CLUT) {
+        int row = gpu_table_row((const uchar *)c->fill_parm);
+        if (row < 0)
+            return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
+        c->gpu_row = (uchar)row;
+        c->gpu_kind = RASTQ_GPU_KIND_CLUT;
+    } else if (shade == 0) {
         c->gpu_row = RASTQ_GPU_PLAIN_ROW;
         c->gpu_kind = RASTQ_GPU_KIND_PLAIN;
     } else if (shade == GRC_LIT_BILIN - GRC_BILIN) {
@@ -746,8 +760,13 @@ static int gpu_scene_begin(void) {
         return 0;
     if (rq.clear_pending) {
         rastq_gpu_vertex v[4] = {{0}};
+        int i;
         v[1].x = v[2].x = (float)bm->w;
         v[2].y = v[3].y = (float)bm->h;
+        for (i = 0; i < 4; i++) {
+            v[i].q = v[i].width = v[i].depth = 1.0f;
+            v[i].left = RASTQ_GPU_PLAIN_ROW + 0.5f;
+        }
         rq.clear_pending = 0;
         rq.gpu->flat(4, v, rq.clear_color);
     }
@@ -762,8 +781,8 @@ static void gpu_scene_end(void) {
     gpu_lap(&rastq_stats.gpu_wait_us);
 }
 
-// A lit polygon is cut into slabs this thick, and into no more than this
-// many.
+// A lit polygon handed over in slabs is cut into slabs this thick, and into
+// no more than this many.
 #ifndef GPU_SLAB_PIXELS
 #define GPU_SLAB_PIXELS 8
 #endif
@@ -799,8 +818,11 @@ static int slab_clip(const slab_vertex *in, int n, float bound, int keep_above, 
             o->v.u = a->v.u + t * (b->v.u - a->v.u);
             o->v.v = a->v.v + t * (b->v.v - a->v.v);
             o->v.q = a->v.q + t * (b->v.q - a->v.q);
-            o->v.row = a->v.row + t * (b->v.row - a->v.row);
-            o->v.flat_row = a->v.flat_row + t * (b->v.flat_row - a->v.flat_row);
+            o->v.left = a->v.left + t * (b->v.left - a->v.left);
+            o->v.span = a->v.span + t * (b->v.span - a->v.span);
+            o->v.along = a->v.along + t * (b->v.along - a->v.along);
+            o->v.width = a->v.width + t * (b->v.width - a->v.width);
+            o->v.depth = a->v.depth + t * (b->v.depth - a->v.depth);
             o->s = bound;
         }
     }
@@ -859,76 +881,183 @@ static int gpu_emit_repeats(const rastq_cmd *c, int count, const rastq_gpu_verte
     return 1;
 }
 
-// A lit polygon, cut into slabs along the lines its mapper draws. The
-// mappers take a pixel's light level between the polygon's edges along such
-// a line; a GPU takes it across a triangle, which for a quad whose corners'
-// levels don't fit one plane gives straight bands with a crease where the
-// mappers' are round. A slab's long sides are two of those lines, with the
-// values at their ends taken along the edges, which leaves the GPU little
-// room to differ. (Slabs first, repeats within each: a cut between two
-// repeats runs through the polygon, where only a slab's long sides have the
-// mapper's values.) 0 if the scene has no room for it.
-static int gpu_emit_slabs(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
-    slab_vertex poly[GPU_WORK_VERTS], above[GPU_WORK_VERTS], slab[GPU_WORK_VERTS];
+// The light values of a piece of a lit polygon that lies between two of the
+// lines its mapper draws, at `lo` and `hi`. Each vertex comes with its light
+// value in `left`, the w it is divided by in `depth`, and its position along
+// such a line in `along`. On each of the two lines the piece has one vertex
+// or two: the mapper's light there runs from the value at one to the value
+// at the other, so every vertex on the line gets that value, the difference,
+// the distance between the two and its own distance from the first. Those
+// four are then linear all over the piece, and (left + span * along / width)
+// / depth is the mapper's light at any pixel of it.
+static void gpu_light_piece(rastq_gpu_vertex *v, const float *s, int count, float lo, float hi) {
+    float middle = 0.5f * (lo + hi);
+    int side, i;
+
+    for (side = 0; side < 2; side++) {
+        int first = -1, last = -1;
+
+        for (i = 0; i < count; i++) {
+            if ((s[i] > middle) != side)
+                continue;
+            if (first < 0 || v[i].along < v[first].along)
+                first = i;
+            if (last < 0 || v[i].along > v[last].along)
+                last = i;
+        }
+        if (first < 0)
+            continue;
+        {
+            float left = v[first].left, span = v[last].left - left;
+            float from = v[first].along, width = v[last].along - from;
+
+            for (i = 0; i < count; i++) {
+                if ((s[i] > middle) != side)
+                    continue;
+                v[i].left = left;
+                v[i].span = span;
+                v[i].along -= from;
+                v[i].width = width;
+            }
+        }
+    }
+}
+
+// A lit polygon, cut along the lines its mapper draws: rows, columns, or
+// lines of one depth. The mappers take a pixel's light level between the
+// polygon's edges along such a line; a GPU takes it across a triangle, which
+// for a quad whose corners' levels don't fit one plane gives straight bands
+// with a crease where the mappers' are round.
+//
+// Cut at the level of each of its corners, a polygon falls into pieces that
+// lie between two such lines with one edge on either side, and on those the
+// mapper's light is a formula in values the GPU interpolates exactly (see
+// gpu_light_piece).
+//
+// The other way, kept to compare with: slabs a few pixels thick, each vertex
+// with the mapper's value there, and the GPU's own interpolation across the
+// two triangles of a slab. It moves the edge of a light band in steps of the
+// slab's thickness.
+//
+// The texture's repeats are cut within each piece: such a cut runs through
+// the polygon, and only values that are linear over the piece survive it.
+// 0 if the scene has no room for it.
+static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
+    slab_vertex poly[GPU_WORK_VERTS], above[GPU_WORK_VERTS], piece[GPU_WORK_VERTS];
     rastq_gpu_vertex out[GPU_WORK_VERTS];
-    int i, k, slabs, n, m;
-    float x_min, x_max, y_min, y_max, s_min, s_max, extent, step;
+    float bounds[GPU_MAX_SLABS + 1], levels[GPU_WORK_VERTS];
+    float along_x = 1, along_y = 0; // the direction of the mapper's lines
+    float x_min, x_max, y_min, y_max, s_min, s_max, lo;
+    int scan = c->gpu_scan, i, k, pieces, n, m;
 
     x_min = x_max = v[0].x;
     y_min = y_max = v[0].y;
     for (i = 0; i < count; i++) {
-        poly[i].v = v[i];
         x_min = v[i].x < x_min ? v[i].x : x_min;
         x_max = v[i].x > x_max ? v[i].x : x_max;
         y_min = v[i].y < y_min ? v[i].y : y_min;
         y_max = v[i].y > y_max ? v[i].y : y_max;
     }
-    if (c->gpu_scan == GPU_SCAN_COLUMNS) {
-        for (i = 0; i < count; i++)
-            poly[i].s = v[i].x;
-        extent = x_max - x_min;
-    } else if (c->gpu_scan == GPU_SCAN_DEPTH) {
-        for (i = 0; i < count; i++)
-            poly[i].s = v[i].q;
-        extent = (x_max - x_min) > (y_max - y_min) ? (x_max - x_min) : (y_max - y_min);
-    } else {
-        for (i = 0; i < count; i++)
-            poly[i].s = v[i].y;
-        extent = y_max - y_min;
+    if (scan == GPU_SCAN_DEPTH) {
+        // q is linear on screen: its gradient, by least squares, is across
+        // the lines of one depth
+        float sxx = 0, sxy = 0, syy = 0, sxq = 0, syq = 0, det, gx, gy, length;
+        for (i = 1; i < count; i++) {
+            float dx = v[i].x - v[0].x, dy = v[i].y - v[0].y, dq = v[i].q - v[0].q;
+            sxx += dx * dx;
+            sxy += dx * dy;
+            syy += dy * dy;
+            sxq += dx * dq;
+            syq += dy * dq;
+        }
+        det = sxx * syy - sxy * sxy;
+        gx = det != 0 ? (sxq * syy - syq * sxy) / det : 0;
+        gy = det != 0 ? (syq * sxx - sxq * sxy) / det : 0;
+        length = sqrtf(gx * gx + gy * gy);
+        if (length > 0) {
+            along_x = -gy / length;
+            along_y = gx / length;
+        } else {
+            scan = GPU_SCAN_ROWS; // one depth all over
+        }
+    }
+    if (scan == GPU_SCAN_COLUMNS) {
+        along_x = 0;
+        along_y = 1;
+    }
+    for (i = 0; i < count; i++) {
+        poly[i].v = v[i];
+        poly[i].s = scan == GPU_SCAN_COLUMNS ? v[i].x : scan == GPU_SCAN_DEPTH ? v[i].q : v[i].y;
+        if (!rq.gpu_slabs)
+            poly[i].v.along = along_x * v[i].x + along_y * v[i].y;
     }
     s_min = s_max = poly[0].s;
     for (i = 1; i < count; i++) {
         s_min = poly[i].s < s_min ? poly[i].s : s_min;
         s_max = poly[i].s > s_max ? poly[i].s : s_max;
     }
-    slabs = (int)(extent / GPU_SLAB_PIXELS) + 1;
-    if (slabs > GPU_MAX_SLABS)
-        slabs = GPU_MAX_SLABS;
-    if (slabs <= 1 || s_max <= s_min)
+    if (s_max <= s_min)
         return gpu_emit_repeats(c, count, v);
-    step = (s_max - s_min) / slabs;
+
+    // where to cut: bounds[1 .. pieces - 1], between s_min and s_max
+    if (rq.gpu_slabs) {
+        float extent = scan == GPU_SCAN_COLUMNS ? x_max - x_min
+                       : scan == GPU_SCAN_ROWS  ? y_max - y_min
+                       : (x_max - x_min) > (y_max - y_min) ? x_max - x_min
+                                                           : y_max - y_min;
+        pieces = (int)(extent / GPU_SLAB_PIXELS) + 1;
+        if (pieces > GPU_MAX_SLABS)
+            pieces = GPU_MAX_SLABS;
+        for (k = 1; k < pieces; k++)
+            bounds[k] = s_min + k * (s_max - s_min) / pieces;
+    } else {
+        // the corners' levels in order, those that are all but one taken once
+        float apart = (s_max - s_min) * 1e-5f;
+        for (i = 0; i < count; i++) {
+            float level = poly[i].s;
+            for (k = i; k > 0 && levels[k - 1] > level; k--)
+                levels[k] = levels[k - 1];
+            levels[k] = level;
+        }
+        pieces = 1;
+        bounds[0] = s_min;
+        for (i = 0; i < count; i++)
+            if (levels[i] > s_min + apart && levels[i] < s_max - apart && levels[i] > bounds[pieces - 1] + apart)
+                bounds[pieces++] = levels[i];
+    }
+    bounds[0] = s_min;
+    bounds[pieces] = s_max;
+    if (pieces <= 1 && rq.gpu_slabs)
+        return gpu_emit_repeats(c, count, v);
 
     n = count;
     memcpy(above, poly, n * sizeof(poly[0]));
-    for (k = 0; k < slabs; k++) {
-        // the slab below this bound, and what is left above it
-        if (k + 1 < slabs) {
-            float bound = s_min + (k + 1) * step;
-            m = slab_clip(above, n, bound, 0, slab);
-            n = slab_clip(above, n, bound, 1, poly);
+    lo = s_min;
+    for (k = 1; k <= pieces; k++) {
+        float s[GPU_WORK_VERTS];
+
+        // the piece below this bound, and what is left above it
+        if (k < pieces) {
+            m = slab_clip(above, n, bounds[k], 0, piece);
+            n = slab_clip(above, n, bounds[k], 1, poly);
             memcpy(above, poly, n * sizeof(poly[0]));
         } else {
             m = n;
-            memcpy(slab, above, n * sizeof(poly[0]));
+            memcpy(piece, above, n * sizeof(poly[0]));
         }
-        if (m < 3)
-            continue;
-        for (i = 0; i < m; i++)
-            out[i] = slab[i].v;
-        if (!gpu_emit_repeats(c, m, out))
-            return 0;
-        if (!rq.gpu_check)
-            rastq_stats.gpu_slabs++;
+        if (m >= 3) {
+            for (i = 0; i < m; i++) {
+                out[i] = piece[i].v;
+                s[i] = piece[i].s;
+            }
+            if (!rq.gpu_slabs)
+                gpu_light_piece(out, s, m, lo, bounds[k]);
+            if (!gpu_emit_repeats(c, m, out))
+                return 0;
+            if (!rq.gpu_check)
+                rastq_stats.gpu_slabs++;
+        }
+        lo = bounds[k];
     }
     return 1;
 }
@@ -959,15 +1088,17 @@ static int gpu_emit(const rastq_cmd *c) {
         v[i].y = (float)(p->y / 65536.0);
         v[i].q = 1.0f;
         v[i].u = v[i].v = 0;
-        v[i].row = RASTQ_GPU_PLAIN_ROW + 0.5f;
-        v[i].flat_row = 0;
+        // one row of the tables for the whole polygon, until told otherwise
+        v[i].left = RASTQ_GPU_PLAIN_ROW + 0.5f;
+        v[i].span = v[i].along = 0;
+        v[i].width = v[i].depth = 1.0f;
         if (c->gpu == GPU_TMAP) {
             if (c->gpu_persp)
                 v[i].q = (float)w[i] / w_max;
             v[i].u = (float)(p->u / 65536.0) * v[i].q;
             v[i].v = (float)(p->v / 65536.0) * v[i].q;
             if (!c->gpu_lit) {
-                v[i].row = (c->gpu_row + 0.5f) * v[i].q;
+                v[i].left = c->gpu_row + 0.5f;
             } else {
                 // A level that sits exactly on a row of the table mustn't
                 // fall on either side of it from one pixel to the next:
@@ -975,20 +1106,19 @@ static int gpu_emit(const rastq_cmd *c) {
                 float level = (float)(p->i / 65536.0) + GPU_LIGHT_NUDGE;
                 if (level > RASTQ_GPU_LIGHT_ROWS - GPU_LIGHT_NUDGE)
                     level = RASTQ_GPU_LIGHT_ROWS - GPU_LIGHT_NUDGE;
-                if (c->gpu_flat_light) {
-                    v[i].row = 0;
-                    v[i].flat_row = level;
-                } else {
-                    v[i].row = level * v[i].q;
-                }
+                // The floor and wall mappers step the level times w along
+                // the edges and divide by w; the others step the level.
+                v[i].left = c->gpu_flat_light ? level : level * v[i].q;
+                v[i].depth = c->gpu_flat_light ? 1.0f : v[i].q;
             }
         }
     }
     if (c->gpu == GPU_FLAT)
         return rq.gpu->flat(c->n, v, c->gpu_row);
-    // three light levels always fit one plane, so a lit triangle stays whole
+    // Three light levels always fit one plane, so a lit triangle stays
+    // whole: its level and its w, each linear, give the mapper's quotient.
     if (c->gpu_lit && c->n >= 4 && c->n <= RASTQ_GPU_VERTS - 4)
-        return gpu_emit_slabs(c, c->n, v);
+        return gpu_emit_cut(c, c->n, v);
     return gpu_emit_repeats(c, c->n, v);
 }
 

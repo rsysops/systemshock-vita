@@ -110,9 +110,14 @@ typedef struct {
     float x, y;    // canvas pixels
     float u, v, q; // texel coordinates times q, and q (1: no perspective)
     // The table row to pass the texel through is the integer part of
-    // row / q + flat_row: a light level goes through the perspective
-    // division in some mappers and not in others.
-    float row, flat_row;
+    //   (left + span * along / width) / depth
+    // with each of the five taken as a linear function of the screen
+    // position (not through the perspective division). It is how a mapper
+    // has a light level: the value where its row, column or line of one
+    // depth meets the polygon's left edge, what the right edge has more,
+    // how far along the pixel is, and the w the floor and wall mappers
+    // divide by. One row for the whole polygon is (row + 0.5, 0, 0, 1, 1).
+    float left, span, along, width, depth;
 } rastq_gpu_vertex;
 
 // How the texel at (u, v), both rounded down, is found
@@ -187,6 +192,9 @@ void rastq_test_bands(int bands, const int *bounds);
 // For tests: check that each recorded call, drawn alone, stays inside the
 // rows recorded for it. Violations count as check_leak_rows.
 void rastq_test_ranges(int on);
+// For tests: hand the GPU lit polygons cut into thin slabs, each with one
+// light level per vertex, instead of the mapper's own interpolation.
+void rastq_test_gpu_slabs(int on);
 #endif
 
 #endif // __RASTQ_H

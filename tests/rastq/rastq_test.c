@@ -739,11 +739,6 @@ static unsigned ref_compared;
 // scene is drawn in one go, and whether the last comparison did
 static const uchar *ref_expected_cpu;
 static int ref_cpu_matched;
-// The Vita has two shaders (src/MacSrc/VitaGpu.c). The second leaves the
-// perspective division and the wrap to the GPU's hardware, which changes one
-// thing: a light level always goes through the division.
-static int ref_shader_b;
-
 static int ref_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows) {
     if (bits != canvas_bits || w != cw || h != ch)
         return 0;
@@ -756,16 +751,14 @@ static int ref_begin(uchar *bits, int w, int h, int row, const uchar *tables, in
     return 1;
 }
 
-// The fragment shader
-static void ref_pixel(uchar *dest, const grs_bitmap *bm, int flags, float u, float v, float q, float row,
-                      float flat_row) {
-    float inv_w = 1.0f / bm->w, inv_h = 1.0f / bm->h;
-    float fu = floorf(u / q), fv = floorf(v / q), s, t;
+// The fragment shader. The hardware has divided u and v by q; the five
+// light values arrive as they are on screen.
+static void ref_pixel(uchar *dest, const grs_bitmap *bm, int flags, float u, float v, float left, float span,
+                      float along, float width, float depth) {
+    float s = u / bm->w, t = v / bm->h, row;
     int tx, ty, r, texel;
 
-    s = (fu + 0.5f) * inv_w;
-    t = (fv + 0.5f) * inv_h;
-    if (flags & RASTQ_GPU_WRAP) {
+    if (flags & RASTQ_GPU_WRAP) { // the sampler repeats
         s -= floorf(s);
         t -= floorf(t);
     }
@@ -777,27 +770,7 @@ static void ref_pixel(uchar *dest, const grs_bitmap *bm, int flags, float u, flo
     texel = bm->bits[(size_t)ty * bm->row + tx];
     if ((flags & RASTQ_GPU_TRANS) && texel == 0)
         return;
-    r = (int)floorf(row / q + flat_row);
-    r = r < 0 ? 0 : r >= ref.rows ? ref.rows - 1 : r;
-    *dest = ref.tables[r * 256 + texel];
-}
-
-// The second shader: the hardware has divided u, v and the row by q
-static void ref_pixel_b(uchar *dest, const grs_bitmap *bm, int flags, float u, float v, float row) {
-    float s = u / bm->w, t = v / bm->h;
-    int tx, ty, r, texel;
-
-    if (flags & RASTQ_GPU_WRAP) { // the sampler repeats
-        s -= floorf(s);
-        t -= floorf(t);
-    }
-    tx = (int)floorf(s * bm->w);
-    ty = (int)floorf(t * bm->h);
-    tx = tx < 0 ? 0 : tx >= bm->w ? bm->w - 1 : tx;
-    ty = ty < 0 ? 0 : ty >= bm->h ? bm->h - 1 : ty;
-    texel = bm->bits[(size_t)ty * bm->row + tx];
-    if ((flags & RASTQ_GPU_TRANS) && texel == 0)
-        return;
+    row = (left + span * (along / fmaxf(width, 0.0001f))) / depth;
     r = (int)floorf(row); // the tables' sampler picks the nearest row
     r = r < 0 ? 0 : r >= ref.rows ? ref.rows - 1 : r;
     *dest = ref.tables[r * 256 + texel];
@@ -854,20 +827,14 @@ static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_
                 la = (float)(ea / area);
                 lb = (float)(eb / area);
                 lc = (float)(ec / area);
-                if (ref_shader_b) {
-                    // Each vertex has u, v and its row undivided, and the
-                    // hardware interpolates them with the perspective: the
-                    // same quotient of two interpolations.
+                {
+                    // u and v with the perspective, the rest without
                     float q = la * a->q + lb * b->q + lc * c->q;
-                    float row = la * (a->row + a->flat_row * a->q) + lb * (b->row + b->flat_row * b->q) +
-                                lc * (c->row + c->flat_row * c->q);
-                    ref_pixel_b(dest, bm, flags, (la * a->u + lb * b->u + lc * c->u) / q,
-                                (la * a->v + lb * b->v + lc * c->v) / q, row / q);
-                    continue;
+#define REF_AT(field) (la * a->field + lb * b->field + lc * c->field)
+                    ref_pixel(dest, bm, flags, REF_AT(u) / q, REF_AT(v) / q, REF_AT(left), REF_AT(span), REF_AT(along),
+                              REF_AT(width), REF_AT(depth));
+#undef REF_AT
                 }
-                ref_pixel(dest, bm, flags, la * a->u + lb * b->u + lc * c->u, la * a->v + lb * b->v + lc * c->v,
-                          la * a->q + lb * b->q + lc * c->q, la * a->row + lb * b->row + lc * c->row,
-                          la * a->flat_row + lb * b->flat_row + lc * c->flat_row);
             }
         }
     }
@@ -898,7 +865,7 @@ static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_end, ref_co
 // The share of a frame's pixels that may differ between the stand-in and the
 // mappers, and the share over a whole run.
 #define GPU_FRAME_LIMIT 0.06
-#define GPU_RUN_LIMIT 0.005
+static const double gpu_run_limit[2] = {0.0015, 0.005}; // light per pixel, in slabs
 #endif
 
 // Finds the first call of a failing scene whose presence makes replay differ.
@@ -974,7 +941,9 @@ int main(int argc, char **argv) {
     unsigned long long copied_all = 0, copied_trust = 0;
     unsigned flushes = 0, cmds = 0;
     unsigned batches = 0, solo_mapper = 0, solo_direct = 0;
-    unsigned gpu_scenes = 0, gpu_polys = 0, gpu_culled = 0, gpu_cpu_calls = 0, gpu_slabs = 0, gpu_whole_checks = 0;
+    unsigned gpu_scenes = 0, gpu_polys = 0, gpu_culled = 0, gpu_cpu_calls = 0, gpu_whole_checks = 0;
+    unsigned gpu_pieces[2] = {0, 0};
+    static const char *light_names[2] = {"light per pixel", "light in slabs"};
     long gpu_diff[2] = {0, 0}, gpu_far[2] = {0, 0};
     int s, f;
     // RASTQ_HASH: only draw directly and print a checksum per frame, to
@@ -1075,7 +1044,8 @@ int main(int argc, char **argv) {
                 }
 
                 // The queue's GPU path, with the stand-in, on a scene made
-                // for it, once for each of the Vita's shaders: what it draws
+                // for it, once for each way of handing over light (worked
+                // out per pixel, then in slabs): what it draws
                 // may differ from the mappers' along edges and texel
                 // boundaries, and hardly at all beyond two pixels from where
                 // they have the same value. Then the queue's own comparison
@@ -1086,7 +1056,7 @@ int main(int argc, char **argv) {
                 {
                     static op_t gpu_ops[MAX_OPS];
                     uint64_t main_state = rng_state;
-                    int gpu_count, shader;
+                    int gpu_count, slabs;
 
                     rng_state = gpu_rng_state;
                     consistent = 1;
@@ -1098,12 +1068,12 @@ int main(int argc, char **argv) {
                     consistent_background = 1;
                     rastq_set_check_interval(0);
                     draw_scene(gpu_ops, gpu_count, RASTQ_OFF, result[1]);
-                    for (shader = 0; shader < 2; shader++) {
+                    for (slabs = 0; slabs < 2; slabs++) {
                         unsigned compared = ref_compared;
                         long diff, far;
                         int drawn_ok, check_ok, whole, k;
 
-                        ref_shader_b = shader;
+                        rastq_test_gpu_slabs(slabs);
                         rastq_set_gpu(&ref_gpu);
                         rastq_use_gpu(1);
                         rastq_set_check_interval(0);
@@ -1111,14 +1081,14 @@ int main(int argc, char **argv) {
                         draw_scene(gpu_ops, gpu_count, RASTQ_TRUST_STABLE, result[2]);
                         diff = differing(result[1], result[2]);
                         far = differing_nearby(result[1], result[2]);
-                        gpu_diff[shader] += diff;
-                        gpu_far[shader] += far;
-                        if (shader == 0) {
+                        gpu_diff[slabs] += diff;
+                        gpu_far[slabs] += far;
+                        gpu_pieces[slabs] += rastq_stats.gpu_slabs;
+                        if (slabs == 0) {
                             gpu_scenes += rastq_stats.gpu_scenes;
                             gpu_polys += rastq_stats.gpu_polys;
                             gpu_culled += rastq_stats.gpu_culled;
                             gpu_cpu_calls += rastq_stats.gpu_cpu_calls;
-                            gpu_slabs += rastq_stats.gpu_slabs;
                         }
                         drawn_ok = rastq_stats.gpu_scenes > 0 && rastq_stats.gpu_fallbacks == 0 &&
                                    far <= (long)(GPU_FRAME_LIMIT * cw * ch);
@@ -1137,7 +1107,7 @@ int main(int argc, char **argv) {
                         rastq_use_gpu(0);
                         rastq_set_gpu(NULL);
                         if (getenv("RASTQ_GPU_EXPLAIN") != NULL && strcmp(getenv("RASTQ_GPU_EXPLAIN"), "bad") != 0) {
-                            printf("  %dx%d frame %d shader %c: %.2f%% differ, %.3f%% not near\n", cw, ch, f, 'A' + shader,
+                            printf("  %dx%d frame %d %s: %.2f%% differ, %.3f%% not near\n", cw, ch, f, light_names[slabs],
                                    100.0 * diff / ((double)cw * ch), 100.0 * far / ((double)cw * ch));
                             if (strcmp(getenv("RASTQ_GPU_EXPLAIN"), "frames") != 0 &&
                                 strcmp(getenv("RASTQ_GPU_EXPLAIN"), "bad") != 0)
@@ -1145,9 +1115,9 @@ int main(int argc, char **argv) {
                         }
                         if (!drawn_ok || !check_ok) {
                             if (bad < 10)
-                                printf("  %dx%d frame %d (%d calls), GPU path, shader %c: %ld pixels differ from the "
+                                printf("  %dx%d frame %d (%d calls), GPU path, %s: %ld pixels differ from the "
                                        "mappers' (%.1f%%), %ld of them not near one that matches (%.2f%%), comparison %s\n",
-                                       cw, ch, f, gpu_count, 'A' + shader, diff, 100.0 * diff / ((double)cw * ch), far,
+                                       cw, ch, f, gpu_count, light_names[slabs], diff, 100.0 * diff / ((double)cw * ch), far,
                                        100.0 * far / ((double)cw * ch), check_ok ? "ok" : "not ok");
                             if (bad < 10 && getenv("RASTQ_GPU_EXPLAIN") != NULL &&
                                 strcmp(getenv("RASTQ_GPU_EXPLAIN"), "bad") == 0) {
@@ -1160,7 +1130,7 @@ int main(int argc, char **argv) {
                             bad++;
                         }
                     }
-                    ref_shader_b = 0;
+                    rastq_test_gpu_slabs(0);
                     consistent_background = 0;
                 }
 
@@ -1193,17 +1163,17 @@ int main(int argc, char **argv) {
     printf("  in bands: %u batches, %u calls drawn alone for their mapper, %u drawn directly\n", batches, solo_mapper,
            solo_direct);
 #ifndef RASTQ_REFERENCE
-    printf("  GPU path: %u calls in %u scenes, lit ones cut into %u slabs, %u culled, %u drawn by the CPU\n", gpu_polys,
-           gpu_scenes, gpu_slabs, gpu_culled, gpu_cpu_calls);
+    printf("  GPU path: %u calls in %u scenes, %u culled, %u drawn by the CPU\n", gpu_polys, gpu_scenes, gpu_culled,
+           gpu_cpu_calls);
     if (gpu_whole_checks == 0) {
         printf("  no scene was compared in one go\n");
         bad++;
     }
     for (s = 0; s < 2; s++) {
-        printf("  shader %c: %.2f%% of pixels differ from the mappers', %.3f%% not near one that matches\n", 'A' + s,
-               100.0 * gpu_diff[s] / total, 100.0 * gpu_far[s] / total);
-        if (gpu_far[s] > GPU_RUN_LIMIT * total) {
-            printf("  that is more than %.2f%%\n", 100.0 * GPU_RUN_LIMIT);
+        printf("  %s (%u pieces): %.2f%% of pixels differ from the mappers', %.3f%% not near one that matches\n",
+               light_names[s], gpu_pieces[s], 100.0 * gpu_diff[s] / total, 100.0 * gpu_far[s] / total);
+        if (gpu_far[s] > gpu_run_limit[s] * total) {
+            printf("  that is more than %.2f%%\n", 100.0 * gpu_run_limit[s]);
             bad++;
         }
     }

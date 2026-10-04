@@ -6,23 +6,17 @@ flat fragment shader compiled: 228 bytes
 drawing the index check
 index check drawn: 0 wrong
 compiling the textured shaders
-shader A vertex shader compiled: 356 bytes
-shader A fragment shader compiled: 548 bytes
-shader A, transparent fragment shader compiled: 648 bytes
-shader A texture units: bitmap 0, tables 1; transparent: bitmap 0, tables 1
-shader B vertex shader compiled: 332 bytes
-shader B fragment shader compiled: 404 bytes
-shader B, transparent fragment shader compiled: 496 bytes
-shader B texture units: bitmap 0, tables 1; transparent: bitmap 0, tables 1
-drawing the texture check with shader A
-texture check drawn: 0 0 0 0 wrong
-drawing the texture check with shader B
+textured vertex shader compiled: 368 bytes
+textured fragment shader compiled: 452 bytes
+transparent fragment shader compiled: 544 bytes
+texture units: bitmap 0, tables 1; transparent: bitmap 0, tables 1
+drawing the texture check
 texture check drawn: 0 0 0 0 wrong
 timing memory
-gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | shader_a=on check plain=0 table=0 light=0 wrap=0 | shader_b=on check plain=0 table=0 light=0 wrap=0 (wrong columns of 256) | 512KB us: gpu_write=700 gpu_read=4863 ram_write=274 ram_read=1199
-3 canvases 960x544, 960 bytes a row, the first at 0x62c40000
-refused a 804x293 canvas at 0x822a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
-refused a 804x293 canvas at 0x822a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
-refused a 804x293 canvas at 0x822a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
-refused a 804x293 canvas at 0x822a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
-refused a 804x293 canvas at 0x822a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
+gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 (wrong columns of 256) | 512KB us: gpu_write=844 gpu_read=4857 ram_write=258 ram_read=1195
+3 canvases 960x544, 960 bytes a row, the first at 0x62c00000
+refused a 804x293 canvas at 0x823a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
+refused a 804x293 canvas at 0x823a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
+refused a 804x293 canvas at 0x823a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
+refused a 804x293 canvas at 0x823a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
+refused a 804x293 canvas at 0x823a15e0, 804 bytes a row: not a GPU canvas (0x00000000)
