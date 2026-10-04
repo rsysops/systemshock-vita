@@ -35,6 +35,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "poly.h"
 #include "scrdat.h"
 #include "tmapint.h"
+#include "band.h"
 #include "vtab.h"
 
 int gri_lit_lin_umap_loop(grs_tmap_loop_info *tli);
@@ -55,11 +56,12 @@ int Handle_Lit_Lin_Loop_C(fix u, fix v, fix du, fix dv, fix dx, grs_tmap_loop_in
                           uchar *t_bits, long gr_row, fix i, fix di, uchar *g_ltab, uchar t_wlog, ulong t_mask) {
     int x, t_xl, t_xr, inv;
     uchar *p_dest;
+    int row = tli->y;
 
     tli->y += tli->n;
 
     do {
-        if ((x = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0) {
+        if ((x = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0 && gr_row_in_band(tli, row)) {
             x = fix_div(fix_make(1, 0) << 8, dx);
             di = fix_mul_asm_safe_light(di, x);
             x >>= 8;
@@ -99,6 +101,7 @@ int Handle_Lit_Lin_Loop_C(fix u, fix v, fix du, fix dv, fix dx, grs_tmap_loop_in
         tli->right.x += tli->right.dx;
         dx = tli->right.x - tli->left.x;
         start_pdest += gr_row;
+        row++;
     } while (--(tli->n) > 0);
     return FALSE; // tmap OK
 }
@@ -109,13 +112,14 @@ int Handle_TLit_Lin_Loop2_C(fix u, fix v, fix du, fix dv, fix dx, grs_tmap_loop_
     uchar *p_dest;
     int t_xl, t_xr;
     int lx, rx;
+    int row = tli->y;
 
     lx = tli->left.x;
     rx = tli->right.x;
 
     tli->y += tli->n;
     do {
-        if ((x = fix_ceil(rx) - fix_ceil(lx)) > 0) {
+        if ((x = fix_ceil(rx) - fix_ceil(lx)) > 0 && gr_row_in_band(tli, row)) {
             x = fix_ceil(lx) - lx;
 
             k = fix_div(fix_make(1, 0) << 8, dx);
@@ -162,6 +166,7 @@ int Handle_TLit_Lin_Loop2_C(fix u, fix v, fix du, fix dv, fix dx, grs_tmap_loop_
         rx += tli->right.dx;
         dx = rx - lx;
         start_pdest += gr_row;
+        row++;
     } while (--(tli->n) > 0);
 
     tli->left.x = lx;
@@ -212,7 +217,7 @@ int gri_lit_lin_umap_loop(grs_tmap_loop_info *tli) {
             Handle_TLit_Lin_Loop2_C(u, v, du, dv, dx, tli, start_pdest, t_bits, gr_row, i, di, g_ltab, t_wlog, t_mask));
 
     do {
-        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0) {
+        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0 && gr_row_in_band(tli, tli->y)) {
             d = fix_ceil(tli->left.x) - tli->left.x;
 
 #if InvDiv

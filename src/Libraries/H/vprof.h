@@ -15,6 +15,7 @@ typedef enum {
     VPROF_SENDVIEW,
     VPROF_RASTER,
     VPROF_RECORD,
+    VPROF_HELPSCAN,
     VPROF_PHASE_COUNT
 } vprof_phase_t;
 
@@ -24,10 +25,10 @@ typedef enum {
 #include <psp2/kernel/threadmgr.h>
 
 // Variants of the code under test, alternated every few 1 s windows so they
-// can be compared within one session. Current step, the rasterizer queue
-// (the RASTQ_ modes of rastq.h): 0 = draw directly, 1 = record and replay
-// copying every bitmap, 2 = record and replay without copying terrain
-// textures.
+// can be compared within one session. Current step, the multicore replay of
+// the rasterizer queue (rastq.h): 0 = draw directly on one core, 1 = record
+// and replay every view on three cores, 2 = the same, but views under 272
+// rows (the on-screen help's scan) are replayed by the main thread alone.
 #define VPROF_VARIANT_COUNT 3
 extern int vprof_variant;
 

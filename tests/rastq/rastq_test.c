@@ -1,9 +1,14 @@
 // Checks that recording the rasterizer's draw calls and replaying them
 // (src/Libraries/3D/Source/rastq.c) gives the same pixels as drawing them
-// directly. Random scenes go through every mapper family the game uses, with
-// the argument storage reused between calls the way the game reuses it.
+// directly: on one thread, band after band of rows, and on three threads that
+// each draw one band. Random scenes go through every mapper family the game
+// uses, with the argument storage reused between calls the way the game
+// reuses it.
 //
 // Usage: rastq_test [frames] [seed]
+// With RASTQ_HASH set it only draws directly and prints a checksum per frame,
+// to compare two builds of the libraries. RASTQ_REFERENCE builds it for
+// libraries from before row bands, where that is all it can do.
 
 #include <math.h>
 #include <stdint.h>
@@ -79,12 +84,22 @@ static uint32_t rnd(void) {
     return (uint32_t)(rng_state >> 16);
 }
 static int rnd_in(int lo, int hi) { return lo + (int)(rnd() % (uint32_t)(hi - lo + 1)); }
+// A second generator for how a scene is replayed, so that adding a replay
+// test doesn't change the scenes a seed gives.
+static uint64_t aux_state = 0x2545F4914F6CDD1DULL;
+static int aux_in(int lo, int hi) {
+    aux_state ^= aux_state << 13;
+    aux_state ^= aux_state >> 7;
+    aux_state ^= aux_state << 17;
+    return lo + (int)((uint32_t)(aux_state >> 16) % (uint32_t)(hi - lo + 1));
+}
 static double rnd_f(double lo, double hi) { return lo + (hi - lo) * (rnd() / 4294967295.0); }
 
 static grs_screen screen;
 static grs_canvas canvas;
 static int cw, ch;
-static uchar *canvas_bits, *background, *result[4];
+#define RESULTS 5
+static uchar *canvas_bits, *background, *result[RESULTS];
 static uchar *ltab, *ipal, *stab, *unpack, *scratch;
 static uchar tluc_tables[32][256];
 static MemStack temp_stack;
@@ -214,7 +229,7 @@ static void set_canvas(int w, int h) {
     free(background);
     canvas_bits = malloc((size_t)w * h);
     background = malloc((size_t)w * h);
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < RESULTS; i++) {
         free(result[i]);
         result[i] = malloc((size_t)w * h);
     }
@@ -307,6 +322,16 @@ static int make_tmap(op_t *o) {
     if (family == 2 && (o->src == SRC_UNPACKED || o->src == SRC_RSD)) {
         o->src = SRC_POOL;
         o->bm = textures[rnd_in(0, N_TEXTURES - 1)].flat;
+    }
+    // The row mappers also take textures whose sides aren't powers of two.
+    // They read a texel past the end of those, so only from fixed memory.
+    if (family != 2 && family != 3 && (rnd() & 3) == 0) {
+        o->src = SRC_POOL;
+        o->bm = sprites[rnd_in(0, N_SPRITES - 1)].flat;
+        if (rnd() & 1)
+            o->bm.flags &= ~BMF_TRANS;
+        if ((rnd() & 7) == 0)
+            o->bm.type = BMT_TLUC8;
     }
     o->op = OP_TMAP;
     o->ti.flags = 0;
@@ -546,6 +571,14 @@ static void draw_scene(const op_t *ops, int count, int mode, uchar *out) {
     memcpy(out, canvas_bits, (size_t)cw * ch);
 }
 
+static uint64_t checksum(const uchar *p) {
+    uint64_t h = 1469598103934665603ULL;
+    size_t i, total = (size_t)cw * ch;
+    for (i = 0; i < total; i++)
+        h = (h ^ p[i]) * 1099511628211ULL;
+    return h;
+}
+
 static long differing(const uchar *a, const uchar *b) {
     long n = 0;
     size_t i, total = (size_t)cw * ch;
@@ -554,8 +587,22 @@ static long differing(const uchar *a, const uchar *b) {
     return n;
 }
 
+#ifndef RASTQ_REFERENCE
+// How the replays of a frame are split
+enum { SPLIT_NONE, SPLIT_BANDS, SPLIT_THREADS };
+static int band_count, band_bounds[8];
+
+static void set_split(int split) {
+    rastq_test_bands(split == SPLIT_BANDS ? band_count : 0, band_bounds);
+    rastq_set_threads(split == SPLIT_THREADS ? RASTQ_THREADS : 1);
+}
+#else
+#define SPLIT_NONE 0
+#define set_split(split) ((void)0)
+#endif
+
 // Finds the first call of a failing scene whose presence makes replay differ.
-static void explain(const op_t *ops, int count) {
+static void explain(const op_t *ops, int count, int split) {
     static const char *op_names[] = {"tmap", "sprite", "poly", "rect"};
     static const char *src_names[] = {"pool", "scratch", "unpacked", "rsd"};
     int k;
@@ -564,7 +611,9 @@ static void explain(const op_t *ops, int count) {
     for (k = 1; k <= count; k++) {
         const op_t *o = &ops[k - 1];
         draw_scene(ops, k, RASTQ_OFF, result[0]);
+        set_split(split);
         draw_scene(ops, k, RASTQ_COPY_ALL, result[1]);
+        set_split(SPLIT_NONE);
         if (!differing(result[0], result[1]))
             continue;
         printf("    first difference at call %d of %d: %s", k, count, op_names[o->op]);
@@ -586,7 +635,11 @@ int main(int argc, char **argv) {
     long bad = 0, drawn = 0, total = 0;
     unsigned long long copied_all = 0, copied_trust = 0;
     unsigned flushes = 0, cmds = 0;
+    unsigned batches = 0, solo_mapper = 0, solo_direct = 0;
     int s, f;
+    // RASTQ_HASH: only draw directly and print a checksum per frame, to
+    // compare two builds of the libraries.
+    int hash_only = getenv("RASTQ_HASH") != NULL;
 
     rng_state = argc > 2 ? strtoull(argv[2], NULL, 10) : 0x9E3779B97F4A7C15ULL;
     setup();
@@ -602,6 +655,10 @@ int main(int argc, char **argv) {
 
             rastq_set_check_interval(0);
             draw_scene(ops, count, RASTQ_OFF, result[0]);
+            if (hash_only) {
+                printf("%dx%d %d %016llx\n", cw, ch, f, (unsigned long long)checksum(result[0]));
+                continue;
+            }
             memset(&rastq_stats, 0, sizeof(rastq_stats));
             draw_scene(ops, count, RASTQ_COPY_ALL, result[1]);
             copied_all += rastq_stats.copied;
@@ -625,16 +682,85 @@ int main(int argc, char **argv) {
                            "self-check %u bad rows in %u runs\n",
                            cw, ch, f, count, d[0], d[1], d[2], rastq_stats.check_bad_rows, rastq_stats.check_runs);
                 if (bad < 10)
-                    explain(ops, count);
+                    explain(ops, count, SPLIT_NONE);
                 bad++;
             }
+#ifndef RASTQ_REFERENCE
+            {
+                // The same scene replayed in row bands: on this thread, band
+                // after band at random boundaries, then on three threads.
+                // Each is also run under the recorder's self-check, which
+                // draws one band alone and looks for rows written outside it.
+                static const char *names[] = {"", "bands", "threads"};
+                int split, b, c;
+
+                band_count = aux_in(1, 5);
+                for (b = 0; b < band_count - 1; b++)
+                    band_bounds[b] = aux_in(0, ch);
+                for (b = 0; b < band_count - 1; b++)
+                    for (c = b + 1; c < band_count - 1; c++)
+                        if (band_bounds[c] < band_bounds[b]) {
+                            int t = band_bounds[b];
+                            band_bounds[b] = band_bounds[c];
+                            band_bounds[c] = t;
+                        }
+
+                for (split = SPLIT_BANDS; split <= SPLIT_THREADS; split++) {
+                    long diff;
+
+                    set_split(split);
+                    rastq_set_check_interval(0);
+                    memset(&rastq_stats, 0, sizeof(rastq_stats));
+                    draw_scene(ops, count, RASTQ_TRUST_STABLE, result[4]);
+                    diff = differing(result[0], result[4]);
+                    batches += rastq_stats.batches;
+                    solo_mapper += rastq_stats.solo[RASTQ_SOLO_MAPPER];
+                    solo_direct += rastq_stats.solo[RASTQ_SOLO_DIRECT];
+                    memset(&rastq_stats, 0, sizeof(rastq_stats));
+                    rastq_set_check_interval(1);
+                    draw_scene(ops, count, RASTQ_COPY_ALL, result[4]);
+                    set_split(SPLIT_NONE);
+                    if (diff || rastq_stats.check_bad_rows || rastq_stats.check_leak_rows ||
+                        rastq_stats.check_runs == 0) {
+                        if (bad < 10) {
+                            printf("  %dx%d frame %d (%d calls), %s: %ld differing pixels, self-check %u bad rows "
+                                   "and %u rows outside a band in %u runs\n",
+                                   cw, ch, f, count, names[split], diff, rastq_stats.check_bad_rows,
+                                   rastq_stats.check_leak_rows, rastq_stats.check_runs);
+                            explain(ops, count, split);
+                        }
+                        bad++;
+                    }
+                }
+
+                // Now and then, each call drawn alone must stay inside the
+                // rows recorded for it: the threads skip calls by them.
+                if (f % 8 == 0) {
+                    rastq_set_check_interval(0);
+                    rastq_test_ranges(1);
+                    memset(&rastq_stats, 0, sizeof(rastq_stats));
+                    draw_scene(ops, count, RASTQ_COPY_ALL, result[4]);
+                    rastq_test_ranges(0);
+                    if (rastq_stats.check_leak_rows) {
+                        if (bad < 10)
+                            printf("  %dx%d frame %d (%d calls): %u rows written outside a call's recorded range\n", cw,
+                                   ch, f, count, rastq_stats.check_leak_rows);
+                        bad++;
+                    }
+                }
+            }
+#endif
         }
     }
 
+    if (hash_only)
+        return 0;
     printf("  %d frames per size, %u calls recorded, %u flushes, %.0f%% of pixels drawn\n", frames, cmds, flushes,
            100.0 * drawn / total);
     printf("  pixels copied: %.1f MB copying all, %.1f MB trusting stable textures\n", copied_all / 1048576.0,
            copied_trust / 1048576.0);
+    printf("  in bands: %u batches, %u calls drawn alone for their mapper, %u drawn directly\n", batches, solo_mapper,
+           solo_direct);
     printf("  %ld frames differ\n", bad);
     return bad != 0;
 }

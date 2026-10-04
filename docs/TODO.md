@@ -6,3 +6,4 @@
 * Delete MIDI player and switch to DosBox only?
 * Native resolution for the movies?
 * FPS lock 30/60
+* Move the rendering to the GPU?

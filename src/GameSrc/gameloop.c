@@ -175,7 +175,7 @@ void game_loop(void) {
         {
             if (!olh_overlay_on && olh_active && !global_fullmap->cyber) {
                 TRACE("%s: olh_scan_objects", __FUNCTION__);
-                olh_scan_objects();
+                VPROF_RUN(VPROF_HELPSCAN, olh_scan_objects());
             }
         }
         // KLC - does nothing!         loopLine(GL|0x1D,synchronous_update());

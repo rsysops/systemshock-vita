@@ -2,6 +2,7 @@ enable_language(ASM)
 set(can_use_assembler TRUE)
 
 set(2D_SRC
+	2D/Source/band.c
 	2D/Source/bit.c
 	2D/Source/bitmap.c
 	2D/Source/blend.c
@@ -101,6 +102,7 @@ set(2D_SRC
 	2D/Source/Flat8/fl8p.c
 	2D/Source/Flat8/fl8wclin.c
 	2D/Source/Flat8/fl8hlin.c
+	2D/Source/Flat8/fl8band.c
 	2D/Source/Flat8/fl8bl.c
 	2D/Source/Flat8/fl8gpix.c
 	2D/Source/Flat8/fl8ns.c
@@ -176,6 +178,7 @@ set(3D_SRC
 	3D/Source/points.c
 	3D/Source/polygon.c
 	3D/Source/rastq.c
+	3D/Source/rastqthr.c
 	3D/Source/slew.c
 	3D/Source/tmap.c
 	3D/Source/vector.c
@@ -213,6 +216,7 @@ set(INPUT_SRC
 
 set(LG_SRC
 	LG/Source/LOG/src/log.c
+	LG/Source/lgslot.c
 	LG/Source/memall.c
 	LG/Source/stack.c
 	LG/Source/tmpalloc.c

@@ -45,7 +45,11 @@ static SceInt64 g_mark_t0[VPROF_PHASE_COUNT];
 // A discarded frame leaves no trace: its per-call stats are rolled back to
 // this copy, taken when the frame began.
 static vprof_call_accum_t g_call_accum_at_frame_begin[VPROF_PHASE_COUNT];
+static rastq_stats_t g_rastq_at_frame_begin;
 static int g_frame_discard = 0;
+
+// 3D views drawn in the window's frames
+static unsigned g_views;
 
 static SceInt64 g_frame_phase_total_us[VPROF_PHASE_COUNT];
 static vprof_frame_accum_t g_frame_accum[VPROF_PHASE_COUNT];
@@ -113,6 +117,14 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.cmds = 0;
     rastq_stats.flushes = 0;
     rastq_stats.copied = 0;
+    rastq_stats.batches = 0;
+    rastq_stats.wait_us = 0;
+    rastq_stats.late_us = 0;
+    for (i = 0; i < RASTQ_SOLO_REASONS; i++)
+        rastq_stats.solo[i] = 0;
+    for (i = 0; i < RASTQ_THREADS; i++)
+        rastq_stats.busy_us[i] = 0;
+    g_views = 0;
     g_window_start_us = now;
     g_window_loop_mode = loop_mode;
     g_window_open = 1;
@@ -169,7 +181,9 @@ static void vprof_window_flush(SceInt64 now) {
                 "ui2d=%.2f/%.2f present=%.2f/%.2f | "
                 "traverse=%.2f/%.2f sendview=%.2f/%.2f raster=%.2f/%.2f "
                 "calls_per_frame=%.1f raster_call_avg=%.3f | music=%.1f%% acpu=%d mcpu=%d | "
-                "record=%.2f/%.2f cmds=%.1f copied=%.1fKB flushes=%.2f check=%u/%u\n",
+                "record=%.2f/%.2f cmds=%.1f copied=%.1fKB flushes=%.2f check=%u/%u | "
+                "views=%.2f batches=%.1f solo=%.1f/%.1f wait=%.2f busy=%.2f/%.2f/%.2f late=%u "
+                "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -194,7 +208,20 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)rastq_stats.copied / 1024.0 / g_frame_samples,
                 (double)rastq_stats.flushes / g_frame_samples,
                 rastq_stats.check_bad_rows,
-                rastq_stats.check_runs);
+                rastq_stats.check_runs,
+                (double)g_views / g_frame_samples,
+                (double)rastq_stats.batches / g_frame_samples,
+                (double)rastq_stats.solo[RASTQ_SOLO_MAPPER] / g_frame_samples,
+                (double)rastq_stats.solo[RASTQ_SOLO_DIRECT] / g_frame_samples,
+                us_to_ms(rastq_stats.wait_us) / g_frame_samples,
+                us_to_ms(rastq_stats.busy_us[0]) / g_frame_samples,
+                us_to_ms(rastq_stats.busy_us[1]) / g_frame_samples,
+                us_to_ms(rastq_stats.busy_us[2]) / g_frame_samples,
+                rastq_stats.late_us,
+                rastq_stats.rows[1], rastq_stats.rows[2], rastq_stats.rows[3],
+                rastq_stats.cpu[0], rastq_stats.cpu[1], rastq_stats.cpu[2],
+                rastq_stats.check_leak_rows,
+                frame_avg_ms(VPROF_HELPSCAN, g_frame_samples), frame_max_ms(VPROF_HELPSCAN));
         fclose(fp);
     }
 }
@@ -243,6 +270,7 @@ void vprof_frame_begin(void) {
         g_frame_phase_total_us[i] = 0;
         g_call_accum_at_frame_begin[i] = g_call_accum[i];
     }
+    g_rastq_at_frame_begin = rastq_stats;
     g_frame_discard = 0;
 
     g_frame_t0 = now;
@@ -260,10 +288,20 @@ void vprof_frame_end(void) {
     g_main_cpu = sceKernelGetCpuId();
 
     if (g_frame_discard) {
+        // The frame's counts go, but not the self-check's results, nor what
+        // tells the next views apart.
+        rastq_stats_t now_stats = rastq_stats;
+
         for (i = 0; i < VPROF_PHASE_COUNT; i++) {
             g_call_accum[i] = g_call_accum_at_frame_begin[i];
         }
+        rastq_stats = g_rastq_at_frame_begin;
+        rastq_stats.views = now_stats.views;
+        rastq_stats.check_runs = now_stats.check_runs;
+        rastq_stats.check_bad_rows = now_stats.check_bad_rows;
+        rastq_stats.check_leak_rows = now_stats.check_leak_rows;
     } else {
+        g_views += rastq_stats.views - g_rastq_at_frame_begin.views;
         g_frame_total_us += elapsed;
         g_frame_samples++;
         if (elapsed > g_frame_max_us) {
@@ -324,18 +362,20 @@ void vprof_overlay_draw(void) {
     raster_call_avg_ms = us_to_ms(g_call_accum[VPROF_RASTER].total_us) /
                           (g_call_accum[VPROF_RASTER].samples ? g_call_accum[VPROF_RASTER].samples : 1);
 
-    snprintf(line, sizeof(line), "traverse=%.1f sendview=%.1f raster=%.1fms calls/f=%.0f record=%.2fms cmds=%.0f",
+    (void)raster_calls_per_frame;
+    snprintf(line, sizeof(line), "traverse=%.1f raster=%.1fms record=%.2fms cmds=%.0f batches=%.0f wait=%.1fms",
              frame_avg_ms(VPROF_TRAVERSE, samples),
-             frame_avg_ms(VPROF_SENDVIEW, samples),
              frame_avg_ms(VPROF_RASTER, samples),
-             raster_calls_per_frame,
              frame_avg_ms(VPROF_RECORD, samples),
-             (double)rastq_stats.cmds / samples);
+             (double)rastq_stats.cmds / samples,
+             (double)rastq_stats.batches / samples,
+             us_to_ms(rastq_stats.wait_us) / samples);
     vita2d_pgf_draw_text(g_pgf, 4, 48, 0xffffffff, 1.0f, line);
 
-    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds call_avg=%.3fms check=%u/%u", _current_loop,
-             vprof_variant, (long long)(window_age_us / 1000000), raster_call_avg_ms, rastq_stats.check_bad_rows,
-             rastq_stats.check_runs);
+    (void)raster_call_avg_ms;
+    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds split=%d/%d/%d check=%u/%u leaks=%u", _current_loop,
+             vprof_variant, (long long)(window_age_us / 1000000), rastq_stats.rows[1], rastq_stats.rows[2],
+             rastq_stats.rows[3], rastq_stats.check_bad_rows, rastq_stats.check_runs, rastq_stats.check_leak_rows);
     vita2d_pgf_draw_text(g_pgf, 4, 64, 0xffffffff, 1.0f, line);
 }
 

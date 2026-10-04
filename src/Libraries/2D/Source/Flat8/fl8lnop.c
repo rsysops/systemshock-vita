@@ -34,6 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "gente.h"
 #include "poly.h"
 #include "tmapint.h"
+#include "band.h"
 #include "vtab.h"
 
 // prototypes
@@ -51,13 +52,14 @@ int Handle_LinClut_Loop_C(fix u, fix v, fix du, fix dv, fix dx, grs_tmap_loop_in
     register int x, k;
     uchar *p_dest;
     register fix rx, lx;
+    int row = tli->y;
 
     rx = tli->right.x;
     lx = tli->left.x;
     tli->y += tli->n;
 
     do {
-        if ((x = fix_ceil(rx) - fix_ceil(lx)) > 0) {
+        if ((x = fix_ceil(rx) - fix_ceil(lx)) > 0 && gr_row_in_band(tli, row)) {
             x = fix_ceil(lx) - lx;
 
             k = fix_div(fix_make(1, 0), dx);
@@ -89,6 +91,7 @@ int Handle_LinClut_Loop_C(fix u, fix v, fix du, fix dv, fix dx, grs_tmap_loop_in
         rx += tli->right.dx;
         dx = rx - lx;
         start_pdest += gr_row;
+        row++;
     } while (--(tli->n) > 0);
 
     tli->right.x = rx;
@@ -133,7 +136,7 @@ int gri_lin_umap_loop(grs_tmap_loop_info *tli) {
         return (Handle_LinClut_Loop_C(u, v, du, dv, dx, tli, start_pdest, t_bits, gr_row, t_clut, t_wlog, t_mask));
 
     do {
-        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0) {
+        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0 && gr_row_in_band(tli, tli->y)) {
             d = fix_ceil(tli->left.x) - tli->left.x;
 
 #if InvDiv

@@ -35,6 +35,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "poly.h"
 #include "scrmac.h"
 #include "tmapint.h"
+#include "band.h"
 #include "vtab.h"
 
 int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli);
@@ -53,6 +54,8 @@ int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli) {
     uchar *g_ltab;
     fix inv_dy;
     int32_t *t_vtab;
+    int b_top = tli->band_top, b_bot = tli->band_bot;
+    int yt, yb;
 
 #if InvDiv
     inv_dy = fix_div(fix_make(1, 0), tli->w);
@@ -103,8 +106,22 @@ int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli) {
             v += fix_mul(dv, d);
             i += fix_mul(di, d);
 
-            y = fix_cint(tli->right.y) - fix_cint(tli->left.y);
-            p_dest = grd_bm.bits + (gr_row * fix_cint(tli->left.y)) + tli->x;
+            // Only the rows in the band, with u, v and i stepped over the
+            // rest. Unlike the other wall loops this one can't skip a whole
+            // column: di, as scaled above, is carried into the next column's
+            // lighting below.
+            yt = fix_cint(tli->left.y);
+            yb = fix_cint(tli->right.y);
+            if (yt < b_top) {
+                u = gr_band_skip(u, du, b_top - yt);
+                v = gr_band_skip(v, dv, b_top - yt);
+                i = gr_band_skip(i, di, b_top - yt);
+                yt = b_top;
+            }
+            if (yb > b_bot)
+                yb = b_bot;
+            y = yb - yt;
+            p_dest = grd_bm.bits + (gr_row * yt) + tli->x;
 
             switch (tli->bm.hlog) {
             case GRL_OPAQUE:
@@ -248,11 +265,17 @@ int HandleWallLitLoop1D_C(grs_tmap_loop_info *tli, fix u, fix v, fix i, fix dv, 
     int32_t k, y;
     uchar *t_bits;
     uchar *p_dest;
+    int b_top = tli->band_top, b_bot = tli->band_bot;
+    int yt, yb;
+    // does the column have rows in the band? If not, its u, v, i, dv and di
+    // are never used and their divisions are skipped.
+    int in_band;
 
     lefty = tli->left.y;
     righty = tli->right.y;
+    in_band = (fix_cint(lefty) < b_bot && fix_cint(righty) > b_top);
     do {
-        if ((d = fix_ceil(righty) - fix_ceil(lefty)) > 0) {
+        if ((d = fix_ceil(righty) - fix_ceil(lefty)) > 0 && in_band) {
             d = fix_ceil(lefty) - lefty;
 
             inv_dy = fix_div(fix_make(1, 0) << 8, dy);
@@ -265,8 +288,18 @@ int HandleWallLitLoop1D_C(grs_tmap_loop_info *tli, fix u, fix v, fix i, fix dv, 
             if (di >= -256 && di <= 256)
                 i += 256;
 
-            y = fix_cint(righty) - fix_cint(lefty);
-            p_dest = grd_bm.bits + (gr_row * fix_cint(lefty)) + tli->x;
+            // only the rows in the band, with v and i stepped over the rest
+            yt = fix_cint(lefty);
+            yb = fix_cint(righty);
+            if (yt < b_top) {
+                v = gr_band_skip(v, dv, b_top - yt);
+                i = gr_band_skip(i, di, b_top - yt);
+                yt = b_top;
+            }
+            if (yb > b_bot)
+                yb = b_bot;
+            y = yb - yt;
+            p_dest = grd_bm.bits + (gr_row * yt) + tli->x;
             t_bits = o_bits + fix_fint(u);
 
             // inner loop
@@ -282,37 +315,29 @@ int HandleWallLitLoop1D_C(grs_tmap_loop_info *tli, fix u, fix v, fix i, fix dv, 
             return TRUE; // punt this tmap
 
         tli->w += tli->dw;
-
-        // figure out new left u & v & i
-        k = tli->left.u + tli->left.du;
-        y = tli->left.v + tli->left.dv;
+        tli->left.u += tli->left.du;
+        tli->left.v += tli->left.dv;
         tli->left.i += tli->left.di;
-
-        inv_dy = fix_div(fix_make(1, 0), tli->w);
-        u = fix_mul_asm_safe(k, inv_dy);
-        v = fix_mul_asm_safe(y, inv_dy);
-        i = fix_mul_asm_safe(tli->left.i, inv_dy);
-
-        tli->left.u = k;
-        tli->left.v = y;
-
-        // figure out new right u & v & i
-        k = tli->right.u + tli->right.du;
-        y = tli->right.v + tli->right.dv;
+        tli->right.u += tli->right.du;
+        tli->right.v += tli->right.dv;
         tli->right.i += tli->right.di;
-
-        dv = fix_mul_asm_safe(y, inv_dy) - v;
-        di = fix_mul_asm_safe(tli->right.i, inv_dy) - i;
-        if (di >= -256 && di <= 256)
-            i += 1024;
-
-        tli->right.u = k;
-        tli->right.v = y;
-
         lefty += tli->left.dy;
         righty += tli->right.dy;
         dy = righty - lefty;
         tli->x++;
+
+        // figure out new u, v, i, dv and di, if the next column needs them
+        in_band = (fix_cint(lefty) < b_bot && fix_cint(righty) > b_top);
+        if (in_band) {
+            inv_dy = fix_div(fix_make(1, 0), tli->w);
+            u = fix_mul_asm_safe(tli->left.u, inv_dy);
+            v = fix_mul_asm_safe(tli->left.v, inv_dy);
+            i = fix_mul_asm_safe(tli->left.i, inv_dy);
+            dv = fix_mul_asm_safe(tli->right.v, inv_dy) - v;
+            di = fix_mul_asm_safe(tli->right.i, inv_dy) - i;
+            if (di >= -256 && di <= 256)
+                i += 1024;
+        }
     } while (--(tli->n) > 0);
 
     tli->left.y = lefty;

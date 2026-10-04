@@ -271,7 +271,15 @@ fix fix_mul_div(fix m0, fix m1, fix d) {
         }
         return -r;
     }
+#ifdef FIX_DIV_FPU
+    // As in fix_div_fpu: no write on the common path, so cores dividing in
+    // parallel don't share the line.
+    if (*(volatile int *)&gOVResult) {
+        *(volatile int *)&gOVResult = 0;
+    }
+#else
     gOVResult = 0;
+#endif
     int64_t r64 = mr / (int64_t)(d);
     int32_t r32 = (int32_t)(r64 & 0xFFFFFFFF);
     if (r64 != (int64_t)r32) {

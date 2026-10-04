@@ -230,6 +230,20 @@ retry:
   - Since step 4 it also carries the recorder's figures: `record=` (time
     spent recording), `cmds=`, `copied=` and `flushes=` per frame, and
     `check=` (rows that differed / self-checks run).
+  - Since step 5, per frame unless noted:
+    - `views=` 3D views drawn
+    - `batches=` runs of calls handed to all threads
+    - `solo=a/b` calls the main thread drew alone: `a` recorded but with a
+      mapper that isn't band-aware, `b` not recordable and drawn directly
+    - `wait=` time the main thread spent waiting for the workers
+    - `busy=` time each thread spent drawing (main/worker 1/worker 2)
+    - `late=` the longest a worker took to start a batch in the window (µs)
+    - `split=` the rows where the main view's bands end
+    - `wcpu=` the core each thread last drew on
+    - `leaks=` rows a thread wrote outside its band, in the self-checks
+    - `helpscan=` time in the on-screen help's scan (`olh_scan_objects`)
+    - with split replays `raster=` is wall time on the main thread, and
+      `calls_per_frame=` counts batches plus calls drawn alone
 - **What the profiler looked like (re-create it).**
   - **Build.**
     - A `VITA_PROFILE` CMake option adds `-DVITA_PROFILE` and links
@@ -305,13 +319,12 @@ viewport sizes — both are reported rather than picking one:
   "~30–40 polygons, 90 at most" — this count is per handoff call (a
   polygon can dispatch through more than one lit/CLUT variant), not
   strictly one per polygon, so it runs a bit higher.
-- **Multi-view frames are real and already accounted for.** `render_run()`
-  can call `fr_rend()` more than once per game frame — once for the main
-  view, plus once per visible hacked security-camera monitor (see "One
-  split per 3D view" below). A brief transition in the log shows this
-  directly: `raster calls/frame` jumps from a steady 131 to 134–138 for a
-  couple of seconds while `render3d`/`traverse`/`raster` all tick up
-  together, then settles back down.
+- **Multi-view frames are real and already accounted for.** Every frame
+  draws two 3D views while On-Screen Help is on, which is the default: the
+  main view, and the help's scan of it at a third of the size (see "One
+  split per 3D view" below). Of the 131 calls here, about 82 are the main
+  view's and 49 the scan's. `render_run()` adds one more view per visible
+  hacked security-camera monitor.
 - **Splitting by screen rows suits that.** Every thread has rows of
   nearly every polygon to draw.
 
@@ -487,6 +500,16 @@ Each of these can be done and measured on its own, before any threading.
   mappers sometimes read one texel past the end of those textures,
   through the `vtab` path, due to rounding at span ends. The value read
   depends on whatever memory follows the texture.
+- **One entry outside the row table of those textures (fixed in step 5).**
+  The same rounding makes the mappers ask the table (`gr_make_vtab`,
+  `2D/Source/vtab.c`) for line −1 or line h. Those entries were whatever
+  temporary memory held around the table, so the texel drawn depended on
+  what had used that memory before. That can't be the same on three
+  threads, each with its own temporary memory: the harness saw it as a
+  rare one-pixel difference, and a crash under the thread sanitizer. The
+  table now has both entries, repeating the first and the last line.
+  Drawing on one core gave the same pixels before and after on 2,100 test
+  frames.
 
 ## Multicore rasterizer: the design that worked
 
@@ -515,9 +538,8 @@ Each of these can be done and measured on its own, before any threading.
 
 ### Record, then replay
 
-Built in the retry's step 4 as `src/Libraries/3D/Source/rastq.c`, on one
-thread and without bands. The notes below say what the code does; the items
-marked "step 5" are from the first attempt and not rebuilt yet.
+Built in the retry's steps 4 and 5 as `src/Libraries/3D/Source/rastq.c`.
+The notes below say what the code does.
 
 - **Recording.** Between `fr_pipe_start` and `fr_pipe_end` in `fr_rend`,
   each handoff call is recorded instead of drawn. A record holds:
@@ -528,7 +550,11 @@ marked "step 5" are from the first attempt and not rebuilt yet.
   - the bitmap pixels, **plus one row on each side**, unless they are
     stable (next point). Polygon records copy no pixels: there `bits` is a
     colour.
-  - step 5: a flag saying whether it is safe to split into bands
+  - a flag saying whether every mapper the call can reach is band-aware
+    (see "Band-safe whitelist" below)
+  - the range of rows the call can write: its vertices' rows plus 2 on
+    each side. A thread skips a record whose range misses its band before
+    copying anything.
 - **Which pixels must be copied.**
   - Reused within a frame, so copied: the RSD unpack buffer
     `grd_unpack_buf`, the teleport effect buffer, the shared text-screen
@@ -550,11 +576,12 @@ marked "step 5" are from the first attempt and not rebuilt yet.
   - **Except for `per_umap`.** `rsd8_pm_init` always takes the
     horizontal-scan mapper, while the unpacked bitmap may get the
     vertical-scan one. Those calls are drawn directly.
-  - **`h_map`** (sprites) is recorded unclipped and replayed through
-    `h_map`, so clipping and temporary memory are used exactly as in
-    direct drawing. Step 5: clip once at record time
-    (`gr_clip_poly(n,4,…)`) and record as `h_umap`, so every band uses the
-    same clipped vertices, including the same garbage lighting.
+  - **`h_map`** (sprites) is clipped once at record time
+    (`gr_clip_poly(n,4,…)`) and recorded as `h_umap`, so every band draws
+    the same clipped vertices. The lighting the clip leaves uninitialized
+    (see "Pre-existing engine bugs") doesn't matter here: the game never
+    lights a sprite per vertex (`g3_full_light_bitmap` has no callers), so
+    its sprites go through the plain, CLUT or blend mappers.
 - **Drawn directly, after a flush.**
   - Translucent shaded polygons (`FIX_TLUC8_SPOLY`, `temp_stpoly`): they
     clip when drawn and light the new vertices from stale temporary
@@ -585,11 +612,13 @@ marked "step 5" are from the first attempt and not rebuilt yet.
   - Restore the canvas state afterwards. If the flush happens while
     another canvas is current, switch to the recorded canvas for the
     replay and back.
-  - Step 5: a run of consecutive band-safe commands with the same
-    fill_type/fill_parm/clip is one batch, drawn by all threads at once,
-    one row band each. The main thread sets the canvas state before each
-    batch; workers only read it. Commands that aren't band-safe are drawn
-    by the main thread alone with a full band.
+  - When the view is split: a run of consecutive band-safe commands with
+    the same fill_type/fill_parm/clip is one batch, drawn by all threads
+    at once, one row band each. The main thread sets the canvas state
+    before each batch; workers only read it. Commands that aren't
+    band-safe are drawn by the main thread alone with a full band.
+  - A view with fewer than 272 rows (`RASTQ_SMALL_VIEW_ROWS`) is replayed
+    by the main thread alone: see "Results of the retry".
 - **Known limit.** A wall texture taken from the unpack buffer could see
   different leftover bytes past its end than direct drawing would,
   because the blend mapper's scratch use of that buffer is deferred to
@@ -621,6 +650,10 @@ top is `-0x40000000` and the last band's bottom is `+0x40000000`, so no
 row falls outside. Outside a replay the band covers everything, which
 must leave single-threaded behaviour untouched.
 
+Built in the retry's step 5. The band is per thread (`grd_bands`,
+`2D/Source/band.h`); `h_umap` and `v_umap` copy it into the loop info
+(`band_top`, `band_bot`) once per call.
+
 The rule that keeps the result identical to one pass: keep every edge
 walk and per-row/per-column step exactly as it is, and only skip writing
 pixels outside the band. Rules per loop family:
@@ -634,9 +667,12 @@ pixels outside the band. Rules per loop family:
     the row; this held for all of them.
   - Some loops do `tli->y += tli->n` up front, so they need a local row
     counter.
-  - The polygon loops don't track y: derive it once from the destination
-    pointer, `(d − grd_bm.bits) / grd_bm.row`.
-- **`h_umap` itself.** Stop the segment loop once `y >= band.bot`.
+  - The polygon and tluc8 loops don't track y: derive it once from the
+    destination pointer, `(d − grd_bm.bits) / grd_bm.row`. The Gouraud
+    and RGB polygon loops also skip their per-row divisions outside the
+    band.
+- **`h_umap` itself.** Return at once if the polygon's rows miss the
+  band, and stop the segment loop once `y >= band.bot`.
 - **Floors (cost).** The end-of-row `fix_div`s only produce u/v/i for the
   next row. Keep the incremental `left/right += d` and `w += dw`, and do
   the divisions only if row `y+1` is in the band.
@@ -644,7 +680,8 @@ pixels outside the band. Rules per loop family:
   1D, solid wall.
   - Clip each column's row span to the band, and advance u, v and i by
     the skipped rows with wrapping 32-bit arithmetic: `x + dx·n` equals n
-    additions.
+    additions. It must be unsigned arithmetic (`gr_band_skip`), because
+    `-Ofast` treats signed overflow as impossible.
   - Skip a column's setup divisions entirely when its span misses the
     band.
   - Likewise do the end-of-column divisions only when the next column's
@@ -652,11 +689,14 @@ pixels outside the band. Rules per loop family:
   - **Exception: the lit 2D wall** (`gri_lit_wall_umap_loop`) carries
     `di` from the column block into the next column's lighting
     (`if (di >= -256 && di <= 256) i += 1024`), so only its pixel range
-    may be clipped.
+    may be clipped. The lit 1D wall recomputes `di` first, so it can skip
+    like the others.
 - **Perspective shells** (`gri_per_umap_hscan/vscan` in `Flat8/fl8p.c`,
   `gri_lit_per_umap_hscan/vscan` in `Flat8/fl8lp.c`). The scanline
   functions they call derive x, y, u, v and the edge tests from the start
-  pixel in closed form, and step lighting by `di` per pixel. So:
+  pixel in closed form, and step lighting by `di` per pixel. The helpers
+  are `gr_band_hscan`, `gr_band_vscan` and their `_miss` variants in
+  `2D/Source/band.c`. So:
   - **Early reject.** Before the per-scanline clip divisions, take the
     scanline's unclipped range (`[x, max(xl, xr0, xr))` for hscan, rows
     `[y, max(yl, yr0, yr))` for vscan). If its rows miss the band, skip
@@ -664,19 +704,20 @@ pixels outside the band. Rules per loop family:
   - **hscan narrowing.** The row of column x is
     `fix_int(x·scan_slope + fix_make(yp, 0xffff))`, monotonic in x.
     Binary-search the first column in the band and the first one past it,
-    then clamp `x`, `xl`, `xr0` and `xr`.
+    then clamp `x`, `xl`, `xr0` and `xr`, the way the canvas clip does.
   - **vscan narrowing.** Clamp `y` to `band.top` and `yl`, `yr0`, `yr` to
     `band.bot`.
   - **Lit shells.** Add `skip·di` to `pi.i`, after the shell has computed
-    `di` from the unclipped range.
+    `di` from the range the canvas clip left.
 - **Band-safe whitelist.**
   - Decide at record time, with the current fill type, which init
     function the mapper's table would pick, and check it against a list
-    of initializers whose loops are band-aware. The table index is:
+    of initializers whose loops are band-aware (`gr_band_safe_init`,
+    `2D/Source/Flat8/fl8band.c`). The table index is:
     - `h_umap` and `v_umap`:
       `(bm->flags & BMF_TRANS) + ti->tmap_type + GRD_FUNCS * bm->type`
     - `per_umap`: the hscan and vscan initializers plus its linear, floor
-      and wall fallbacks
+      and wall fallbacks, all five of which must be on the list
     - polygons: `GRC_POLY + GRD_FUNCS * type`
   - Not split, and drawn on the main thread instead:
     - scalers (`fl8s.c`, `fl8ns.c`)
@@ -685,24 +726,32 @@ pixels outside the band. Rules per loop family:
   - Opaque bitmaps with SOLID fill resolve to `gri_solid_poly_init`, a
     row loop, so they are safe.
 - **Per-thread state.**
-  - **Thread slot.** Look up `sceKernelGetThreadId()` among the
-    registered workers once per mapper call. Don't use `__thread`: on
-    this toolchain it is emulated TLS, a function call per access.
-  - **Temporary memory.** Give each slot its own `temp_malloc` stack. The
-    mappers allocate vtabs, clip buffers and perspective setup from it.
+  - **Thread slot.** `lg_slot()` (`LG/Source/lgslot.c`) looks up
+    `sceKernelGetThreadId()` among the registered workers, and returns 0
+    without any call while there are none. Don't use `__thread`: on this
+    toolchain it is emulated TLS, a function call per access.
+  - **Temporary memory.** Each slot has its own `temp_malloc` stack
+    (`LG/Source/tmpalloc.c`). The mappers allocate vtabs, clip buffers and
+    perspective setup from it.
   - **Per-thread copies.** Each thread gets its own copies of the
     vertices, `grs_bitmap` and `grs_tmap_info`, because `h_umap` rewrites
     vertex `w` and `per_umap` rewrites `ti` and `bm->bits`.
   - **Everything else is shared and read-only during a replay:** the
     canvas, `grd_function_table`, the light tables and the recorded
-    pixels.
+    pixels. The thread sanitizer confirmed it: the one global the mappers
+    write is `gOVResult`, which `fix_mul_div` now also stores
+    conditionally on Vita.
 
 ### Threads
+
+Built in the retry's step 5 as `src/Libraries/3D/Source/rastqthr.c`. The
+same hand-out code runs on the PC with pthreads, for the harness.
 
 - **Placement.**
   - The main thread is pinned to core 0 with
     `sceKernelChangeThreadCpuAffinityMask(own id, SCE_KERNEL_CPU_MASK_USER_0)`.
     The call returns the **previous** mask, `0x70000`, not an error code.
+    A game can use three of the Vita's four cores.
   - Two workers, created with masks `USER_1` and `USER_2` (`0x20000`,
     `0x40000`).
 - **Priority.**
@@ -713,7 +762,9 @@ pixels outside the band. Rules per loop family:
     preempt a spinning worker instead of sharing time slices with it.
 - **Hand-out.**
   - The main thread publishes a batch by bumping a generation counter,
-    draws its own band, then spins until a done counter reaches 2.
+    draws its own band, then spins until a done counter reaches the
+    number of workers. Every worker answers every batch, so the job never
+    changes under one.
   - Workers **keep spinning** on the counter between batches and between
     frames, with a `yield` hint. They sleep on a semaphore only after
     100 ms without work (menus, pauses).
@@ -724,19 +775,29 @@ pixels outside the band. Rules per loop family:
       `asleep` is set
     - all of these accesses are seq_cst
 - **Balance.**
-  - Bands are fractions of the view's height, moved after each view
-    toward equal **finish times**, measured from hand-out to each
-    thread's end, with 50% smoothing and a 5% minimum band.
+  - Bands are shares of the view's height, moved after each view toward
+    equal **finish times**, measured from hand-out to each thread's end
+    and summed over the view's batches. A thread's new share is
+    proportional to `share / finish time`, with 50% smoothing and a 5%
+    minimum band.
   - Balancing on drawing time alone ignores a worker that started late.
-- **One split per 3D view.** Some frames also draw a smaller 3D view (a
-  181-row canvas was seen). Key the split on the canvas (bits, w, h); a
+  - Standing still in the first area it settles around rows 258 and 408
+    of 544: the main thread takes the top 47%.
+- **One split per 3D view.** Every frame also draws a smaller 3D view, on
+  a 320×181 canvas at 960×544. Key the split on the canvas (bits, w, h); a
   shared split lets each view pull the other's balance.
-  **Confirmed by the retry's profiler:** this is `render_hack_cameras()`
-  in `src/GameSrc/render.c`, called unconditionally from `render_run()`
-  right after the main view's `fr_rend()`, once per visible hacked
-  security-camera monitor (`hack_cameras_needed` in `src/GameSrc/objsim.c`).
-  See "Baseline" above for a transition in `docs/profile-step-1.txt` where this
-  visibly adds an extra render pass within one game frame.
+  - That view is the on-screen help's scan: `olh_scan_objs`
+    (`src/GameSrc/olhscan.c`) redraws the scene at a third of the size in
+    flat colours, to find the object the help text should name. The
+    retry's log shows `views=2.00` in every window with a 3D view.
+  - It was meant to run 4 times a second, but the timer in
+    `olh_scan_objects` (`src/GameSrc/olh.c`) is never updated, so it runs
+    every frame. It costs 3.5 ms per frame, almost all scene traversal.
+  - It changes its fill colour with almost every call, so nearly every
+    call is its own batch (39 of them). The retry keeps views under 272
+    rows on the main thread: see "Results of the retry".
+  - `render_hack_cameras()` in `src/GameSrc/render.c` adds one more view
+    per visible hacked security-camera monitor.
 
 ### Verification
 
@@ -793,6 +854,34 @@ pixels outside the band. Rules per loop family:
       type or the fill parm.
     - Result: 0 differing frames over about 108,000 scenes (six seeds, two
       arena sizes, three canvas sizes).
+  - **Retry, step 5:** `tests/rastq/run.sh` now also covers the bands.
+    - **Unchanged with a full band.** It builds the 2D and LG libraries
+      of the last commit before the bands (`0ca600bf`, with today's row
+      table), draws the scenes directly with both, and compares a
+      checksum per frame.
+    - **Bands on one thread.** Each scene is replayed in 1 to 5 bands at
+      random boundaries, band after band, and compared with direct
+      drawing. Under the recorder's self-check one band is also drawn
+      alone, and must leave the other rows untouched.
+    - **Real threads.** The same on three pthreads, through the game's
+      own hand-out code, also built with the thread sanitizer on the
+      libraries.
+    - **Row ranges.** Every eighth scene, each call drawn alone must stay
+      inside the rows recorded for it.
+    - Scenes now include textures whose sides aren't powers of two in the
+      row mappers. That is what found the row-table bug (see
+      "Pre-existing engine bugs").
+    - It fails on deliberate mistakes: a row, floor or polygon loop
+      without its band test; a wall column not stepped over skipped rows;
+      a lit wall column or lit perspective scanline without its lighting
+      step; a perspective scanline narrowed one column short; one
+      temporary memory stack for all threads; the band-safe flag ignored;
+      a row range one row short.
+    - Coverage, measured with gcov: every band-related line of the
+      mappers runs.
+    - Result: 0 differing frames on four seeds of 2,100 scenes each, with
+      both arena sizes. The sanitizer builds run a tenth of the scenes,
+      also without a difference or a report.
 - **On-device self-check (profile builds).**
   - First attempt: every ~100 views, replay the view normally, then again
     on one thread, and compare row by row (`check=rows/checks`, always
@@ -806,6 +895,15 @@ pixels outside the band. Rules per loop family:
     of the timings (`vprof_frame_discard`).
   - Result (`docs/profile-step-4.txt`): `check=0/400`, 200 checks standing
     still and 200 walking from the medical room to the main hallway.
+  - Retry, step 5: the same check, every 63rd view, with the replay now
+    split across the three cores. 63 is odd so that, with two views per
+    frame, the main view and the help scan take turns. After the
+    comparison the canvas is rewound once more and a single band is
+    replayed alone; the rows of the other bands must not change
+    (`leaks=`). The bands take turns.
+  - Result (`docs/profile-step-5.txt`): `check=0/311` and `leaks=0`, about
+    200 checks standing still and 110 walking. A second session
+    (`docs/profile-step-5b.txt`) gave `check=0/310` and `leaks=0`.
 
 ## Pitfalls found, in the order they were hit
 
@@ -867,6 +965,62 @@ across rows. Medians of in-game windows at 960×544:
 - **480×272** reached the 60 fps display cap with the round-4 build.
 - **The last build** (one split per view) was never measured.
 
+## Results of the retry
+
+Every row is one session on the Vita at 960×544, full 3D view, standing
+still in the first area, with the variants alternating every 5 s. The
+one-core figure of each session is its own reference.
+
+| step (file) | what changed | reference | result |
+|---|---|---|---|
+| 2 (`profile-step-2.txt`) | FPU `fix_div` | 24.2 fps | 27.0 fps (+11.6%) |
+| 3 (`profile-step-3b.txt`) | DOSBox music | 27.1 fps, music 52% of a core | 26.8 fps, music 12% |
+| 4 (`profile-step-4.txt`) | record + replay on one core | 27.0 fps | 26.8 fps (+0.3 ms) |
+| 5 (`profile-step-5.txt`, repeated in `profile-step-5b.txt`) | row bands on three cores | 27.0 fps | 35.3 fps (+31%) |
+
+Step 5 in detail (medians; t=32–324; music 11% of a core):
+
+| variant | windows | fps | frame | raster (wall) | batches / frame | main waits |
+|---|---|---|---|---|---|---|
+| one core, direct | 95 | 27.0 | 37.0 ms | 24.4 ms | – | – |
+| three cores, every view split | 95 | 35.0 | 28.6 ms | 15.5 ms | 43 | 6.5 ms |
+| three cores, help scan on the main thread | 98 | 35.3 | 28.3 ms | 15.3 ms | 4 | 6.2 ms |
+
+- **+8.4 fps over one core** against neighbouring one-core blocks, in 19
+  comparisons (7.9 to 9.0), with the help scan on the main thread; +8.0
+  (7.6 to 8.5) with every view split. From the step 1 baseline of
+  24.7 fps that is +43%.
+- **Identical frames:** `check=0/311`, `leaks=0`.
+- **A second session the next day repeated it** (`docs/profile-step-5b.txt`,
+  t=31–311): 27.1, 35.0 and 35.3 fps for the three variants, +8.2 fps
+  (7.9 to 8.8 in 18 comparisons) with the help scan on the main thread,
+  the same 6.2 ms of waiting, and `check=0/310`, `leaks=0`.
+- **The help scan isn't worth splitting.** Split, it is 39 batches for a
+  181-row view, 0.4 fps slower (0.0 to 1.2 in 19 comparisons) and
+  unsteady: its worst time in a window is typically 6 ms, and up to 12,
+  instead of 3.7 ms.
+  Normal builds therefore keep views under 272 rows on the main thread
+  (`RASTQ_SMALL_VIEW_ROWS`).
+- **What is left on the table.**
+  - *The main thread waits 6.2 ms per frame.* Each thread draws for about
+    8.7 ms, so the raster could take about 9 ms instead of 15. The main
+    view is 4 batches, and each ends when its slowest thread does, while
+    the split is balanced for the view as a whole.
+  - *Workers sometimes start late:* in most seconds the worst batch
+    started about 5 ms late, and up to 7. The music thread was seen on
+    cores 1 and 2 only, which are the workers' cores.
+  - *One recorded call per frame is drawn by the main thread alone,*
+    because its mapper isn't band-aware. It is one of the things that cut
+    the main view into batches.
+  - *The threads' drawing adds up to 26.2 ms* against 24.4 ms on one
+    core: 7% of work repeated in every band.
+  - *The help scan costs 3.5 ms per frame,* 9% of the one-core frame.
+- **Walking** to the main hallway: 25–42 fps on three cores against 14–28
+  on one. The scene differs from block to block there, so this only shows
+  the gain holds up.
+- **In the game:** "Multicore" in Vita Options, on by default. Off is the
+  one-core drawing, call by call, as before.
+
 ## Recommended order for the retry
 
 1. ~~**Profiler and baseline.** 960×544, standing still in the first
@@ -882,30 +1036,32 @@ across rows. Medians of in-game windows at 960×544:
    frames (`check=0/400` on device) at +0.3 ms per frame with terrain
    textures used in place — see "Record, then replay" above and
    `docs/profile-step-4.txt`.
-5. **Bands and workers, straight in the final form:**
-   - build on the recorder's `RASTQ_TRUST_STABLE` mode
-   - first find what causes the second flush per frame seen in step 4:
-     each flush ends a batch
-   - band-aware loops with all the early rejects and the whitelist
-   - workers that spin between frames and sleep after 100 ms idle
-   - priority main + 1
-   - balance by finish time, one split per view
-   - the host harness and on-device self-check from day one
-6. **Then look at the remaining main-thread wait.**
-   - Fewer batch boundaries per frame.
-   - Fewer commands that must run on one thread (find out which mappers
-     they are).
+5. ~~**Bands and workers, straight in the final form.**~~ **Done**:
+   +31% fps (27.0 to 35.3) with identical frames (`check=0/311`,
+   `leaks=0` on device) — see "Row bands, bit-exact", "Threads",
+   "Results of the retry", `docs/profile-step-5.txt` and
+   `docs/profile-step-5b.txt`.
+6. **Then look at the remaining main-thread wait** (6.2 ms of a 28.3 ms
+   frame) and the other costs step 5 measured.
+   - Fewer batch boundaries per frame: the main view has 4.
+   - The one call per frame that runs on one thread: find out which
+     mapper it is, and make it band-aware if it is cheap to do.
+   - Late workers: see whether the music thread can be kept off the
+     workers' cores, or off whichever core is busiest.
    - Possibly dynamic row strips taken from a queue, so every batch
-     balances itself. Weigh that against the ~5% per-pass overhead each
-     extra strip adds.
+     balances itself and a late worker costs less. Weigh that against the
+     7% of work every band repeats.
+   - Separately from the threads: give the on-screen help's scan back its
+     4-per-second timer. It costs 3.5 ms per frame.
 
 ## Ranked recommendations
 
-1. **Multicore software rasterizer, redone as above.** The first attempt
-   proved it works on this hardware (+49% at 960×544 in its last measured
-   session) and that it stays bit-exact.
+1. **Multicore software rasterizer, redone as above.** Done in the
+   retry's step 5: +31% at 960×544, bit-exact. The first attempt's last
+   session measured +49%, from a slower baseline and with a wider spread.
 2. **Speed-ups that don't need threads.** The FPU `fix_div` and the
-   DOSBox music emulator are small, independent and worth doing first.
+   DOSBox music emulator are done. The on-screen help's scan is the next
+   one (see step 6).
 3. **Frame-pacing fix.** Decouple `SDLDraw()`/`mainloop.c` from vsync's
    default blocking swap, for example with `vita2d_set_vblank_wait(0)`
    plus explicit pacing, or with `sceDisplayWaitVblankStartMulti()`. It

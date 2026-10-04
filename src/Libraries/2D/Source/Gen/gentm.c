@@ -40,6 +40,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "scrmac.h"
 #include <string.h>
 #include "tmapint.h"
+#include "band.h"
+#include "vtab.h"
 #include "tmaps.h"
 #include "tmaptab.h"
 #include "lg.h"
@@ -57,6 +59,7 @@ void h_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
    void (*tm_init)(grs_tmap_loop_info *, grs_vertex **);
    fix *old_w = NULL;
    grs_tmap_loop_info info;      /* values for inner loop routine */
+   grs_band *band = gr_band();
 
 
    info.n=(bm->flags&BMF_TRANS) + ti->tmap_type + GRD_FUNCS*bm->type;
@@ -103,6 +106,11 @@ do {
    if (y_min == y_max) return;          
 } while(0);
 
+   /* nothing to do if every row is outside this thread's band. */
+   if ((int)y_max <= band->top || (int)y_min >= band->bot) return;
+   info.band_top = band->top;
+   info.band_bot = band->bot;
+
    if (ti->flags&TMF_FLOOR) {
       grs_vertex **pvp=vpl;
       fix y0=(*p_left)->y;
@@ -139,6 +147,8 @@ do {
    tm_init(&info,vpl);
    for (y=y_min; y!=y_max; ) {
 
+      if (y>=info.band_bot) break;     /* the rows left are below the band */
+
       if (fix_cint((*p_left)->y)<=y) {
          fix y_left,y_prev;
          grs_vertex *prev;
@@ -159,7 +169,7 @@ do {
       y=y_limit;
    }
    if (info.vtab)
-      gr_free_temp(info.vtab);
+      gr_free_vtab(info.vtab);
    if (old_w) {
       int i;
       for (i=0;i<n;i++) vpl[i]->w=old_w[i];
@@ -193,6 +203,7 @@ void v_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
    fix *old_w = NULL;               /* list of old w values from vpl */
    grs_tmap_loop_info info;         /* values for inner loop routine */
    void (*tm_init)(grs_tmap_loop_info *);
+   grs_band *band;
 
    info.n=bm->flags&BMF_TRANS;
    if (info.n+2*grd_gc.fill_type==2*FILL_SOLID) {
@@ -200,6 +211,9 @@ void v_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
       return;
    }
    info.n+=ti->tmap_type+GRD_FUNCS*bm->type;
+   band = gr_band();
+   info.band_top = band->top;
+   info.band_bot = band->bot;
 
    if (grd_gc.fill_type!=FILL_NORM)
       info.clut=(uchar *)grd_gc.fill_parm;
@@ -269,7 +283,7 @@ void v_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
       x=x_limit;
    }
    if (info.vtab)
-      gr_free_temp(info.vtab);
+      gr_free_vtab(info.vtab);
    if (old_w) {
       int i;
       for (i=0;i<n;i++) vpl[i]->w=old_w[i];

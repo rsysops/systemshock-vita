@@ -36,6 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "cnvdat.h"
 #include "pertyp.h"
+#include "band.h"
 #include "plytyp.h"
 #define safe_fix_cint(x) ((fix_frac(x) == 0) ? (fix_int(x)) : (fix_int(x) + 1))
 #define fix_16_20(a) ((a) >> 4)
@@ -62,6 +63,7 @@ void gri_lit_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
     int x_min, x_max, xr_min, xr_max, xl_min, xl_max;
     int n_min, n_left, n_right;
     int j;
+    grs_band *band = gr_band();
 
     pi.scale = grd_bm.w;
     pi.scan_slope = ps->scan_slope;
@@ -148,7 +150,8 @@ void gri_lit_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
         else
             pi.dtl = pi.dyl + pi.dxl;
 
-        ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
+        if (gr_band_hscan(&pi, band, 1))
+            ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
 
         pi.denom += fix_16_20(ps->b), pi.unum += ps->beta_u, pi.vnum += ps->beta_v;
         yp_min--; /* first line already done */
@@ -284,7 +287,8 @@ void gri_lit_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
                 else
                     pi.dtl = pi.dyl + pi.dxl;
 
-                ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
+                if (gr_band_hscan(&pi, band, 1))
+                    ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
 
                 pi.yp = yp_max;
                 break;
@@ -303,6 +307,15 @@ void gri_lit_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
             } else {
                 pi.xr0 = fix_fint(x_right + dx_right);
                 pi.xr = fix_cint(x_right);
+            }
+            if (gr_band_hscan_miss(&pi, band)) {
+                // no row of this scanline is in the band: skip its divisions
+                if (pi.yp >= yp_min) {
+                    i_left += di_left, i_right += di_right;
+                }
+                x_left += dx_left, x_right += dx_right;
+                pi.denom += fix_16_20(ps->b), pi.unum += ps->beta_u, pi.vnum += ps->beta_v;
+                continue;
             }
             if (pi.scan_slope > 0) {
                 x_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.bot - 1) - pi.yp, 1), pi.scan_slope));
@@ -332,7 +345,8 @@ void gri_lit_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
                     pi.di = -pi.di;
             }
 
-            ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
+            if (gr_band_hscan(&pi, band, 1))
+                ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
 
             if (pi.yp >= yp_min) {
                 i_left += di_left, i_right += di_right;
@@ -356,6 +370,7 @@ void gri_lit_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
     int y_min, y_max, yr_min, yr_max, yl_min, yl_max;
     int n_min, n_top, n_bot;
     int j;
+    grs_band *band = gr_band();
 
     pi.scale = grd_bm.w;
     pi.scan_slope = ps->scan_slope;
@@ -442,7 +457,8 @@ void gri_lit_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
         else
             pi.dtl = pi.dyl + pi.dxl;
 
-        ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
+        if (gr_band_vscan(&pi, band, 1))
+            ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
 
         pi.denom += fix_16_20(ps->a), pi.unum += ps->alpha_u, pi.vnum += ps->alpha_v;
         xp_min--; /* first line already done */
@@ -578,7 +594,8 @@ void gri_lit_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
                 else
                     pi.dtl = pi.dyl + pi.dxl;
 
-                ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
+                if (gr_band_vscan(&pi, band, 1))
+                    ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
 
                 pi.xp = xp_max;
                 break;
@@ -597,6 +614,15 @@ void gri_lit_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
             } else {
                 pi.yr0 = fix_fint(y_bot + dy_bot);
                 pi.yr = fix_cint(y_bot);
+            }
+            if (gr_band_vscan_miss(&pi, band)) {
+                // no row of this scanline is in the band: skip its divisions
+                if (pi.xp >= xp_min) {
+                    i_top += di_top, i_bot += di_bot;
+                }
+                y_top += dy_top, y_bot += dy_bot;
+                pi.denom += fix_16_20(ps->a), pi.unum += ps->alpha_u, pi.vnum += ps->alpha_v;
+                continue;
             }
             if (pi.scan_slope > 0) {
                 y_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.right - 1) - pi.xp, 1), pi.scan_slope));
@@ -626,7 +652,8 @@ void gri_lit_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_set
                     pi.di = -pi.di;
             }
 
-            ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
+            if (gr_band_vscan(&pi, band, 1))
+                ((void (*)(grs_per_info *, grs_bitmap *))(ps->scanline_func))(&pi, bm);
 
             if (pi.xp >= xp_min) {
                 i_top += di_top, i_bot += di_bot;

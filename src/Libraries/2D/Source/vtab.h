@@ -39,5 +39,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define __VTAB_H
 
 extern int32_t *gr_make_vtab (grs_bitmap *bm);
+extern void gr_free_vtab (int32_t *vtab);
 
 #endif
