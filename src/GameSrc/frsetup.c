@@ -143,6 +143,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "OpenGL.h"
 #include "VitaGpu.h"
+#include "vprof.h"
 #include "rastq.h"
 
 // Internal Prototypes
@@ -672,6 +673,7 @@ int fr_start_view(void) {
         }
         _fr->draw_canvas.bm.bits = gpu_bits != NULL ? gpu_bits : _fr->main_canvas.bm.bits;
     }
+    rastq_gpu_view(gpu_bits != NULL); // the queue draws this view with the GPU, or doesn't try
 
     // check detail for canvas sizing
     gr_set_canvas(&_fr->draw_canvas);
@@ -857,11 +859,13 @@ int fr_send_view(void) {
     // rotation every 20 minutes, every 1 minute after explosion
     // with OpenGL, the starts have already been rendered before everything else
 
+    VPROF_MARK_BEGIN(VPROF_STARS);
     g3_start_object_angles_y(&zvec, QUESTBIT_GET(0x14) ? player_struct.game_time * 3 : player_struct.game_time / 5);
     star_render();
     g3_end_object();
 
     g3_end_frame();
+    VPROF_MARK_END(VPROF_STARS);
 
     if(should_opengl_swap()) {
         opengl_end_frame();
@@ -909,9 +913,11 @@ int fr_send_view(void) {
 
     // Draw the overlays
     if (_fr->draw_call)
-        snd_frm = _fr->draw_call(grd_screen_canvas, (ok_to_double) ? &gDoubleSizeOffCanvas.bm : &_fr->draw_canvas.bm,
-                                 _fr->xtop, _fr->ytop, _fr_curflags);
+        VPROF_RUN(VPROF_HUD, snd_frm = _fr->draw_call(grd_screen_canvas,
+                                                      (ok_to_double) ? &gDoubleSizeOffCanvas.bm : &_fr->draw_canvas.bm,
+                                                      _fr->xtop, _fr->ytop, _fr_curflags));
 
+    VPROF_MARK_BEGIN(VPROF_VIEWOUT);
     if (snd_frm) {
         (*fr_mouse_hide)();               // This actually draws the mouse into the rendered canvas.
         gr_set_canvas(grd_screen_canvas); // Now set us to the screen canvas.
@@ -947,6 +953,7 @@ int fr_send_view(void) {
         (*fr_mouse_show)();
     } else
         gr_set_canvas(grd_screen_canvas);
+    VPROF_MARK_END(VPROF_VIEWOUT);
 
     _fr_ret;
 }

@@ -50,9 +50,15 @@ int VitaShowView(const unsigned char *bits, int width, int height);
 // last shown from a GPU canvas, the screen buffer gets it.
 void VitaSyncView(void);
 
-// For the profiler, which resets them: bitmap bytes copied to GPU memory,
-// and time spent waiting to hand a frame to the screen.
-extern unsigned long long vgpu_texture_bytes, vgpu_swap_wait_us;
+// For the profiler, which resets them.
+typedef struct {
+    unsigned long long texture_bytes; // bitmaps copied to GPU memory
+    unsigned long long upload_us;     // copying them
+    unsigned long long draw_us;       // issuing a scene's draws
+    unsigned long long swap_wait_us;  // waiting to hand a frame to the screen
+    unsigned draws;                   // draws issued
+} vgpu_counters_t;
+extern vgpu_counters_t vgpu_counters;
 
 #else
 

@@ -86,7 +86,8 @@ run something like it. It was not chosen:
 | G4 | Light interpolated the way the mappers do it; the shader's cost; which calls still go to the CPU and split the frame into scenes | **done**: round shadows again, 95% of pixels identical; shader B takes 3.2 ms a scene against 6.0; 53 fps standing still against 44.5 on three cores |
 | G5 | Light worked out per pixel in place of slabs; the colour-table fill type on the GPU, so that a frame is one scene; shader A dropped | **done**: shadow edges as fine as the CPU's; the screen's rate at the test spot (a 14.6 ms frame against 22.4 on three cores) and while walking (62.5 fps against 36.3) |
 | G6 | The GPU renderer in the normal build behind a "Renderer" setting, default on; the paneled view; the screen buffer when the view stops being drawn; cyberspace and low resolution left to the CPU | **done**: played through both views, pause, panels, video mail and cyberspace without a glitch; 62.9 fps against 35.9 while walking and fighting |
-| G7 | Holding the screen's rate: the help scan's repeated questions, the queue told per view whether it is the GPU's, and measurements of where a GPU frame's CPU time, `sendview` and the input stalls go | no more drops to 50 fps at the door; the numbers for the rest |
+| G7 | Holding the screen's rate: the help scan's repeated questions, the queue told per view whether it is the GPU's, and measurements of where a GPU frame's CPU time, `sendview` and the input stalls go | **done**: the door is back at the screen's rate; the stalls are sound effects decoded for their first use; what is left under 60 fps (58.5 at one angle) is the HUD and the help scan on the CPU, next to 3.4 ms of the main thread waiting for the GPU |
+| G8 | The help scan run while the GPU draws, in place of the main thread waiting; the HUD measured part by part | the heavy angle and the paneled view with help labels at the screen's rate with 2 to 3 ms to spare. **Not started** |
 
 G2 was not in the first roadmap. G1 showed that the memory question
 decides whether the GPU path is worth anything, so it comes before
@@ -1145,8 +1146,9 @@ What the capture explains:
 - **Stutters when fighting**: eight stalls of 130 to 260 ms, all in the
   input phase, in the three-core windows as in the GPU ones. Not the
   renderer. Unmeasured suspects: `snd_sample_play` decodes and converts
-  each sound effect when it is played (`Mix_LoadWAV_RW`, on the main
-  thread), and resource loads from the memory card.
+  each sound effect the first time it is played (`Mix_LoadWAV_RW`, on
+  the main thread; the result is kept), and resource loads from the
+  memory card.
 
 One thing wrong in the queue: in cyberspace `fr_start_view` keeps the
 view off the GPU, but the queue takes any large view for the GPU's while
@@ -1169,3 +1171,130 @@ could draw of cyberspace (`rastq_gpu_survey`) never ran.
 
 Cyberspace on the GPU is dropped from the roadmap: it is at the screen's
 rate on three cores.
+
+## Step G7: holding the screen's rate
+
+Built and run on a Vita twice. Results at the end of this section.
+
+### Fixes
+
+- **The help scan asks once per object** (`olh_scan_objs` in
+  `src/GameSrc/olhscan.c`). It keeps `olh_candidate`'s answer for each
+  object of a scan, by the object's colour in the scan's picture, where
+  it asked again for every pixel on the object. The answer depends on
+  the object alone, so the scan finds what it found before. In all
+  builds and for every renderer.
+- **The queue is told whether a view is the GPU's**
+  (`rastq_gpu_view`, called by `fr_start_view` for every view). The
+  queue used to take any large view for the GPU's while the GPU
+  renderer was on, and to be refused the canvas when `fr_start_view`
+  had kept the view for the CPU (cyberspace, low resolution). Such a
+  view is now replayed on three cores without the attempt, and the
+  profile build's count of what the GPU could draw of it runs.
+- **Frame dumps at least 30 seconds apart** (`vgpu_compared`), so that
+  walking into a room doesn't freeze the profile build three times.
+
+### New in the log (profile build)
+
+| field | what |
+|---|---|
+| `gpuprepare=` | of the sending: deciding what each call is, and the tables (ms a frame) |
+| `gpusubmit=` | the rest of the sending: cutting calls up and handing them over |
+| `gpuupload=` | of `gpusubmit`: copying bitmaps into GPU memory |
+| `gpudraw=`, `gpudraws=` | of `gpuwait`: issuing the scene's draws, and how many |
+| `helprend=` | of `helpscan`: its render; the rest is its look at the pixels |
+| `stars=`, `hud=`, `viewout=` | of `sendview`: the stars, the overlays drawn into the view, and the cursor with the view's way to the screen |
+| `sndload=` | a sound effect decoded for its first use (`snd_sample_play`) |
+| `resload=` | a resource read from the card (`ResLoadResource`) |
+
+Each is the average per frame and, after the slash where there is one,
+the most in one frame of the window.
+
+### Results (`docs/profiles-gpu/profile-step-7.txt`, `profile-step-7b.txt`, `gpu.txt`, `gpudumps-step-7/`, `gpudumps-step-7b/`)
+
+Two captures with the profile build. The first has the door of step 6
+and a long stay in cyberspace. The second has what the first lacked: a
+long stay at an angle that costs more, and the paneled view with the
+help labels on. They agree where they overlap. The table is the second
+one, medians of the 1 s windows, cut by the log's `mode=` (1 full
+screen, 0 paneled) and the check numbers noted while playing:
+
+| | 0: three cores | 1: GPU | GPU: waiting for the screen |
+|---|---|---|---|
+| standing still | 46.4 fps (21.6 ms) | 62.1 fps | 2.0 ms |
+| moving | 34.5 fps | 62.1 fps | 1.0 ms |
+| the heavy angle | 32.1 fps | 58.5 fps (17.1 ms) | none: 0.5 ms too much |
+| paneled view, help labels on | 53.9 fps | 61.7 fps | 0.1 ms |
+| paneled view, no help scan | 60.1 fps | 62.7 fps | 5.2 ms |
+| cyberspace (three cores in both) | 62.4 fps | 62.6 fps | 4.6 ms |
+
+- **The door of step 6** is at 60 to 62 fps (first capture): the help
+  scan no longer asks the same question for every pixel. Its most in one
+  frame is still 17 to 19 ms, once a capture, and that frame has a
+  resource load inside the scan's render.
+- **Cyberspace**: `gpufallbacks=0`, the queue no longer tries. The count
+  of what the GPU could draw of it ran: 43 flat polygons a frame, and
+  2.5 of a kind it doesn't draw.
+- **The stalls** are measured now. 10 in the second capture: 8 have a
+  sound effect decoded for its first use in them (`sndload` 124 to
+  237 ms in one frame), one a resource load alone (54 ms), one is the
+  load of the cyberspace level (1.9 s). In the three-core windows as in
+  the GPU ones. Not the renderer, and not this branch's work: noted in
+  `docs/TODO.md`.
+- **Dumps**: 4 and 3, none closer than 30 seconds, no freeze. 6.5% and
+  5.9% of the compared pixels differ. `check=0`, `leaks=0`,
+  `texture_check` all zeros.
+- **The paneled view** is in both captures. The first has it without the
+  help scan, which had stopped (help off, an object on the cursor or a
+  panel open: the log doesn't say which).
+
+Where a GPU frame goes, in ms a frame:
+
+| | standing still | the heavy angle | paneled, labels on |
+|---|---|---|---|
+| waiting for the GPU (`gpuwait`) | 3.4 | 3.5 | 2.2 |
+| help scan (`helpscan`), of which its render | 2.9, 1.2 | 3.6, 1.7 | 2.3, 1.4 |
+| HUD drawn over the view (`hud`) | 2.2 | 4.5 | 2.3 |
+| sending to the GPU (`gpuprepare` + `gpusubmit`) | 1.8 | 2.2 | 1.8 |
+| the view's way to the screen (`viewout`) | 0.1 | 0.1 | 2.9 |
+| polygons | 77 | 48 | 45 |
+| whole frame, without the wait for the screen | 14.1 | 17.1 | 16.1 |
+
+- **The heavy angle isn't heavy for the GPU.** It has fewer polygons
+  than the test spot, and the GPU takes the same time. What grows is on
+  the CPU, and it grows the same on three cores: the HUD by 2.3 ms, the
+  help scan by 0.7 ms, the sending by 0.4 ms.
+- **The HUD moves in steps**: 2.2, 2.7 and 4.5 ms in full screen, 0.5
+  and 2.2 ms in the paneled view. One step is 1.75 ms in both views, and
+  in the paneled view it comes and goes with the help scan. A lead, not
+  measured: the help label's text. `draw_shadowed_string` draws a string
+  nine times, eight shifted copies for the outline and then the text.
+  The rest of the full-screen HUD is `fullscreen_overlay`, which redraws
+  the button panels, the two side panels, the inventory, the vitals and
+  the icons over the view every frame.
+- **The paneled view on the GPU** pays 2.9 ms to copy the view out of
+  GPU memory onto the screen (0.4 ms from ordinary memory on three
+  cores). Without the help scan it has 5 ms to spare; with it, none.
+- **The wait is the largest fixed part**, and the main thread does
+  nothing during it. `gpudraw` is 0.1 ms of it: the rest is the GPU
+  working.
+
+### Go for G8
+
+- The queue hands a scene to the GPU without waiting for it; a separate
+  call waits. It still waits at once where the CPU draws on the canvas
+  within the frame.
+- `fr_send_view` waits before the HUD, and before that runs the help
+  scan when the view is the GPU's: the scan never touches the picture,
+  and it takes about as long as the GPU does. A view that shows stars
+  waits first, as today: they read the picture.
+- The game loop skips its own scan when the render ran it.
+- The HUD measured part by part (profile build): hand, help label, other
+  texts, button panels, side panels, inventory, vitals, icons.
+
+Expected, not measured: the heavy angle from 17.1 ms to about 14, the
+paneled view with labels from 16.1 to about 14. How much of the wait
+needs the CPU is not known.
+
+Left out: the stalls (their own task, later); the paneled view's copy
+(G8 gives it the time).

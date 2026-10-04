@@ -36,6 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "objects.h"
 #include "game_screen.h"
 #include "fullscrn.h"
+#include "vprof.h"
 
 #define SCAN_OBJ_LIST 8
 
@@ -97,6 +98,10 @@ ushort olh_scan_objs(void) {
         ushort count;
     } objdata[SCAN_OBJ_LIST];
     short objcount = 0;
+    // What olh_candidate said of each object of this scan, by its colour:
+    // 0 not asked yet, 1 no, 2 yes. The answer is the object's, not the
+    // pixel's, and an object seen from close covers thousands of them.
+    uchar candidate[256] = {0};
 #ifdef SVGA_SUPPORT
     fauxrend_context *fr = olh_full_context;
 #else
@@ -111,7 +116,7 @@ ushort olh_scan_objs(void) {
     fr_cur_obj_col = FR_CUR_OBJ_BASE;
     fr_get_idx = fr_pickup_idx;
     _frp.view.radius = olh_radius;
-    fr_rend(fr);
+    VPROF_RUN(VPROF_HELPREND, fr_rend(fr));
     _frp.view.radius = save_radius;
     fr_get_idx = fr_ptr_idx;
     _fr_glob_flags &= ~FR_PICKUPM_MASK;
@@ -139,7 +144,9 @@ ushort olh_scan_objs(void) {
             if ((col >= FR_CUR_OBJ_BASE) && (col < fr_cur_obj_col)) // if we are actually exactly over an object
             {
                 ObjID obj = (ObjID)fr_col_to_obj[col - FR_CUR_OBJ_BASE];
-                if (olh_candidate(obj)) {
+                if (candidate[col] == 0)
+                    candidate[col] = olh_candidate(obj) ? 2 : 1;
+                if (candidate[col] == 2) {
                     int i;
                     for (i = 0; i < objcount; i++)
                         if (objdata[i].obj == obj) {

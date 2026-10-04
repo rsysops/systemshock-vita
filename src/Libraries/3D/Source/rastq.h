@@ -80,7 +80,8 @@ typedef struct {
     unsigned gpu_whys[RASTQ_GPU_WHYS];  // the CPU's, by reason
     unsigned gpu_pieces;                 // pieces lit calls were cut into
     unsigned gpu_fallbacks;             // lists it refused, drawn by the CPU
-    unsigned long long gpu_submit_us;   // sending the scenes
+    unsigned long long gpu_prepare_us;  // deciding what each call is, and the tables
+    unsigned long long gpu_submit_us;   // cutting the calls up and handing them over
     unsigned long long gpu_wait_us;     // waiting for the GPU to finish them
     unsigned long long gpu_cpu_us;      // the CPU drawing between scenes
     unsigned long long gpu_check_pixels; // pixels compared with the CPU's
@@ -159,9 +160,12 @@ typedef struct {
 // Offers a GPU to the queue (NULL: none), and says whether to use it.
 void rastq_set_gpu(const rastq_gpu *gpu);
 void rastq_use_gpu(int on);
-// Will a view of that many rows be handed to the GPU? Its caller then gives
-// it a canvas the GPU can draw into.
+// Could a view of that many rows be handed to the GPU? If so its caller
+// gives it a canvas the GPU can draw into, or keeps it for the CPU, and says
+// which before rastq_begin: the view that starts next is the GPU's only if
+// rastq_gpu_view said so.
 int rastq_gpu_next(int rows);
+void rastq_gpu_view(int on);
 // In place of gr_clear before a view: if the GPU is to draw the view that
 // rastq_begin starts next on the current canvas, the clear becomes the first
 // thing in its scene and this returns 1. Otherwise it does nothing and

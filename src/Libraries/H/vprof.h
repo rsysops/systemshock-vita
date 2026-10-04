@@ -16,6 +16,12 @@ typedef enum {
     VPROF_RASTER,
     VPROF_RECORD,
     VPROF_HELPSCAN,
+    VPROF_HELPREND, // of the help scan: its render (the rest is its look at the pixels)
+    VPROF_STARS,    // of sendview
+    VPROF_HUD,      // of sendview: the overlays drawn into the view
+    VPROF_VIEWOUT,  // of sendview: the cursor and the view's way to the screen
+    VPROF_SNDLOAD,  // a sound effect decoded for its first use
+    VPROF_RESLOAD,  // a resource read from the card
     VPROF_PHASE_COUNT
 } vprof_phase_t;
 

@@ -611,7 +611,7 @@ void SDLDraw() {
         // screen: time that isn't work
         long long before = sceKernelGetProcessTimeWide();
         vita2d_swap_buffers();
-        vgpu_swap_wait_us += sceKernelGetProcessTimeWide() - before;
+        vgpu_counters.swap_wait_us += sceKernelGetProcessTimeWide() - before;
     }
 #else
     vita2d_swap_buffers();

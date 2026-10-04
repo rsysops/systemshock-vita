@@ -36,6 +36,7 @@
 // a second or two.
 #define DUMP_SHARE 0.05
 #define MAX_DUMPS 5
+#define DUMP_APART_US 30000000
 
 // What the vertex shaders get.
 // - The textured shader leaves the perspective division to the GPU: x and y
@@ -109,7 +110,7 @@ static struct {
 } scene_bitmaps[MAX_SCENE_TEXTURES];
 static int scene_texture_count;
 
-unsigned long long vgpu_texture_bytes, vgpu_swap_wait_us;
+vgpu_counters_t vgpu_counters;
 
 static int ready;
 static int begin_errors_logged, refusals_logged;
@@ -433,6 +434,7 @@ static const SceGxmTexture *texture_for(const grs_bitmap *bm, int wrap) {
     size_t stride = ((size_t)bm->w + 7) & ~(size_t)7;
     size_t bytes = (stride * bm->h + SCE_GXM_TEXTURE_ALIGNMENT - 1) & ~(size_t)(SCE_GXM_TEXTURE_ALIGNMENT - 1);
     SceGxmTexture *texture;
+    long long copy_start;
     uchar *copy;
     int i, y;
 
@@ -441,6 +443,7 @@ static const SceGxmTexture *texture_for(const grs_bitmap *bm, int wrap) {
             return &scene_textures[i];
     if (scene_texture_count == MAX_SCENE_TEXTURES || texture_heap_used + bytes > TEXTURE_HEAP_BYTES)
         return NULL;
+    copy_start = sceKernelGetProcessTimeWide();
     copy = texture_heap + texture_heap_used;
     for (y = 0; y < bm->h; y++)
         memcpy(copy + y * stride, bm->bits + (size_t)y * bm->row, (size_t)bm->w);
@@ -456,7 +459,8 @@ static const SceGxmTexture *texture_for(const grs_bitmap *bm, int wrap) {
     scene_bitmaps[scene_texture_count].h = bm->h;
     scene_texture_count++;
     texture_heap_used += bytes;
-    vgpu_texture_bytes += bytes;
+    vgpu_counters.texture_bytes += bytes;
+    vgpu_counters.upload_us += (unsigned long long)(sceKernelGetProcessTimeWide() - copy_start);
     return texture;
 }
 
@@ -556,6 +560,7 @@ static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_ver
 }
 
 static void vgpu_end(void) {
+    long long start = sceKernelGetProcessTimeWide();
     unsigned k;
 
     if (!in_scene)
@@ -578,6 +583,8 @@ static void vgpu_end(void) {
             }
         }
     }
+    vgpu_counters.draws += textured ? draw_count : 1;
+    vgpu_counters.draw_us += (unsigned long long)(sceKernelGetProcessTimeWide() - start);
     sceGxmEndScene(context, NULL, NULL);
     // the CPU goes on drawing into the canvas: the GPU must be done with it
     sceGxmFinish(context);
@@ -601,6 +608,8 @@ static void write_rows(const char *path, const uchar *pixels, int w, int h, int 
 static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing) {
     static int comparisons, dumps;
     static unsigned worst;
+    static long long last_dump_us;
+    long long now = sceKernelGetProcessTimeWide();
     char dir[200], path[256];
     FILE *f;
 
@@ -609,8 +618,12 @@ static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int 
         return;
     if (comparisons != 3 && (differing <= worst || differing <= (unsigned)(DUMP_SHARE * w * h)))
         return;
+    // one freeze at a time: walking into a room sets record after record
+    if (dumps != 0 && now - last_dump_us < DUMP_APART_US)
+        return;
     if (differing > worst)
         worst = differing;
+    last_dump_us = now;
     dumps++;
     snprintf(dir, sizeof(dir), "%sgpudumps", VITA_PATH);
     sceIoMkdir(dir, 0777);

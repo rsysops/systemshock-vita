@@ -626,7 +626,9 @@ static void draw_scene(const op_t *ops, int count, int mode, uchar *out) {
 
     rastq_set_mode(mode);
 #ifndef RASTQ_REFERENCE
-    // as a view starts: the clear is the GPU's if the view is
+    // As a view starts: its canvas is one the GPU can draw into, and the
+    // clear is the GPU's if the view is.
+    rastq_gpu_view(1);
     if (consistent_background && !rastq_gpu_clear(0x4d))
         gr_clear(0x4d);
 #endif

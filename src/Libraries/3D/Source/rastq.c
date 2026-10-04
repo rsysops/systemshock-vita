@@ -100,6 +100,7 @@ static struct {
     int gpu_check; // this view: compare the GPU's result with the CPU's
     int gpu_survey; // this view isn't the GPU's: only count what it could draw of it
     int survey_next;
+    int gpu_view_next; // the caller's word on the view that starts next
     int clear_pending; // the view's canvas is still to be cleared
     int clear_color;
     int active;
@@ -216,10 +217,12 @@ int rastq_gpu_next(int rows) {
 
 static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next(canvas->bm.h); }
 
+void rastq_gpu_view(int on) { rq.gpu_view_next = on; }
+
 void rastq_gpu_survey(void) { rq.survey_next = 1; }
 
 int rastq_gpu_clear(int color) {
-    if (!gpu_takes(grd_canvas))
+    if (!rq.gpu_view_next || !gpu_takes(grd_canvas))
         return 0;
     rq.clear_pending = 1;
     rq.clear_color = color;
@@ -1095,6 +1098,7 @@ static int gpu_run(void) {
 
     gpu_lap_us = rastq_clock_us();
     gpu_prepare();
+    gpu_lap(&rastq_stats.gpu_prepare_us);
     in_scene = gpu_scene_begin();
     if (!in_scene)
         return 0;
@@ -1290,7 +1294,7 @@ void rastq_begin(void) {
         rastq_set_threads(RASTQ_THREADS);
 #endif
     // a clear left to a GPU that doesn't get this view after all
-    if (rq.clear_pending && !gpu_takes(grd_canvas))
+    if (rq.clear_pending && !(rq.gpu_view_next && gpu_takes(grd_canvas)))
         clear_on_cpu();
     if (rq.mode == RASTQ_OFF)
         return;
@@ -1301,9 +1305,9 @@ void rastq_begin(void) {
     rq.used = 0;
     rq.checking = 0;
     rq.gpu_check = 0;
-    rq.gpu_view = gpu_takes(rq.canvas);
+    rq.gpu_view = rq.gpu_view_next && gpu_takes(rq.canvas);
     rq.gpu_survey = rq.survey_next && !rq.gpu_view;
-    rq.survey_next = 0;
+    rq.survey_next = rq.gpu_view_next = 0;
     rq.balance = NULL;
     if (rq.threads > 1 && rq.canvas->bm.h >= rq.min_rows)
         rq.balance = find_split(rq.canvas, rq.threads);
