@@ -1,6 +1,6 @@
 // The Vita's GPU as a filler for the rasterizer queue: see VitaGpu.h.
 
-#if defined(VITA) && defined(VITA_PROFILE)
+#ifdef VITA
 
 #include <psp2/gxm.h>
 #include <psp2/io/stat.h>
@@ -182,15 +182,18 @@ static const char tmap_fragment_source[] =
     "}\n";
 static const char trans_fragment_lines[] = "    if (pal < 0.5f / 255.0f) discard;\n";
 
+static int log_started;
+
 static void gpu_log(const char *format, ...) {
     char path[256];
     va_list args;
     FILE *f;
 
     snprintf(path, sizeof(path), "%sgpu.txt", VITA_PATH);
-    f = fopen(path, "a");
+    f = fopen(path, log_started ? "a" : "w"); // a new file for each run of the game
     if (f == NULL)
         return;
+    log_started = 1;
     va_start(args, format);
     vfprintf(f, format, args);
     va_end(args);
@@ -294,9 +297,10 @@ static int is_canvas(const uchar *bits) {
     return 0;
 }
 
-unsigned char *vgpu_canvas(int width, int height, int row) {
-    if (!ready || width > canvas_w || height > canvas_h || row != canvas_stride)
+unsigned char *vgpu_canvas(int width, int height, int *row) {
+    if (!vgpu_available() || canvas_pixels[0] == NULL || width > canvas_w || height > canvas_h)
         return NULL;
+    *row = canvas_stride;
     // The screen is drawn from a canvas some time after the frame is
     // presented, so each frame takes the canvas used least recently: it is
     // touched again only after two newer frames were handed to the screen,
@@ -366,23 +370,33 @@ static void refused(const char *why, const uchar *bits, int w, int h, int row, i
 
 static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows) {
     gpu_target *t;
-    int err;
+    int target_w = w, target_h = h, err;
 
     if (!ready)
         return 0;
-    if (block_of(bits) == NULL && (!is_canvas(bits) || row != canvas_stride || w > canvas_w || h > canvas_h)) {
+    // A view draws into the top left of one of the view canvases, whatever
+    // its own size; the start-up checks into memory of their own.
+    if (is_canvas(bits)) {
+        if (row != canvas_stride || w > canvas_w || h > canvas_h) {
+            refused("too big for a GPU canvas", bits, w, h, row, 0);
+            return 0;
+        }
+        target_w = canvas_w;
+        target_h = canvas_h;
+    } else if (block_of(bits) == NULL) {
         // A canvas elsewhere can't be rendered into. Say so, a few times:
         // the caller falls back to the CPU without a word.
         refused("not a GPU canvas", bits, w, h, row, 0);
         return 0;
     }
-    t = target_for(w, h);
+    t = target_for(target_w, target_h);
     if (t == NULL) {
         refused("no render target", bits, w, h, row, 0);
         return 0;
     }
     err = sceGxmColorSurfaceInit(&scene_color, SCE_GXM_COLOR_FORMAT_U8_R, SCE_GXM_COLOR_SURFACE_LINEAR,
-                                 SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, w, h, row, bits);
+                                 SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, target_w,
+                                 target_h, row, bits);
     if (err < 0) {
         refused("no 8-bit color surface", bits, w, h, row, err);
         return 0;
@@ -407,8 +421,8 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     vertex_count = index_count = draw_count = 0;
     scene_texture_count = 0;
     texture_heap_used = 0;
-    to_clip_x = 2.0f / (float)w;
-    to_clip_y = 2.0f / (float)h;
+    to_clip_x = 2.0f / (float)target_w;
+    to_clip_y = 2.0f / (float)target_h;
     return 1;
 }
 
@@ -570,6 +584,7 @@ static void vgpu_end(void) {
     in_scene = 0;
 }
 
+#ifdef VITA_PROFILE
 // ---- frame pairs for looking at on a PC -------------------------------------
 
 static void write_rows(const char *path, const uchar *pixels, int w, int h, int row) {
@@ -617,6 +632,10 @@ static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int 
         fclose(f);
     }
 }
+
+#else
+#define vgpu_compared NULL
+#endif
 
 static const rastq_gpu queue_hooks = {vgpu_begin, vgpu_flat, vgpu_tmap, vgpu_end, vgpu_compared};
 
@@ -1025,10 +1044,12 @@ void vgpu_init(void) {
              "gpu: ready index_check mismatches=%d/256 first_bad=%d got=%d undrawn_kept=%d | textures=%s "
              "texture_check plain=%d table=%d light=%d wrap=%d (wrong columns of 256) | 512KB us: "
              "gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d",
-             bad, first_bad, got, kept, textured ? "on" : "off (flat colours)", tex_bad[0], tex_bad[1], tex_bad[2],
+             bad, first_bad, got, kept, textured ? "on" : "off (GPU not used)", tex_bad[0], tex_bad[1], tex_bad[2],
              tex_bad[3], gpu_write, gpu_read, ram_write, ram_read);
     gpu_log("%s", report);
-    if (bad < 0) {
+    // Flat colours were for finding out whether the GPU path could work at
+    // all: as a renderer it is the textured shaders or nothing.
+    if (bad < 0 || !textured) {
         ready = 0;
         return;
     }
@@ -1037,4 +1058,6 @@ void vgpu_init(void) {
 
 const char *vgpu_report(void) { return report; }
 
-#endif // VITA && VITA_PROFILE
+int vgpu_available(void) { return ready && textured; }
+
+#endif // VITA

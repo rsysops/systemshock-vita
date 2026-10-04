@@ -34,10 +34,14 @@ is an estimate; nothing here is measured yet.
   are the same data.
 - **The CPU renderers stay, selectable**, as the reference and as the
   fallback for anything the GPU path doesn't draw.
-- **Shaders are compiled on a Vita** with Sony's compiler module
-  (`ur0:data/libshacccg.suprx`, through vitaShaRK) while the work is under
-  way. The compiled programs are shipped at the end, so players don't
-  need the module.
+- **Shaders are compiled on the Vita, each time the game starts**, with
+  Sony's compiler module (`ur0:data/libshacccg.suprx`, through
+  vitaShaRK). The module is a requirement of the GPU renderer; no
+  compiled programs are shipped. (The first plan was to ship them at the
+  end; dropped at step G6.) Without the module the game runs on its CPU
+  renderers.
+- **The GPU renderer is the default** (step G6), with "3 cores" and
+  "1 core" selectable in Vita Options.
 
 ## The approach
 
@@ -81,7 +85,8 @@ run something like it. It was not chosen:
 | G3 | G2's two faults (the canvas shown while it is wiped; polygons the CPU skips), then textures, light-table and CLUT lookups, perspective, sprites, transparency | **done**: textures and geometry are right; light bands are angular where the CPU's are round; a textured scene costs the GPU 5.5 ms, so the frame is no faster than three cores yet |
 | G4 | Light interpolated the way the mappers do it; the shader's cost; which calls still go to the CPU and split the frame into scenes | **done**: round shadows again, 95% of pixels identical; shader B takes 3.2 ms a scene against 6.0; 53 fps standing still against 44.5 on three cores |
 | G5 | Light worked out per pixel in place of slabs; the colour-table fill type on the GPU, so that a frame is one scene; shader A dropped | **done**: shadow edges as fine as the CPU's; the screen's rate at the test spot (a 14.6 ms frame against 22.4 on three cores) and while walking (62.5 fps against 36.3) |
-| G6 | What still falls to the CPU where it turns up (translucent and shaded polygons, lines, voxels; cyberspace policy), the paneled view, a "Renderer" setting in Vita Options, compiled shaders shipped | no holes left, and players need no extra module |
+| G6 | The GPU renderer in the normal build behind a "Renderer" setting, default on; the paneled view; the screen buffer when the view stops being drawn; cyberspace and low resolution left to the CPU | **done**: played through both views, pause, panels, video mail and cyberspace without a glitch; 62.9 fps against 35.9 while walking and fighting |
+| G7 | Holding the screen's rate: the help scan's repeated questions, the queue told per view whether it is the GPU's, and measurements of where a GPU frame's CPU time, `sendview` and the input stalls go | no more drops to 50 fps at the door; the numbers for the rest |
 
 G2 was not in the first roadmap. G1 showed that the memory question
 decides whether the GPU path is worth anything, so it comes before
@@ -994,3 +999,173 @@ and not a variant of the profile build:
 - more of the game than the first area: the kinds of call that still
   fall to the CPU elsewhere (translucent and shaded polygons, lines,
   voxels), and cyberspace.
+
+## Step G6: the GPU renderer in the game
+
+In every Vita build from here on.
+
+### The Renderer setting
+
+Vita Options' "Multicore" button is now "Renderer", with three choices
+(`gShockPrefs.renderer`, `vita-renderer` in the prefs file; an older
+file's `vita-multicore = 0` is read as one core):
+
+| choice | what draws a 3D view |
+|---|---|
+| GPU (default) | the queue records the pass and the GPU draws it; three cores for the views the GPU isn't given |
+| 3 cores | the queue records the pass and three cores fill it (docs/PERFORMANCE-CPU.md) |
+| 1 core | the original drawing, call by call |
+
+`VitaApplyRenderer` (`src/MacSrc/Prefs.c`) sets the queue's mode, its
+threads and `rastq_use_gpu`. When the GPU path couldn't be set up
+(`vgpu_available`: no compiler module, or a shader that doesn't
+compile), the button offers the two CPU choices and a "GPU" setting
+behaves as "3 cores".
+
+The profile build ignores the setting and alternates, 5 s each:
+0 = three cores, 1 = GPU. The periodic comparison, its frame dumps and
+the timings are the profile build's only; `gpu.txt` is written anew at
+each start by both.
+
+The slab path of G4 is gone (`gpu_emit_cut` cuts at the corners' levels
+only), and so is drawing in flat colours when the textured shader
+fails: without it the GPU isn't used.
+
+### The paneled view
+
+The view of the paneled screen is 804 x 293, in a canvas of its own
+whose rows are 804 bytes apart, which the GPU module refused. Now:
+
+- `fr_start_view` gives the draw canvas a GPU canvas's pixels and its
+  row length (960), and puts the view's own back for a CPU frame. The
+  view draws into the canvas's top left;
+- `vgpu_begin` takes any view up to the canvas's size, with the
+  canvas-sized render target and colour surface. One render target
+  serves every view;
+- `fr_send_view` copies the finished view to the screen buffer as
+  before (`Fast_Slot_Copy`): the game draws on the screen over this view
+  (the help overlay, messages), so the screen buffer has to hold it. The
+  copy reads GPU memory.
+
+### Where the GPU is not used
+
+- **Cyberspace** (`_frp.faces.cyber`): its walls are flat and shaded
+  polygons and its objects wireframes; shaded polygons and lines are the
+  CPU's in the GPU path, drawn into GPU memory between two scenes. It
+  keeps the three-core renderer. In the profile build the queue counts
+  what the GPU could draw of such a view and why not the rest
+  (`rastq_gpu_survey`, into `gpukinds=` and `gpuwhy=`).
+- **Low resolution** (`DoubleSize`): the view is doubled out of its
+  canvas, which reads all of it.
+- Views of fewer than 272 rows (`rastq_gpu_next` now takes the view's
+  rows), the help scan, the security cameras, the 360 view: as before.
+
+### The screen buffer when the view stops being drawn
+
+A full-screen GPU view is shown from its canvas and not copied to the
+screen buffer. Three rules keep the two in step (`src/MacSrc/Shock.c`):
+
+- `SDLDraw` shows the view's canvas for a frame that drew one, and goes
+  on showing the last one while nothing says the screen buffer is to be
+  shown (a frame without a view, a palette fade);
+- `VitaShowView` refuses while the game is paused, and whenever the
+  canvas isn't the full screen: `fr_send_view` then copies the view to
+  the screen buffer as on the CPU, and the screen buffer is shown. That
+  is how the options panel gets the view under it (`wrapper_start`
+  pauses, then renders);
+- `VitaSyncView` copies the last shown canvas into the screen buffer,
+  once. It is called before the game draws on the screen without having
+  drawn the view: at the top of `game_loop`'s paused branch, in
+  `loopmode_switch`, before a video mail plays, before the help overlay
+  and the wait cursor.
+
+The cursor needs nothing: `rend_mouse_hide` saves what is under it from
+the canvas before drawing it there, so the cursor code's save-under is
+the view without the cursor, in step with the canvas.
+
+A place that draws on the screen without one of these would show as a
+picture that stays frozen on the last view.
+
+### Checked on the PC
+
+The stand-in comparison has a fourth canvas, 804 x 293 with rows 960
+bytes apart, for the paneled view. Over 1,200 frames: 2.42% of pixels
+differ from the mappers', 0.093% without a match within two pixels
+(limit 0.15%). `tests/rastq/run.sh` passes; both Vita builds are free of
+warnings.
+
+### Results (`docs/profiles-gpu/profile-step-6.txt`, `gpu.txt`, `gpudumps-step-6/`)
+
+Played on the Vita with the normal build: the three renderers switched
+in game, the full-screen and the paneled view, pause, the options panel,
+a video mail, cyberspace. No glitch and no frozen picture.
+
+The capture (profile build, full-screen view throughout), medians of the
+1 s windows:
+
+| | 0: three cores | 1: GPU |
+|---|---|---|
+| standing still | 44.6 fps (22.4 ms) | 62.7 fps (15.96 ms, of which 1.3 waiting for the screen) |
+| walking and fighting | 35.9 fps | 62.9 fps |
+| cyberspace (three cores in both) | 62.5 fps | 61.6 fps |
+
+- One scene a frame everywhere outside cyberspace, nothing drawn by the
+  CPU; `check=0`, `leaks=0`; `texture_check` all zeros.
+- The paneled view wasn't in the capture: its copy is still unmeasured.
+- Dumped comparisons: 96.4% of pixels identical at the test spot; 79 to
+  86% facing a wall from close, where the light changes slowly across
+  the wall and a band's edge a few hundredths of a level off moves far.
+  The pictures look the same.
+
+What the capture explains:
+
+- **Drops to about 50 fps at some angles.** 9 of the 255 GPU windows are
+  under 57 fps without a stall. At the test spot a GPU frame has 2 ms to
+  spare, and four things grow:
+
+  | | usual | in the slow windows |
+  |---|---|---|
+  | help scan | 3.5 ms | 6 to 7 ms, once 15.6 ms |
+  | sending to the GPU (`gpusubmit`) | 1.7 ms | up to 5.0 ms (135 polygons in 362 pieces) |
+  | stars, HUD and cursor (`sendview`) | 2.3 ms | 4 to 5 ms |
+  | waiting for the GPU | 3.4 ms | up to 5.8 ms |
+
+  The help scan's case is the door seen from close: after its render,
+  `olh_scan_objs` goes over its 58,000 pixels and calls `olh_candidate`
+  for every one that is on an object, a distance computation each time,
+  for the same object again and again.
+- **2-second freezes in the profile build, three in a row**: the frame
+  dumps. Dumps 02 to 04 were written within 15 seconds, each a new
+  record of differing pixels on entering a room.
+- **An fps counter above 60**: the counter is 1000 / average frame time.
+  Three 1 s windows, each the first of a GPU phase, are at 66.8, 68.1
+  and 108.3: frames that the screen didn't hold back (it holds a frame
+  back only when two finished ones are waiting). Why a whole second can
+  pass like that is not understood.
+- **Stutters when fighting**: eight stalls of 130 to 260 ms, all in the
+  input phase, in the three-core windows as in the GPU ones. Not the
+  renderer. Unmeasured suspects: `snd_sample_play` decodes and converts
+  each sound effect when it is played (`Mix_LoadWAV_RW`, on the main
+  thread), and resource loads from the memory card.
+
+One thing wrong in the queue: in cyberspace `fr_start_view` keeps the
+view off the GPU, but the queue takes any large view for the GPU's while
+the GPU renderer is on. On every flush it prepared the list, was refused
+the canvas and fell back (`gpufallbacks` from 28 to 55,618 over the
+cyberspace part). The picture is right and cyberspace runs at the
+screen's rate, but the work is wasted, and the count of what the GPU
+could draw of cyberspace (`rastq_gpu_survey`) never ran.
+
+### Go for G7
+
+- The help scan asks `olh_candidate` once per object and scan.
+- `fr_start_view` tells the queue whether a view is the GPU's.
+- Frame dumps no closer than 30 seconds.
+- Measurements, in the profile build, of what else eats the 2 ms: the
+  sending split into its parts, the wait into issuing the draws and the
+  GPU working, `sendview` into stars, HUD and cursor, the help scan into
+  its render and its look at the pixels; and of sound and resource
+  loading, for the stalls.
+
+Cyberspace on the GPU is dropped from the roadmap: it is at the screen's
+rate on three cores.

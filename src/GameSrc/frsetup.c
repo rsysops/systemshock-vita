@@ -642,14 +642,34 @@ int fr_start_view(void) {
         opengl_start_frame();
     }
 
-    // A frame the GPU will draw goes into the GPU's canvas, not the view's
-    // own memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only
-    // the main view: not the help scan, the security cameras or the 360 view.
+    // A frame the GPU will draw goes into a GPU canvas, not the view's own
+    // memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only the
+    // main view: not the help scan, the security cameras or the 360 view.
+    // Nor in low resolution, where the view is doubled out of its canvas,
+    // nor in cyberspace, which is drawn with what the GPU path leaves to the
+    // CPU.
     if (_fr->flags & FR_DOUBLEB_MASK) {
+        static ushort own_row; // of the view that gets a GPU canvas, in its own memory
         extern uchar view360_is_rendering;
+        int gpu_row = 0;
 
-        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && rastq_gpu_next())
-            gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, _fr->draw_canvas.bm.row);
+        if (_fr->draw_canvas.bm.bits != _fr->main_canvas.bm.bits) // the GPU drew it last time
+            _fr->draw_canvas.bm.row = own_row;
+        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && !DoubleSize) {
+            if (!_frp.faces.cyber) {
+                if (rastq_gpu_next(_fr->draw_canvas.bm.h))
+                    gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, &gpu_row);
+            }
+#ifdef VITA_PROFILE
+            else
+                rastq_gpu_survey(); // counts what the GPU could draw of it
+#endif
+        }
+        if (gpu_bits != NULL) {
+            // a GPU canvas is as wide as the screen, whatever the view's width
+            own_row = _fr->draw_canvas.bm.row;
+            _fr->draw_canvas.bm.row = (ushort)gpu_row;
+        }
         _fr->draw_canvas.bm.bits = gpu_bits != NULL ? gpu_bits : _fr->main_canvas.bm.bits;
     }
 
@@ -915,8 +935,12 @@ int fr_send_view(void) {
                         // a view in the GPU's canvas can be shown from there
                         if (!VitaShowView(_fr->draw_canvas.bm.bits, _fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h))
                             Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
-                    } else
+                    } else {
+                        // the paneled view is always copied: the game draws
+                        // on the screen over it
+                        VitaShowView(_fr->draw_canvas.bm.bits, _fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h);
                         Fast_Slot_Copy(&_fr->draw_canvas.bm);
+                    }
                 }
             }
         }

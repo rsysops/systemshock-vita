@@ -127,7 +127,10 @@ enum TEMP_STR_ {
     REF_STR_VitaRes5,
 
     REF_STR_Cursor,
-    REF_STR_Multicore,
+    REF_STR_VitaRenderer,
+    REF_STR_VitaRenderer1Core, // the three in the order of VITA_RENDERER_*
+    REF_STR_VitaRenderer3Cores,
+    REF_STR_VitaRendererGpu,
 #endif
 
     REF_STR_Help = 0x11000020, // the options panel's pad hints

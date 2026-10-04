@@ -78,7 +78,7 @@ typedef struct {
     unsigned gpu_cpu_calls;             // calls of GPU views the CPU drew
     unsigned gpu_kinds[RASTQ_GPU_KINDS]; // the GPU's calls, by kind
     unsigned gpu_whys[RASTQ_GPU_WHYS];  // the CPU's, by reason
-    unsigned gpu_slabs;                 // pieces lit calls were cut into
+    unsigned gpu_pieces;                 // pieces lit calls were cut into
     unsigned gpu_fallbacks;             // lists it refused, drawn by the CPU
     unsigned long long gpu_submit_us;   // sending the scenes
     unsigned long long gpu_wait_us;     // waiting for the GPU to finish them
@@ -159,14 +159,17 @@ typedef struct {
 // Offers a GPU to the queue (NULL: none), and says whether to use it.
 void rastq_set_gpu(const rastq_gpu *gpu);
 void rastq_use_gpu(int on);
-// Will the next large view be handed to the GPU? Its caller then gives it a
-// canvas the GPU can draw into.
-int rastq_gpu_next(void);
+// Will a view of that many rows be handed to the GPU? Its caller then gives
+// it a canvas the GPU can draw into.
+int rastq_gpu_next(int rows);
 // In place of gr_clear before a view: if the GPU is to draw the view that
 // rastq_begin starts next on the current canvas, the clear becomes the first
 // thing in its scene and this returns 1. Otherwise it does nothing and
 // returns 0.
 int rastq_gpu_clear(int color);
+// For a view the GPU is kept out of: has the view that rastq_begin starts
+// next count, in gpu_kinds and gpu_whys, what the GPU could draw of it.
+void rastq_gpu_survey(void);
 
 // Pixels that don't change between a draw call and the end of its pass.
 void rastq_stable_pixels(const uchar *pixels, size_t size);
@@ -192,9 +195,6 @@ void rastq_test_bands(int bands, const int *bounds);
 // For tests: check that each recorded call, drawn alone, stays inside the
 // rows recorded for it. Violations count as check_leak_rows.
 void rastq_test_ranges(int on);
-// For tests: hand the GPU lit polygons cut into thin slabs, each with one
-// light level per vertex, instead of the mapper's own interpolation.
-void rastq_test_gpu_slabs(int on);
 #endif
 
 #endif // __RASTQ_H

@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string.h>
 
 #include "Prefs.h"
+#include "VitaGpu.h"
 #include "cyber.h"
 #include "leanmetr.h"
 #include "mainloop.h"
@@ -94,6 +95,7 @@ void game_loop(void) {
 
     // Handle paused game state
     if (game_paused) {
+        VitaSyncView(); // what is drawn from here on goes on the screen, over the view
         if (redraw_paused) {
             TRACE("%s: Drawing pause!", __FUNCTION__);
             draw_pause_string();

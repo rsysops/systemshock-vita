@@ -48,6 +48,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "OpenGL.h"
 #include "Shock.h"
+#include "VitaGpu.h"
 
 //------------
 //  PROTOTYPES
@@ -744,6 +745,7 @@ errtype begin_wait() {
     extern LGCursor wait_cursor;
     errtype retval;
     if (wait_count == 0) {
+        VitaSyncView(); // the cursor is drawn on the screen buffer
         uiHideMouse(NULL);
         retval = uiPushGlobalCursor(&wait_cursor);
         uiShowMouse(NULL);

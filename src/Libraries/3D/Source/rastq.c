@@ -98,7 +98,8 @@ static struct {
     int use_gpu;   // hand views to the GPU
     int gpu_view;  // this view goes to the GPU
     int gpu_check; // this view: compare the GPU's result with the CPU's
-    int gpu_slabs; // lit polygons go to the GPU in slabs (see gpu_emit_cut)
+    int gpu_survey; // this view isn't the GPU's: only count what it could draw of it
+    int survey_next;
     int clear_pending; // the view's canvas is still to be cleared
     int clear_color;
     int active;
@@ -163,8 +164,6 @@ void rastq_test_bands(int bands, const int *bounds) {
 
 void rastq_test_ranges(int on) { rq.test_ranges = on; }
 
-void rastq_test_gpu_slabs(int on) { rq.gpu_slabs = on; }
-
 static size_t canvas_bytes(void) { return (size_t)rq.canvas->bm.row * rq.canvas->bm.h; }
 
 // Rows of the canvas outside [top, bot) that differ from `before`
@@ -205,18 +204,19 @@ static void profile_settings(void) {
 #if defined(VITA) && defined(VITA_PROFILE)
     rq.mode = RASTQ_TRUST_STABLE;
     rq.use_gpu = vprof_variant != 0;
-    rq.gpu_slabs = vprof_variant == 1;
     rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
 #endif
 }
 
-int rastq_gpu_next(void) {
+// Small views stay on the CPU, as they stay on one thread.
+int rastq_gpu_next(int rows) {
     profile_settings();
-    return rq.gpu != NULL && rq.use_gpu && rq.mode != RASTQ_OFF;
+    return rq.gpu != NULL && rq.use_gpu && rq.mode != RASTQ_OFF && rows >= rq.min_rows;
 }
 
-// Small views stay on the CPU, as they stay on one thread.
-static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next() && canvas->bm.h >= rq.min_rows; }
+static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next(canvas->bm.h); }
+
+void rastq_gpu_survey(void) { rq.survey_next = 1; }
 
 int rastq_gpu_clear(int color) {
     if (!gpu_takes(grd_canvas))
@@ -781,12 +781,6 @@ static void gpu_scene_end(void) {
     gpu_lap(&rastq_stats.gpu_wait_us);
 }
 
-// A lit polygon handed over in slabs is cut into slabs this thick, and into
-// no more than this many.
-#ifndef GPU_SLAB_PIXELS
-#define GPU_SLAB_PIXELS 8
-#endif
-#define GPU_MAX_SLABS 96
 // A texture is taken to repeat no more than this many times along a polygon.
 #define GPU_MAX_REPEATS 16
 // Cutting a polygon adds vertices before a part of it is handed over.
@@ -934,30 +928,17 @@ static void gpu_light_piece(rastq_gpu_vertex *v, const float *s, int count, floa
 // mapper's light is a formula in values the GPU interpolates exactly (see
 // gpu_light_piece).
 //
-// The other way, kept to compare with: slabs a few pixels thick, each vertex
-// with the mapper's value there, and the GPU's own interpolation across the
-// two triangles of a slab. It moves the edge of a light band in steps of the
-// slab's thickness.
-//
 // The texture's repeats are cut within each piece: such a cut runs through
 // the polygon, and only values that are linear over the piece survive it.
 // 0 if the scene has no room for it.
 static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
     slab_vertex poly[GPU_WORK_VERTS], above[GPU_WORK_VERTS], piece[GPU_WORK_VERTS];
     rastq_gpu_vertex out[GPU_WORK_VERTS];
-    float bounds[GPU_MAX_SLABS + 1], levels[GPU_WORK_VERTS];
+    float bounds[GPU_WORK_VERTS + 1], levels[GPU_WORK_VERTS];
     float along_x = 1, along_y = 0; // the direction of the mapper's lines
-    float x_min, x_max, y_min, y_max, s_min, s_max, lo;
+    float s_min, s_max, apart, lo;
     int scan = c->gpu_scan, i, k, pieces, n, m;
 
-    x_min = x_max = v[0].x;
-    y_min = y_max = v[0].y;
-    for (i = 0; i < count; i++) {
-        x_min = v[i].x < x_min ? v[i].x : x_min;
-        x_max = v[i].x > x_max ? v[i].x : x_max;
-        y_min = v[i].y < y_min ? v[i].y : y_min;
-        y_max = v[i].y > y_max ? v[i].y : y_max;
-    }
     if (scan == GPU_SCAN_DEPTH) {
         // q is linear on screen: its gradient, by least squares, is across
         // the lines of one depth
@@ -988,8 +969,7 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
     for (i = 0; i < count; i++) {
         poly[i].v = v[i];
         poly[i].s = scan == GPU_SCAN_COLUMNS ? v[i].x : scan == GPU_SCAN_DEPTH ? v[i].q : v[i].y;
-        if (!rq.gpu_slabs)
-            poly[i].v.along = along_x * v[i].x + along_y * v[i].y;
+        poly[i].v.along = along_x * v[i].x + along_y * v[i].y;
     }
     s_min = s_max = poly[0].s;
     for (i = 1; i < count; i++) {
@@ -999,36 +979,21 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
     if (s_max <= s_min)
         return gpu_emit_repeats(c, count, v);
 
-    // where to cut: bounds[1 .. pieces - 1], between s_min and s_max
-    if (rq.gpu_slabs) {
-        float extent = scan == GPU_SCAN_COLUMNS ? x_max - x_min
-                       : scan == GPU_SCAN_ROWS  ? y_max - y_min
-                       : (x_max - x_min) > (y_max - y_min) ? x_max - x_min
-                                                           : y_max - y_min;
-        pieces = (int)(extent / GPU_SLAB_PIXELS) + 1;
-        if (pieces > GPU_MAX_SLABS)
-            pieces = GPU_MAX_SLABS;
-        for (k = 1; k < pieces; k++)
-            bounds[k] = s_min + k * (s_max - s_min) / pieces;
-    } else {
-        // the corners' levels in order, those that are all but one taken once
-        float apart = (s_max - s_min) * 1e-5f;
-        for (i = 0; i < count; i++) {
-            float level = poly[i].s;
-            for (k = i; k > 0 && levels[k - 1] > level; k--)
-                levels[k] = levels[k - 1];
-            levels[k] = level;
-        }
-        pieces = 1;
-        bounds[0] = s_min;
-        for (i = 0; i < count; i++)
-            if (levels[i] > s_min + apart && levels[i] < s_max - apart && levels[i] > bounds[pieces - 1] + apart)
-                bounds[pieces++] = levels[i];
+    // Where to cut, bounds[1 .. pieces - 1]: the corners' levels in order,
+    // those that are all but one taken once.
+    apart = (s_max - s_min) * 1e-5f;
+    for (i = 0; i < count; i++) {
+        float level = poly[i].s;
+        for (k = i; k > 0 && levels[k - 1] > level; k--)
+            levels[k] = levels[k - 1];
+        levels[k] = level;
     }
+    pieces = 1;
     bounds[0] = s_min;
+    for (i = 0; i < count; i++)
+        if (levels[i] > s_min + apart && levels[i] < s_max - apart && levels[i] > bounds[pieces - 1] + apart)
+            bounds[pieces++] = levels[i];
     bounds[pieces] = s_max;
-    if (pieces <= 1 && rq.gpu_slabs)
-        return gpu_emit_repeats(c, count, v);
 
     n = count;
     memcpy(above, poly, n * sizeof(poly[0]));
@@ -1050,12 +1015,11 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
                 out[i] = piece[i].v;
                 s[i] = piece[i].s;
             }
-            if (!rq.gpu_slabs)
-                gpu_light_piece(out, s, m, lo, bounds[k]);
+            gpu_light_piece(out, s, m, lo, bounds[k]);
             if (!gpu_emit_repeats(c, m, out))
                 return 0;
             if (!rq.gpu_check)
-                rastq_stats.gpu_slabs++;
+                rastq_stats.gpu_pieces++;
         }
         lo = bounds[k];
     }
@@ -1182,6 +1146,23 @@ static int gpu_run(void) {
     return 1;
 }
 
+// For a view the GPU isn't given: what it could draw of the list, and why not
+// the rest, in the same counts as for its own views.
+static void gpu_survey(void) {
+    unsigned k;
+
+    gpu_prepare();
+    for (k = 0; k < rq.count; k++) {
+        const rastq_cmd *c = &cmds[k];
+        if (c->gpu == GPU_CULL)
+            rastq_stats.gpu_culled++;
+        else if (c->gpu == GPU_CPU)
+            rastq_stats.gpu_whys[c->gpu_why]++;
+        else
+            rastq_stats.gpu_kinds[c->gpu_kind]++;
+    }
+}
+
 // Has the GPU draw the list. Returns 0 if it wouldn't, with the canvas as it
 // was.
 static int gpu_replay(void) {
@@ -1253,6 +1234,9 @@ void rastq_flush(void) {
         clear_on_cpu();
     }
 
+    if (rq.gpu_survey && !rq.checking)
+        gpu_survey();
+
 #ifdef RASTQ_SELFCHECK
     if (rq.test_ranges && !rq.checking)
         test_ranges();
@@ -1318,6 +1302,8 @@ void rastq_begin(void) {
     rq.checking = 0;
     rq.gpu_check = 0;
     rq.gpu_view = gpu_takes(rq.canvas);
+    rq.gpu_survey = rq.survey_next && !rq.gpu_view;
+    rq.survey_next = 0;
     rq.balance = NULL;
     if (rq.threads > 1 && rq.canvas->bm.h >= rq.min_rows)
         rq.balance = find_split(rq.canvas, rq.threads);

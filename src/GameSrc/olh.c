@@ -28,6 +28,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string.h>
 
 #include "Prefs.h"
+#include "VitaGpu.h"
 #include "Shock.h"
 
 #include "player.h"
@@ -718,6 +719,7 @@ void olh_overlay(void) {
     uchar done = FALSE;
 
     status_bio_end();
+    VitaSyncView(); // the overlay is drawn on the screen buffer, over the view
     uiPushGlobalCursor(&globcursor);
     gr_push_canvas(grd_screen_canvas);
     uiHideMouse(NULL);
