@@ -24,6 +24,30 @@ enum {
 // flat colours that change with almost every call (docs/PERFORMANCE-CPU.md).
 #define RASTQ_SMALL_VIEW_ROWS 272
 
+// What the GPU drew of a view, by kind of call
+enum {
+    RASTQ_GPU_KIND_FLAT,  // a polygon in one colour
+    RASTQ_GPU_KIND_PLAIN, // a texture map, texels as they are
+    RASTQ_GPU_KIND_CLUT,  // through a colour table
+    RASTQ_GPU_KIND_LIT,   // through the light table, the level varying
+    RASTQ_GPU_KINDS
+};
+
+// Why the CPU drew a call of a view the GPU draws
+enum {
+    RASTQ_GPU_WHY_TLUC_BITMAP, // a translucent bitmap
+    RASTQ_GPU_WHY_SHADED_POLY, // a polygon shaded from corner to corner
+    RASTQ_GPU_WHY_TLUC_POLY,   // a translucent polygon
+    RASTQ_GPU_WHY_OTHER_POLY,  // another kind of polygon
+    RASTQ_GPU_WHY_FILL,        // a fill type other than the normal one
+    RASTQ_GPU_WHY_VERTS,       // too many vertices
+    RASTQ_GPU_WHY_LIGHT,       // a light level outside the light table
+    RASTQ_GPU_WHY_CLIP,        // the perspective mapper under a clip rectangle
+    RASTQ_GPU_WHY_SIZE,        // sides not powers of two, outside the linear mapper
+    RASTQ_GPU_WHY_OTHER,       // anything else, a full scene included
+    RASTQ_GPU_WHYS
+};
+
 // Why a call was drawn by the main thread alone
 enum {
     RASTQ_SOLO_MAPPER, // recorded, but its mapper doesn't honour row bands
@@ -52,6 +76,9 @@ typedef struct {
     unsigned gpu_polys;                 // calls in them
     unsigned gpu_culled;                // calls dropped for their winding
     unsigned gpu_cpu_calls;             // calls of GPU views the CPU drew
+    unsigned gpu_kinds[RASTQ_GPU_KINDS]; // the GPU's calls, by kind
+    unsigned gpu_whys[RASTQ_GPU_WHYS];  // the CPU's, by reason
+    unsigned gpu_slabs;                 // pieces lit calls were cut into
     unsigned gpu_fallbacks;             // lists it refused, drawn by the CPU
     unsigned long long gpu_submit_us;   // sending the scenes
     unsigned long long gpu_wait_us;     // waiting for the GPU to finish them
@@ -91,18 +118,18 @@ typedef struct {
 // How the texel at (u, v), both rounded down, is found
 enum {
     RASTQ_GPU_TRANS = 1, // texel 0 leaves the pixel as it is
-    // Both sides of the bitmap are powers of two and the texel is
-    // bits[(v * width + u) mod (width * height)], as the row, floor and wall
-    // mappers have it: u beyond the width moves on to the next row.
-    RASTQ_GPU_WRAP_1D = 2,
-    // The same sizes, u and v each wrapped on their own (perspective mapper)
-    RASTQ_GPU_WRAP_2D = 4,
-    // Neither: u and v stay inside the bitmap, or are clamped to it
+    // Both sides of the bitmap are powers of two, and u and v each wrap.
+    // Without this they stay inside the bitmap, or are clamped to it.
+    // (The row, floor and wall mappers move on to the next row where u
+    // passes the width: the queue cuts such polygons at those places and
+    // hands over parts whose v says so.)
+    RASTQ_GPU_WRAP = 2,
 };
 
 // The tables of a scene: rows of 256 palette indices. The first rows are
 // the light table, the next leaves a texel as it is, the rest are what the
 // scene's calls need.
+#define RASTQ_GPU_VERTS 16
 #define RASTQ_GPU_LIGHT_ROWS 16
 #define RASTQ_GPU_PLAIN_ROW 16
 #define RASTQ_GPU_TABLE_ROWS 64
@@ -113,8 +140,9 @@ typedef struct {
     int (*begin)(uchar *bits, int w, int h, int row, const uchar *tables, int rows);
     // A polygon in one palette index. 0: no room left in this scene.
     int (*flat)(int n, const rastq_gpu_vertex *v, int color);
-    // A texture-mapped polygon; the bitmap's pixels are valid until the
-    // scene ends. 0: no room left in this scene.
+    // A texture-mapped polygon of at most RASTQ_GPU_VERTS vertices; the
+    // bitmap's pixels are valid until the scene ends. 0: no room left in
+    // this scene.
     int (*tmap)(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v);
     // Ends the scene and returns once the canvas holds the result.
     void (*end)(void);

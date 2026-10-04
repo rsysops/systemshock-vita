@@ -324,7 +324,7 @@ int VitaShowView(const unsigned char *bits, int width, int height)
 {
     int i;
 
-    if (vprof_variant != 2)
+    if (vprof_variant == 0)
         return 0;
     for (i = 0; i < VGPU_CANVASES; i++) {
         vita2d_texture *t = viewTextures[i];

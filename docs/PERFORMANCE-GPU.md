@@ -79,9 +79,9 @@ run something like it. It was not chosen:
 | G1 | Feasibility: GPU set-up, a shader compiled on the Vita, the list drawn as flat-coloured polygons into an 8-bit canvas | **done**: the pieces work, coverage matches, a view costs about 1.4 ms |
 | G2 | Buffers: keep the CPU out of the memory the GPU draws into, and show the GPU's canvas without copying it | **done**: a GPU frame is faster overall in flat colours (45 fps → the screen's 60), with two faults to fix |
 | G3 | G2's two faults (the canvas shown while it is wiped; polygons the CPU skips), then textures, light-table and CLUT lookups, perspective, sprites, transparency | **done**: textures and geometry are right; light bands are angular where the CPU's are round; a textured scene costs the GPU 5.5 ms, so the frame is no faster than three cores yet |
-| G4 | Light interpolated the way the mappers do it; the shader's cost; which calls still go to the CPU and split the frame into scenes | the same picture as the CPU's, and a GPU frame clearly faster than three cores |
-| G5 | What needs the picture already drawn: translucent surfaces, shaded polygons, lines, voxels; cyberspace policy | no holes left, or clean CPU fallbacks |
-| G6 | A "Renderer" setting in Vita Options, compiled shaders shipped, the paneled view | players need no extra module |
+| G4 | Light interpolated the way the mappers do it; the shader's cost; which calls still go to the CPU and split the frame into scenes | **done**: round shadows again, 95% of pixels identical; shader B takes 3.2 ms a scene against 6.0; 53 fps standing still against 44.5 on three cores |
+| G5 | Light worked out per pixel in place of slabs; the colour-table fill type on the GPU, so that a frame is one scene; shader A dropped | shadow edges as fine as the CPU's, and the screen's 60 fps at the test spot |
+| G6 | What still falls to the CPU where it turns up (translucent and shaded polygons, lines, voxels; cyberspace policy), the paneled view, a "Renderer" setting in Vita Options, compiled shaders shipped | no holes left, and players need no extra module |
 
 G2 was not in the first roadmap. G1 showed that the memory question
 decides whether the GPU path is worth anything, so it comes before
@@ -600,3 +600,222 @@ The look is one fix away and the speed two:
   lower at each repeat on the CPU, not on the GPU);
 - fewer scenes: a count of the CPU-drawn calls by kind, to know which
   kinds to move to the GPU first.
+
+## Step G4: light like the CPU's, and a cheaper shader
+
+Profile builds only.
+
+### Light in slabs
+
+A lit polygon with four or more corners is cut, before it reaches the
+GPU, into slabs 8 pixels thick along the lines its mapper draws
+(`gpu_emit_slabs` in `src/Libraries/3D/Source/rastq.c`):
+
+| mapper | slabs along |
+|---|---|
+| linear, floor | rows |
+| wall | columns |
+| perspective | lines of one depth (equal w) |
+
+"Mapper" is the one that really draws the call. `per_umap` hands a
+polygon that is flat enough, or lies like a floor or a wall, to the
+linear, floor or wall mapper, and each carries light its own way; the
+queue asks it which (`gr_per_umap_family` in
+`src/Libraries/2D/Source/permap.c`) and treats the call as one of that
+mapper's.
+
+The cut is a convex clip that takes every vertex value along the
+polygon's edges (`slab_clip`). A slab's two long sides are then lines
+the mapper draws, with the mapper's values at their ends; in between the
+GPU has 8 pixels to differ in. A triangle is left whole: three levels
+always fit one plane.
+
+Two smaller things:
+
+- a lit level gets 1/256 of a level added, as the wall mapper adds it,
+  so that one sitting exactly on a row of the table doesn't fall on
+  either side of it from pixel to pixel;
+- the periodic comparison puts the GPU's picture back on the canvas
+  (it left the CPU's, which showed for one frame a second). When a view
+  is drawn in several parts, each part is now compared on top of the
+  GPU's earlier parts.
+
+### The floor and wall mappers' depth
+
+`h_umap` and `v_umap` don't take a floor's or a wall's depth as its
+vertices have it. They replace each vertex's w by a straight line across
+the rows (or columns), from the w of the first to the w of the last,
+over the whole number of rows between them, and the texture and the
+light follow that line. For a wall seen at an angle it lies a pixel or
+two off the true perspective in the middle, which is the drift G3 put
+down to "spans in whole pixels". `gpu_scan_w` computes the same w in the
+same fixed-point arithmetic, and the GPU's vertices carry it.
+
+### Repeats cut on the CPU
+
+The row, floor and wall mappers read `bits[(v * width + u) mod size]`,
+so a texture repeated along u sits one texel row lower at each repeat.
+G3's shader reproduced that per pixel. It is now done before the GPU:
+the polygon (or each slab of it) is cut where u passes a multiple of the
+width, a straight line on screen, and each part's v is moved by its
+number of repeats (`gpu_emit_repeats`). The GPU then only ever wraps u
+and v each on their own, which a texture's repeat mode can do, and the
+shader loses that work. Slabs first, repeats within each: the cut
+between two repeats runs through the polygon's inside, where only a
+slab's long sides have the mapper's light.
+
+### Shader B
+
+Shader A (G3's, minus the carry) works the texel out per pixel: a
+division, the rounding, the wrap, then two texture reads at coordinates
+it computed.
+
+Shader B leaves that to the hardware:
+
+- the vertices carry a real w (1/q), so the GPU interpolates u, v and
+  the table row with the perspective itself;
+- the bitmap is read at the coordinates as they arrive, its texture set
+  to repeat (or to clamp, for sprites). Nearest-texel sampling is the
+  rounding down;
+- the tables texture is read at (texel, row / 64): nearest-texel
+  sampling picks the row, so there is no rounding to compute.
+
+What it changes in the picture: the perspective mapper's light level,
+which that mapper steps along its scan lines without the perspective
+division, goes through the division like everything else. Inside a slab
+cut along those very lines the two are the same to well under a pixel.
+
+Both shaders read the same vertex layout, each its own fields
+(`vgpu_vertex` in `src/MacSrc/VitaGpu.c`); `fill` writes a vertex for
+the shader of the scene under way. The start-up check now draws its four
+patterns with each shader. Shader B counts on linear textures repeating:
+if any of its columns is wrong, it is switched off and shader A takes
+its place (`shader_b=off` in the report line).
+
+### Checked on the PC
+
+The comparison scenes now have a light level of their own at each
+corner, as the game does, and the stand-in has shader B's arithmetic as
+a second mode. Over 900 frames per shader:
+
+| | shader A | shader B |
+|---|---|---|
+| pixels that differ from the mappers' | 2.39% | 2.39% |
+| and have no match within two pixels | 0.203% | 0.203% |
+| limit on the second, per run | 0.5% | 0.5% |
+
+The same figure step by step, over 100 frames per canvas size (shader
+A; B within 0.01 of it each time):
+
+| | no match within two pixels |
+|---|---|
+| G3's translation on these scenes (no slabs) | 3.7% |
+| slabs | 0.39% |
+| repeats cut on the CPU, within each slab | 0.32% |
+| the dispatcher asked which mapper draws | 0.28% |
+| the floor and wall mappers' depth | 0.20% |
+| G3's figure, on scenes whose light fits a plane | 0.16% |
+
+Deliberate mistakes, and the second figure with each (60 frames;
+0.18% without any):
+
+| mistake | no match within two pixels |
+|---|---|
+| no slabs | 2.7% |
+| a cut vertex's light, u or position not interpolated | 6.6%, 9.9%, 12.9% |
+| the second slab of every polygon dropped | 0.76% |
+| row slabs cut along columns | 0.64% |
+| repeats not cut / v not moved / moved the other way | 0.75% / 0.70% / 1.7% |
+| the two ways of carrying light swapped | 0.89% |
+| no culling, colour table ignored, transparency dropped, no perspective, light one row up | 5.6% to 25% |
+| the comparison leaving the CPU's picture | caught by the test of the comparison itself |
+| wall slabs cut along rows | 0.34%, **under the limit** |
+| perspective slabs cut along rows | 0.30%, **under the limit** |
+| the floor and wall mappers' depth not used | 0.24%, **under the limit** |
+| the dispatcher not asked | 0.19%, **under the limit** |
+
+The last four move the figure the right way but not past the limit: with
+slabs this thin their direction matters little for those two mappers,
+and the last two concern few polygons, though each of those is then
+visibly off (one frame of the 900 was at 17% before them).
+
+### What the capture will show
+
+Variants, 5 s each, both GPU ones shown from the canvases: 0 = three
+cores, 1 = GPU with shader A, 2 = GPU with shader B.
+
+- `gpu.txt`: `shader_a=` and `shader_b=` with the wrong columns of each
+  one's four patterns; all eight figures should be 0;
+- `gpudiff=`: 16.6% in G3; a few percent expected with slabs;
+- `gpuwait=` in variant 1 against G3's 10.7 ms: what slabs cost (more
+  triangles) and what dropping the carry saves; in variant 2 against
+  variant 1: what shader B saves;
+- `gpukinds=flat:,plain:,clut:,lit:` and `gpuslabs=`: the GPU's calls
+  per frame by kind, and the pieces lit ones were cut into;
+- `gpuwhy=...`: the CPU-drawn calls per frame by reason, which is what
+  splits a frame into scenes and what G5 has to move to the GPU.
+
+### Results (`docs/profiles-gpu/profile-step-4.txt`, `gpu.txt`, `gpudumps-step-4/`)
+
+Standing still in the first area, medians of the 1 s windows:
+
+| ms per frame | 0: three cores | 1: GPU, shader A | 2: GPU, shader B | G3's variant 2 |
+|---|---|---|---|---|
+| pixel filling (`raster`) | 9.54 | 13.88 | 9.54 | 12.10 |
+| of which waiting for the GPU | | 9.78 | 5.54 | 10.71 |
+| of which sending (`gpusubmit`) | | 3.68 | 3.58 | 0.96 |
+| `sendview` | 3.25 | 2.36 | 2.35 | 2.32 |
+| `present` | 3.21 | 1.04 | 1.03 | 1.07 |
+| whole frame | 22.45 | 23.14 | 18.78 | 21.38 |
+| fps | 44.5 | 43.2 | 53.3 | 46.8 |
+
+While walking (medians over the walk): 37.3 fps on three cores, 55.8
+with shader A, 61.5 with shader B, which is the screen's rate.
+
+- **Both shaders compile and their start-up patterns are exact**
+  (`shader_a=on ... shader_b=on`, all eight counts 0). Linear textures
+  do repeat.
+- **Shader B is the cheaper by a wide margin.** Waiting for the GPU,
+  over all windows, by scenes per frame:
+
+  | scenes a frame | shader A | shader B |
+  |---|---|---|
+  | 1 | 5.97 ms | 3.15 ms |
+  | 2 | 8.03 ms | 4.38 ms |
+  | 3 | 9.78 ms | 5.54 ms |
+
+  A scene costs 3.2 ms with B, a further one 1.2 ms.
+- **The light is right in shape.** Round bands again on the Vita, and
+  the once-a-second frame is gone. In the dumped comparison at the test
+  spot 95.1% of the pixels are identical to the CPU's (81% in G3);
+  `gpudiff` standing still is 4.7% (16.6% in G3). What differs is the
+  same texel one light level off, along the edges of the bands.
+- **But the bands' edges are coarser than the CPU's.** Inside a slab
+  the GPU still interpolates over two triangles, so an edge moves in
+  steps of the slab's 8 pixels where the mappers move it pixel by
+  pixel.
+- **Slabs cost the CPU.** 499 slabs a frame at the test spot, and
+  sending went from 0.96 to 3.6 ms. Nearly everything is lit:
+  `gpukinds=flat:1,plain:0,clut:2,lit:65`.
+- **One reason for every CPU-drawn call**: `gpuwhy=...fill:9.0`, and
+  over the whole run 7.4 a frame, all `fill`. No translucent bitmap,
+  shaded or translucent polygon came up. Those calls are texture maps
+  under `FILL_CLUT`, which the game sets for lit 3D objects
+  (`gameobj.c`, `interp.c`). Under that fill type every mapper is its
+  colour-table one with the fill's table (`fl8ft.c`), so they are calls
+  the GPU path already knows how to draw.
+- `check=0/360`, `leaks=0`; `gpufallbacks=69` is the paneled view.
+
+### Go for G5
+
+- **Light per pixel in place of slabs.** A mapper's light at a pixel is
+  the value on the left edge at that row, the value on the right edge,
+  and how far along the row the pixel is, divided by the row's depth
+  for the floor and wall mappers. Left value, right minus left, distance
+  from the left edge, row width and row depth are each a linear function
+  of the screen position between two corner levels of the polygon, and a
+  GPU interpolates those exactly. The shader then computes
+  `(left + (right - left) * distance / width) / depth`. A polygon is
+  cut only at its corners' levels, a few pieces in place of its slabs.
+- **`FILL_CLUT` on the GPU**: one scene a frame.
+- **Shader A goes.**

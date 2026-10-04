@@ -127,6 +127,11 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.gpu_polys = 0;
     rastq_stats.gpu_culled = 0;
     rastq_stats.gpu_cpu_calls = 0;
+    rastq_stats.gpu_slabs = 0;
+    for (i = 0; i < RASTQ_GPU_KINDS; i++)
+        rastq_stats.gpu_kinds[i] = 0;
+    for (i = 0; i < RASTQ_GPU_WHYS; i++)
+        rastq_stats.gpu_whys[i] = 0;
     rastq_stats.gpu_submit_us = 0;
     rastq_stats.gpu_wait_us = 0;
     rastq_stats.gpu_cpu_us = 0;
@@ -197,7 +202,10 @@ static void vprof_window_flush(SceInt64 now) {
                 "views=%.2f batches=%.1f solo=%.1f/%.1f wait=%.2f busy=%.2f/%.2f/%.2f late=%u "
                 "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f | "
                 "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu "
-                "gpuculled=%.1f gpucpu=%.1f/%.2f gputex=%.1fKB swapwait=%.2f\n",
+                "gpuculled=%.1f gpucpu=%.1f/%.2f gputex=%.1fKB swapwait=%.2f | "
+                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f gpuslabs=%.1f "
+                "gpuwhy=tlucbm:%.1f,spoly:%.1f,tlucpoly:%.1f,poly:%.1f,fill:%.1f,verts:%.1f,light:%.1f,clip:%.1f,"
+                "size:%.1f,other:%.1f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -247,7 +255,22 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)rastq_stats.gpu_cpu_calls / g_frame_samples,
                 us_to_ms(rastq_stats.gpu_cpu_us) / g_frame_samples,
                 (double)vgpu_texture_bytes / 1024.0 / g_frame_samples,
-                us_to_ms(vgpu_swap_wait_us) / g_frame_samples);
+                us_to_ms(vgpu_swap_wait_us) / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_FLAT] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_PLAIN] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_CLUT] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_LIT] / g_frame_samples,
+                (double)rastq_stats.gpu_slabs / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_BITMAP] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_SHADED_POLY] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_POLY] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_OTHER_POLY] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_FILL] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_VERTS] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_LIGHT] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_CLIP] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_SIZE] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_OTHER] / g_frame_samples);
         fclose(fp);
     }
 }

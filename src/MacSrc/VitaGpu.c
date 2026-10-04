@@ -16,6 +16,7 @@
 #include "Shock.h"
 #include "VitaGpu.h"
 #include "rastq.h"
+#include "vprof.h"
 
 #define SHACCCG_PATH "ur0:data/libshacccg.suprx"
 #define GPU_BLOCK_ALIGN (256 * 1024) // CDRAM blocks come in multiples of this
@@ -37,15 +38,31 @@
 #define DUMP_SHARE 0.05
 #define MAX_DUMPS 5
 
-// What the vertex shader gets. The flat-colour shaders, used at start-up and
-// when the textured ones didn't compile, read the position and, where the
-// others have u, the palette index as the 0..1 value the 8-bit target stores.
+// What the vertex shaders get, each reading what it needs.
+// - Shader A works the texel out itself: x and y in clip space, the texel
+//   coordinates times q, q, the table row as row / q + flat_row, and the
+//   bitmap's size and whether it wraps.
+// - Shader B leaves the perspective division and the wrap to the GPU: x and
+//   y times w, u and v as shares of the bitmap, w where A has q, and the
+//   table row in `row`.
+// - The flat-colour shaders, used at start-up and when the textured ones
+//   didn't compile, read the position and, where the others have u, the
+//   palette index as the 0..1 value the 8-bit target stores.
 typedef struct {
-    float x, y;                      // clip space
-    float u, v, q;                   // texel coordinates times q, and q
-    float row, flat_row;             // table row: row / q + flat_row
-    float inv_w, inv_h, wrap, carry; // the bitmap, and how it is addressed
+    float x, y;
+    float u, v, q;
+    float row, flat_row;
+    float inv_w, inv_h, wrap, unused;
 } vgpu_vertex;
+
+// A set of textured shaders
+typedef struct {
+    SceGxmVertexProgram *vertex;
+    SceGxmFragmentProgram *opaque, *trans; // trans: texel 0 leaves the pixel alone
+    unsigned bitmap_unit, tables_unit, trans_bitmap_unit, trans_tables_unit;
+    int ok;
+} gpu_shader;
+enum { SHADER_A, SHADER_B, SHADERS };
 
 typedef struct {
     void *base;
@@ -69,10 +86,12 @@ typedef struct {
 } gpu_draw;
 
 static SceGxmContext *context;
-static SceGxmVertexProgram *flat_vertex_program, *tmap_vertex_program;
-static SceGxmFragmentProgram *flat_fragment_program, *tmap_fragment_program, *trans_fragment_program;
-static unsigned bitmap_unit, tables_unit, trans_bitmap_unit, trans_tables_unit;
-static int textured; // the textured shaders are there
+static SceGxmVertexProgram *flat_vertex_program;
+static SceGxmFragmentProgram *flat_fragment_program;
+static gpu_shader shaders[SHADERS];
+static int textured;          // shader A is there: without it, flat colours
+static int scene_shader;      // the one the scene under way is drawn with
+static int check_shader = -1; // >= 0: the one a start-up check asks for
 
 // The views' canvases: see vgpu_set_canvases
 static uchar *canvas_pixels[VGPU_CANVASES];
@@ -105,7 +124,7 @@ unsigned long long vgpu_texture_bytes, vgpu_swap_wait_us;
 
 static int ready;
 static int begin_errors_logged, refusals_logged;
-static char report[400] = "gpu: not initialized";
+static char report[640] = "gpu: not initialized";
 
 extern vita2d_texture *texBuffer;
 
@@ -147,10 +166,10 @@ static const char tmap_vertex_source[] =
 
 // What every software mapper does for a pixel: the texel at (u, v) rounded
 // down, passed through a row of the tables. vParams is 1 / width,
-// 1 / height, whether the coordinates wrap, and whether u beyond the width
-// moves on to the next row (see rastq.h). The texel coordinates are taken to
-// the middle of the texel, and the index to a quarter above itself, so that
-// rounding can't land on a neighbour. %s is what a transparent bitmap adds.
+// 1 / height and whether the coordinates wrap. The texel coordinates are
+// taken to the middle of the texel, and the index to a quarter above itself,
+// so that rounding can't land on a neighbour. The first %s is what a
+// transparent bitmap adds.
 static const char tmap_fragment_source[] =
     "float4 main(\n"
     "    float3 vTex : TEXCOORD0,\n"
@@ -160,7 +179,6 @@ static const char tmap_fragment_source[] =
     "    uniform sampler2D uTables : TEXUNIT1)\n"
     "{\n"
     "    float2 uv = floor(vTex.xy / vTex.z);\n"
-    "    uv.y += floor((uv.x + 0.5f) * vParams.x) * vParams.w;\n"
     "    float2 st = (uv + 0.5f) * vParams.xy;\n"
     "    st -= floor(st) * vParams.z;\n"
     "    float pal = tex2D(uBitmap, st).x;\n"
@@ -171,6 +189,40 @@ static const char tmap_fragment_source[] =
     "    return float4(shade, shade, shade, 1.0f);\n"
     "}\n";
 static const char trans_fragment_lines[] = "    if (pal < 0.5f / 255.0f) discard;\n";
+
+// Shader B: the same result with less to do per pixel. The vertices carry a
+// real w, so the GPU interpolates u, v and the table row with the
+// perspective itself, and the bitmap is read at the coordinates as they
+// arrive (the kind of read this GPU does fastest), its texture set to repeat
+// or to clamp. Both textures pick the nearest texel, which is the rounding
+// down. Only the table lookup is at coordinates worked out here.
+static const char direct_vertex_source[] =
+    "void main(\n"
+    "    float2 aPosition,\n"
+    "    float3 aTex,\n"
+    "    float2 aRow,\n"
+    "    out float4 vPosition : POSITION,\n"
+    "    out float2 vTex : TEXCOORD0,\n"
+    "    out float vRow : TEXCOORD1)\n"
+    "{\n"
+    "    vPosition = float4(aPosition, 0.5f * aTex.z, aTex.z);\n"
+    "    vTex = aTex.xy;\n"
+    "    vRow = aRow.x;\n"
+    "}\n";
+
+static const char direct_fragment_source[] =
+    "float4 main(\n"
+    "    float2 vTex : TEXCOORD0,\n"
+    "    float vRow : TEXCOORD1,\n"
+    "    uniform sampler2D uBitmap : TEXUNIT0,\n"
+    "    uniform sampler2D uTables : TEXUNIT1)\n"
+    "{\n"
+    "    float pal = tex2D(uBitmap, vTex).x;\n"
+    "%s"
+    "    float2 lut = float2(pal * (255.0f / 256.0f) + 0.5f / 256.0f, vRow / %d.0f);\n"
+    "    float shade = tex2D(uTables, lut).x + 0.25f / 255.0f;\n"
+    "    return float4(shade, shade, shade, 1.0f);\n"
+    "}\n";
 
 static void gpu_log(const char *format, ...) {
     char path[256];
@@ -394,6 +446,8 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     sceGxmSetBackDepthWriteEnable(context, SCE_GXM_DEPTH_WRITE_DISABLED);
 
     in_scene = 1;
+    // Profile builds alternate the two textured shaders (see vprof.h).
+    scene_shader = check_shader >= 0 ? check_shader : vprof_variant == 2 && shaders[SHADER_B].ok ? SHADER_B : SHADER_A;
     vertex_count = index_count = draw_count = 0;
     scene_texture_count = 0;
     texture_heap_used = 0;
@@ -404,7 +458,7 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
 
 // The bitmap where the GPU can read it: copied once per scene. NULL if the
 // scene has no room for it.
-static const SceGxmTexture *texture_for(const grs_bitmap *bm) {
+static const SceGxmTexture *texture_for(const grs_bitmap *bm, int wrap) {
     // a linear texture's rows are a multiple of 8 pixels apart
     size_t stride = ((size_t)bm->w + 7) & ~(size_t)7;
     size_t bytes = (stride * bm->h + SCE_GXM_TEXTURE_ALIGNMENT - 1) & ~(size_t)(SCE_GXM_TEXTURE_ALIGNMENT - 1);
@@ -425,8 +479,9 @@ static const SceGxmTexture *texture_for(const grs_bitmap *bm) {
         return NULL;
     sceGxmTextureSetMinFilter(texture, SCE_GXM_TEXTURE_FILTER_POINT);
     sceGxmTextureSetMagFilter(texture, SCE_GXM_TEXTURE_FILTER_POINT);
-    sceGxmTextureSetUAddrMode(texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
-    sceGxmTextureSetVAddrMode(texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
+    // shader A wraps the coordinates itself, and to it either mode is the same
+    sceGxmTextureSetUAddrMode(texture, wrap ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP);
+    sceGxmTextureSetVAddrMode(texture, wrap ? SCE_GXM_TEXTURE_ADDR_REPEAT : SCE_GXM_TEXTURE_ADDR_CLAMP);
     scene_bitmaps[scene_texture_count].bits = bm->bits;
     scene_bitmaps[scene_texture_count].w = bm->w;
     scene_bitmaps[scene_texture_count].h = bm->h;
@@ -475,26 +530,47 @@ static void place(vgpu_vertex *out, const rastq_gpu_vertex *in) {
     out->y = 1.0f - (in->y + 0.5f) * to_clip_y;
 }
 
+// A textured vertex for the scene's shader: u and v in texels times q, the
+// row as row / q + flat_row, of a bitmap `w` by `h`.
+static void fill(vgpu_vertex *out, const rastq_gpu_vertex *in, float u, float v, float q, float row, float flat_row,
+                 int w, int h, int wrap) {
+    place(out, in);
+    if (scene_shader == SHADER_B) {
+        float depth = 1.0f / q;
+        out->x *= depth;
+        out->y *= depth;
+        out->u = u * depth / (float)w;
+        out->v = v * depth / (float)h;
+        out->q = depth;
+        out->row = row * depth + flat_row;
+        return;
+    }
+    out->u = u;
+    out->v = v;
+    out->q = q;
+    out->row = row;
+    out->flat_row = flat_row;
+    out->inv_w = 1.0f / (float)w;
+    out->inv_h = 1.0f / (float)h;
+    out->wrap = wrap ? 1.0f : 0.0f;
+}
+
 static int vgpu_flat(int n, const rastq_gpu_vertex *v, int color) {
-    vgpu_vertex out[16];
+    vgpu_vertex out[RASTQ_GPU_VERTS];
     int i;
 
-    if (n > 16)
+    if (n > RASTQ_GPU_VERTS)
         return 1;
     for (i = 0; i < n; i++) {
-        place(&out[i], &v[i]);
         if (!textured) {
             // The 8-bit target stores round or floor of 255 times the output:
             // a quarter above the index gives the index either way.
+            place(&out[i], &v[i]);
             out[i].u = ((float)color + 0.25f) / 255.0f;
         } else {
             // the texel of that value in the tables' unchanged row
-            out[i].u = (float)color + 0.5f;
-            out[i].v = RASTQ_GPU_PLAIN_ROW + 0.5f;
-            out[i].q = 1.0f;
-            out[i].row = RASTQ_GPU_PLAIN_ROW + 0.5f;
-            out[i].inv_w = 1.0f / 256.0f;
-            out[i].inv_h = 1.0f / RASTQ_GPU_TABLE_ROWS;
+            fill(&out[i], &v[i], (float)color + 0.5f, RASTQ_GPU_PLAIN_ROW + 0.5f, 1.0f, RASTQ_GPU_PLAIN_ROW + 0.5f, 0,
+                 256, RASTQ_GPU_TABLE_ROWS, 0);
         }
     }
     return add_polygon(&tables_texture, 0, n, out);
@@ -502,28 +578,18 @@ static int vgpu_flat(int n, const rastq_gpu_vertex *v, int color) {
 
 static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v) {
     const SceGxmTexture *texture;
-    vgpu_vertex out[16];
-    int i;
+    vgpu_vertex out[RASTQ_GPU_VERTS];
+    int i, wrap = (flags & RASTQ_GPU_WRAP) != 0;
 
     if (!textured) // one colour for the lot: the texel in the middle
         return vgpu_flat(n, v, bm->bits[(size_t)(bm->h / 2) * bm->row + bm->w / 2]);
-    if (n > 16)
+    if (n > RASTQ_GPU_VERTS)
         return 1;
-    texture = texture_for(bm);
+    texture = texture_for(bm, wrap);
     if (texture == NULL)
         return 0;
-    for (i = 0; i < n; i++) {
-        place(&out[i], &v[i]);
-        out[i].u = v[i].u;
-        out[i].v = v[i].v;
-        out[i].q = v[i].q;
-        out[i].row = v[i].row;
-        out[i].flat_row = v[i].flat_row;
-        out[i].inv_w = 1.0f / (float)bm->w;
-        out[i].inv_h = 1.0f / (float)bm->h;
-        out[i].wrap = (flags & (RASTQ_GPU_WRAP_1D | RASTQ_GPU_WRAP_2D)) ? 1.0f : 0.0f;
-        out[i].carry = (flags & RASTQ_GPU_WRAP_1D) ? 1.0f : 0.0f;
-    }
+    for (i = 0; i < n; i++)
+        fill(&out[i], &v[i], v[i].u, v[i].v, v[i].q, v[i].row, v[i].flat_row, bm->w, bm->h, wrap);
     return add_polygon(texture, (flags & RASTQ_GPU_TRANS) != 0, n, out);
 }
 
@@ -539,12 +605,14 @@ static void vgpu_end(void) {
             sceGxmSetFragmentProgram(context, flat_fragment_program);
             sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices, index_count);
         } else {
-            sceGxmSetVertexProgram(context, tmap_vertex_program);
+            const gpu_shader *sh = &shaders[scene_shader];
+
+            sceGxmSetVertexProgram(context, sh->vertex);
             for (k = 0; k < draw_count; k++) {
                 const gpu_draw *d = &draws[k];
-                sceGxmSetFragmentProgram(context, d->trans ? trans_fragment_program : tmap_fragment_program);
-                sceGxmSetFragmentTexture(context, d->trans ? trans_bitmap_unit : bitmap_unit, d->texture);
-                sceGxmSetFragmentTexture(context, d->trans ? trans_tables_unit : tables_unit, &tables_texture);
+                sceGxmSetFragmentProgram(context, d->trans ? sh->trans : sh->opaque);
+                sceGxmSetFragmentTexture(context, d->trans ? sh->trans_bitmap_unit : sh->bitmap_unit, d->texture);
+                sceGxmSetFragmentTexture(context, d->trans ? sh->trans_tables_unit : sh->tables_unit, &tables_texture);
                 sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices + d->first,
                            d->count);
             }
@@ -717,36 +785,48 @@ static int sampler_unit(const SceGxmProgram *fragment, const char *name) {
     return parameter != NULL ? (int)sceGxmProgramParameterGetResourceIndex(parameter) : -1;
 }
 
-static int make_tmap_programs(void) {
+// Compiles one set of textured shaders.
+static int make_shader(int which) {
     static const char *const names[] = {"aPosition", "aTex", "aRow", "aParams"};
     static const size_t offsets[] = {offsetof(vgpu_vertex, x), offsetof(vgpu_vertex, u), offsetof(vgpu_vertex, row),
                                      offsetof(vgpu_vertex, inv_w)};
     static const int sizes[] = {2, 3, 2, 4};
     static char source[2048];
+    const char *vertex_source = which == SHADER_A ? tmap_vertex_source : direct_vertex_source;
+    const char *fragment_source = which == SHADER_A ? tmap_fragment_source : direct_fragment_source;
+    const char *label = which == SHADER_A ? "shader A" : "shader B";
+    int attributes = which == SHADER_A ? 4 : 3; // B has no use for the bitmap's size
+    gpu_shader *sh = &shaders[which];
     const SceGxmProgram *opaque = NULL, *trans = NULL;
+    char name[48];
     int units[4];
 
-    snprintf(source, sizeof(source), tmap_fragment_source, "", RASTQ_GPU_TABLE_ROWS);
-    if (!make_programs("textured", tmap_vertex_source, source, names, offsets, sizes, 4, &tmap_vertex_program,
-                       &tmap_fragment_program, &opaque))
+    snprintf(source, sizeof(source), fragment_source, "", RASTQ_GPU_TABLE_ROWS);
+    if (!make_programs(label, vertex_source, source, names, offsets, sizes, attributes, &sh->vertex, &sh->opaque,
+                       &opaque))
         return 0;
-    snprintf(source, sizeof(source), tmap_fragment_source, trans_fragment_lines, RASTQ_GPU_TABLE_ROWS);
-    if (!make_programs("transparent", tmap_vertex_source, source, names, offsets, sizes, 4, &tmap_vertex_program,
-                       &trans_fragment_program, &trans))
+    snprintf(source, sizeof(source), fragment_source, trans_fragment_lines, RASTQ_GPU_TABLE_ROWS);
+    snprintf(name, sizeof(name), "%s, transparent", label);
+    if (!make_programs(name, vertex_source, source, names, offsets, sizes, attributes, &sh->vertex, &sh->trans,
+                       &trans))
         return 0;
     units[0] = sampler_unit(opaque, "uBitmap");
     units[1] = sampler_unit(opaque, "uTables");
     units[2] = sampler_unit(trans, "uBitmap");
     units[3] = sampler_unit(trans, "uTables");
-    gpu_log("texture units: bitmap %d, tables %d; transparent: bitmap %d, tables %d", units[0], units[1], units[2],
-            units[3]);
+    gpu_log("%s texture units: bitmap %d, tables %d; transparent: bitmap %d, tables %d", label, units[0], units[1],
+            units[2], units[3]);
     if (units[0] < 0 || units[1] < 0 || units[2] < 0 || units[3] < 0)
         return 0;
-    bitmap_unit = (unsigned)units[0];
-    tables_unit = (unsigned)units[1];
-    trans_bitmap_unit = (unsigned)units[2];
-    trans_tables_unit = (unsigned)units[3];
+    sh->bitmap_unit = (unsigned)units[0];
+    sh->tables_unit = (unsigned)units[1];
+    sh->trans_bitmap_unit = (unsigned)units[2];
+    sh->trans_tables_unit = (unsigned)units[3];
+    return 1;
+}
 
+// The memory the textured shaders draw from: the tables and the bitmaps.
+static int make_textures(void) {
     tables_pixels = vgpu_alloc(RASTQ_GPU_TABLE_ROWS * 256);
     texture_heap = vgpu_alloc(TEXTURE_HEAP_BYTES);
     if (tables_pixels == NULL || texture_heap == NULL) {
@@ -820,17 +900,17 @@ static int index_check(int *first_bad, int *got, int *kept) {
     return bad;
 }
 
-// The textured shaders, on four bands of the check canvas, each drawn so
-// that column x holds a value that is known:
+// One set of textured shaders, on four bands of the check canvas, each drawn
+// so that column x holds a value that is known:
 //   plain: texel x of a row of 256, unchanged
 //   table: the same through a table of the scene
 //   light: the same through the light table, the level rising along the row
-//   wrap:  a 16x16 bitmap with a transparent column, repeated, with u running
-//          on from one row to the next, and through the perspective division
+//   wrap:  the first row of a 16x16 bitmap with a transparent column,
+//          repeated 16 times, and through the perspective division
 // Sets the number of wrong columns of each band. Returns 0 if nothing could
 // be drawn.
 #define CHECK_BANDS 4
-static int texture_check(int bad[CHECK_BANDS]) {
+static int texture_check(int shader, int bad[CHECK_BANDS]) {
     enum { TABLE_ROW = RASTQ_GPU_PLAIN_ROW + 1, ROWS = RASTQ_GPU_PLAIN_ROW + 2, BAND_H = CHECK_H / CHECK_BANDS };
     static uchar ramp[8 * 256], tiles[16 * 16], tables[ROWS * 256];
     uchar *canvas = vgpu_alloc(CHECK_W * CHECK_H);
@@ -860,7 +940,9 @@ static int texture_check(int bad[CHECK_BANDS]) {
     tiles_bm.w = tiles_bm.row = tiles_bm.h = 16;
 
     memset(canvas, 0xEE, CHECK_W * CHECK_H);
+    check_shader = shader;
     if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS)) {
+        check_shader = -1;
         vgpu_free(canvas);
         return 0;
     }
@@ -878,9 +960,10 @@ static int texture_check(int bad[CHECK_BANDS]) {
         if (band < 3)
             vgpu_tmap(&ramp_bm, 0, 4, v);
         else
-            vgpu_tmap(&tiles_bm, RASTQ_GPU_TRANS | RASTQ_GPU_WRAP_1D, 4, v);
+            vgpu_tmap(&tiles_bm, RASTQ_GPU_TRANS | RASTQ_GPU_WRAP, 4, v);
     }
     vgpu_end();
+    check_shader = -1;
 
     for (band = 0; band < CHECK_BANDS; band++) {
         const uchar *row = canvas + (band * BAND_H + BAND_H / 2) * CHECK_W;
@@ -890,11 +973,12 @@ static int texture_check(int bad[CHECK_BANDS]) {
             int want = band == 0   ? x
                        : band == 1 ? tables[TABLE_ROW * 256 + x]
                        : band == 2 ? tables[(x / 16) * 256 + x]
-                       : (x & 15) == 5 || x == 0 ? 0xEE // texel 0: left as it was
-                                                 : x;
+                       : tiles[x & 15] == 0 ? 0xEE // texel 0: left as it was
+                                            : tiles[x & 15];
             if (row[x] != want) {
                 if (bad[band]++ == 0)
-                    gpu_log("texture check, band %d: column %d holds %d, not %d", band, x, row[x], want);
+                    gpu_log("texture check, shader %c, band %d: column %d holds %d, not %d", 'A' + shader, band, x,
+                            row[x], want);
             }
         }
     }
@@ -923,10 +1007,11 @@ static void time_memory(uchar *p, size_t size, int *write_us, int *read_us) {
 
 void vgpu_init(void) {
     size_t test_bytes = 2 * GPU_BLOCK_ALIGN;
-    int bad, first_bad, got, kept, tex_bad[CHECK_BANDS] = {-1, -1, -1, -1};
+    int bad, first_bad, got, kept;
+    int tex_bad[SHADERS][CHECK_BANDS] = {{-1, -1, -1, -1}, {-1, -1, -1, -1}};
     int gpu_write = -1, gpu_read = -1, ram_write = -1, ram_read = -1;
     uchar *gpu_mem, *ram_mem;
-    int err;
+    int err, which;
 
     gpu_log("---- start");
     context = vita2d_get_context();
@@ -961,17 +1046,29 @@ void vgpu_init(void) {
     bad = index_check(&first_bad, &got, &kept);
     gpu_log("index check drawn: %d wrong", bad);
 
-    // Without the textured shaders everything is drawn in flat colours, as
-    // in the first GPU builds.
+    // Without shader A everything is drawn in flat colours, as in the first
+    // GPU builds; without shader B, or if it draws its patterns wrong (it
+    // counts on the textures repeating), A takes its place.
     gpu_log("compiling the textured shaders");
-    textured = bad >= 0 && make_tmap_programs();
-    shark_end();
-    if (textured) {
-        gpu_log("drawing the texture check");
-        if (!texture_check(tex_bad))
-            textured = 0;
-        gpu_log("texture check drawn: %d %d %d %d wrong", tex_bad[0], tex_bad[1], tex_bad[2], tex_bad[3]);
+    if (bad >= 0 && make_textures()) {
+        shaders[SHADER_A].ok = make_shader(SHADER_A);
+        shaders[SHADER_B].ok = make_shader(SHADER_B);
     }
+    shark_end();
+    for (which = 0; which < SHADERS; which++) {
+        int *wrong = tex_bad[which];
+
+        if (!shaders[which].ok)
+            continue;
+        gpu_log("drawing the texture check with shader %c", 'A' + which);
+        textured = 1; // for the drawing of the check itself
+        if (!texture_check(which, wrong))
+            shaders[which].ok = 0;
+        gpu_log("texture check drawn: %d %d %d %d wrong", wrong[0], wrong[1], wrong[2], wrong[3]);
+        if (which == SHADER_B && (wrong[0] || wrong[1] || wrong[2] || wrong[3]))
+            shaders[which].ok = 0;
+    }
+    textured = shaders[SHADER_A].ok;
 
     gpu_log("timing memory");
     gpu_mem = vgpu_alloc(test_bytes);
@@ -985,11 +1082,13 @@ void vgpu_init(void) {
     free(ram_mem);
 
     snprintf(report, sizeof(report),
-             "gpu: ready index_check mismatches=%d/256 first_bad=%d got=%d undrawn_kept=%d | textures=%s "
-             "texture_check plain=%d table=%d light=%d wrap=%d (of 256) | 512KB us: "
+             "gpu: ready index_check mismatches=%d/256 first_bad=%d got=%d undrawn_kept=%d | "
+             "shader_a=%s check plain=%d table=%d light=%d wrap=%d | "
+             "shader_b=%s check plain=%d table=%d light=%d wrap=%d (wrong columns of 256) | 512KB us: "
              "gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d",
-             bad, first_bad, got, kept, textured ? "on" : "off (flat colours)", tex_bad[0], tex_bad[1], tex_bad[2],
-             tex_bad[3], gpu_write, gpu_read, ram_write, ram_read);
+             bad, first_bad, got, kept, textured ? "on" : "off (flat colours)", tex_bad[0][0], tex_bad[0][1],
+             tex_bad[0][2], tex_bad[0][3], shaders[SHADER_B].ok ? "on" : "off (shader A instead)", tex_bad[1][0],
+             tex_bad[1][1], tex_bad[1][2], tex_bad[1][3], gpu_write, gpu_read, ram_write, ram_read);
     gpu_log("%s", report);
     if (bad < 0) {
         ready = 0;
