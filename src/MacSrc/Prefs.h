@@ -65,6 +65,7 @@ typedef struct {
     short gyroAimingSpeed;
     short controllerAimingSpeed;
     bool showCursor; // draw the cursor in menus and let the right stick move it there
+    bool multicore;  // fill the 3D view's pixels on three cores instead of one
 #endif
 } ShockPrefs;
 
@@ -79,6 +80,10 @@ extern ShockPrefs gShockPrefs;
 void SetDefaultPrefs(void);
 int16_t LoadPrefs(void);
 int16_t SavePrefs(void);
+#ifdef VITA
+// Makes the renderer follow gShockPrefs.multicore.
+void VitaApplyMulticore(void);
+#endif
 
 //-------------------
 //  Enums
@@ -91,3 +96,9 @@ enum OPT_SEQ_ { // Must be in the same order as in wraper.h
 #endif // USE_FLUIDSYNTH
     OPT_SEQ_Max
 };
+
+#ifdef VITA
+// The Vita has no native MIDI, so its slot picks ADLMIDI's other OPL3 emulator.
+#define OPT_SEQ_DOSBox OPT_SEQ_ADLMIDI
+#define OPT_SEQ_Nuked  OPT_SEQ_NativeMI
+#endif

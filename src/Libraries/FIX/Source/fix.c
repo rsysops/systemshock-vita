@@ -96,6 +96,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdint.h>
 #include <stdlib.h>
 
+#if defined(VITA) && !defined(FIX_DIV_FPU)
+#define FIX_DIV_FPU
+#endif
+
 fix fix_mul_3_3_3(fix a, fix b) { return (fix)(((int64_t)(a) * (int64_t)(b)) >> 29); }
 
 fix fix_mul_3_32_16(fix a, fix b) { return (fix)(((int64_t)(a) * (int64_t)(b)) >> 13); }
@@ -131,7 +135,7 @@ fix fix_mul_asm_safe(fix a, fix b) {
 }
 
 // fix fix_div(fix a, fix b)
-fix fix_div(fix a, fix b) {
+static fix fix_div_int64(fix a, fix b) {
     if (b == 0) {
         gOVResult = 2;
         fix r = 0x7FFFFFFF;
@@ -153,6 +157,81 @@ fix fix_div(fix a, fix b) {
     }
     return r32;
 }
+
+#ifdef FIX_DIV_FPU
+// Bit-exact replacement for fix_div_int64. The Cortex-A9 has no integer
+// divider, so the int64 division is a library call (__aeabi_ldivmod), while
+// vdiv.f64 is a hardware instruction. Truncating the double quotient is always
+// exact: a non-integer quotient is at least 1/|b| from an integer, and rounding
+// could only cross one if |a * 65536| >= 2^53, but it is below 2^47.
+// b == 0 and anything near overflow take the original path.
+static fix fix_div_fpu(fix a, fix b) {
+    if (b == 0) {
+        return fix_div_int64(a, b);
+    }
+    double qd = (double)a * 65536.0 / (double)b;
+    if (!(qd > -2147483646.0 && qd < 2147483646.0)) {
+        return fix_div_int64(a, b);
+    }
+    // Same final value as the original's unconditional store, but no write
+    // on the common path, so cores dividing in parallel don't share the line.
+    // volatile because -Ofast allows store data races, and GCC otherwise
+    // turns this back into an unconditional store.
+    if (*(volatile int *)&gOVResult) {
+        *(volatile int *)&gOVResult = 0;
+    }
+    return (int32_t)qd;
+}
+#endif
+
+fix fix_div(fix a, fix b) {
+#if defined(FIX_DIV_FPU)
+    return fix_div_fpu(a, b);
+#else
+    return fix_div_int64(a, b);
+#endif
+}
+
+#ifdef VITA_PROFILE
+#include "fixdivcases.h"
+
+// Called through volatile pointers so neither side gets inlined into the loop
+// differently from how the game calls it.
+static fix (*volatile fixdiv_check_ref)(fix, fix) = fix_div_int64;
+static fix (*volatile fixdiv_check_fpu)(fix, fix) = fix_div_fpu;
+
+static int fix_div_check_pair(fix a, fix b) {
+    // A non-zero sentinel proves the FPU path still leaves gOVResult at 0.
+    gOVResult = 7;
+    fix want = fixdiv_check_ref(a, b);
+    int want_ov = gOVResult;
+    gOVResult = 7;
+    fix got = fixdiv_check_fpu(a, b);
+    int got_ov = gOVResult;
+    return want != got || want_ov != got_ov;
+}
+
+// Compares both implementations on the edge grid plus n generated cases.
+// Returns the mismatch count; *checked receives the number of pairs tried.
+int fix_div_selfcheck(unsigned n, unsigned *checked) {
+    uint64_t state = FIXDIV_SEED;
+    int mismatches = 0;
+    unsigned i, j;
+
+    for (i = 0; i < FIXDIV_EDGE_COUNT; i++) {
+        for (j = 0; j < FIXDIV_EDGE_COUNT; j++) {
+            mismatches += fix_div_check_pair(fixdiv_edges[i], fixdiv_edges[j]);
+        }
+    }
+    for (i = 0; i < n; i++) {
+        fix a, b;
+        fixdiv_case(&state, &a, &b);
+        mismatches += fix_div_check_pair(a, b);
+    }
+    *checked = FIXDIV_EDGE_COUNT * FIXDIV_EDGE_COUNT + n;
+    return mismatches;
+}
+#endif
 
 // fix fix_div_int(fix a, fix b)
 //{
@@ -192,7 +271,15 @@ fix fix_mul_div(fix m0, fix m1, fix d) {
         }
         return -r;
     }
+#ifdef FIX_DIV_FPU
+    // As in fix_div_fpu: no write on the common path, so cores dividing in
+    // parallel don't share the line.
+    if (*(volatile int *)&gOVResult) {
+        *(volatile int *)&gOVResult = 0;
+    }
+#else
     gOVResult = 0;
+#endif
     int64_t r64 = mr / (int64_t)(d);
     int32_t r32 = (int32_t)(r64 & 0xFFFFFFFF);
     if (r64 != (int64_t)r32) {

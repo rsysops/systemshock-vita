@@ -584,15 +584,30 @@ static void OPL3_SlotGeneratePhase(opl3_slot *slot, Bit16u phase)
     phaseshift = slot->phaseshift;
     level = slot->eg_out;
 
-    phase <<= phaseshift;
+    /* Not in upstream: the original shifted phase by 16 or 32 here and let
+       waveform 6's negative half push `level >> 8` to 32 or more. Shifts that
+       wide are undefined: x86 wraps the count, so it mostly worked there, but
+       ARM gives 0, which turned waveforms 6 and 7 into a one-sided pulse. */
     if (phaseshift <= 1)
     {
+        phase <<= phaseshift;
         level += logsinrom[phase & 0x1ff];
     }
-    else
+#ifdef OPL3_HALF_SQUARE_WAVES
+    else if (neg)
     {
+        /* That pulse on purpose, exactly as ARM computed it: full level in
+           the first half of the period, a constant -1 in the second. */
+        slot->out = -1;
+        return;
+    }
+#else
+    else if (phaseshift != 16)
+    {
+        /* waveform 7; waveform 6 is a square, full level in both halves */
         level += ((phase ^ neg) & 0x3ff) << 3;
     }
+#endif
     slot->out = exprom[level & 0xff] >> (level >> 8) ^ neg;
 }
 

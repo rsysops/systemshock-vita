@@ -53,6 +53,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "gr2ss.h"
 #include "game_screen.h"
 #include "sndcall.h"
+#include "vprof.h"
 
 // ----------
 // GLOBALS
@@ -108,30 +109,30 @@ void game_loop(void) {
     // If we're not paused...
 
     else {
-        loopLine(GL | 0x10, update_state(time_passes)); // move game time
+        loopLine(GL | 0x10, VPROF_RUN(VPROF_SIM, update_state(time_passes))); // move game time
 
         if (time_passes) {
             TRACE("%s: ai_run", __FUNCTION__);
-            loopLine(GL | 0x12, ai_run());
+            loopLine(GL | 0x12, VPROF_RUN(VPROF_SIM, ai_run()));
 
             TRACE("%s: gamesys_run", __FUNCTION__);
-            loopLine(GL | 0x13, gamesys_run());
+            loopLine(GL | 0x13, VPROF_RUN(VPROF_SIM, gamesys_run()));
 
             TRACE("%s: advance_animations", __FUNCTION__);
-            loopLine(GL | 0x14, advance_animations());
+            loopLine(GL | 0x14, VPROF_RUN(VPROF_SIM, advance_animations()));
         }
         TRACE("%s: wares_update", __FUNCTION__);
-        loopLine(GL | 0x16, wares_update());
+        loopLine(GL | 0x16, VPROF_RUN(VPROF_SIM, wares_update()));
 
         TRACE("%s: message_clear_check", __FUNCTION__);
         loopLine(GL | 0x1D, message_clear_check()); // This could be done more cleverly with change flags...
 
         if (localChanges) {
             TRACE("%s: render_run", __FUNCTION__);
-            loopLine(GL | 0x1A, render_run());
+            loopLine(GL | 0x1A, VPROF_RUN(VPROF_RENDER3D, render_run()));
 
             TRACE("%s: status_vitals_update", __FUNCTION__);
-            loopLine(GL | 0x17, if (!full_game_3d) status_vitals_update(FALSE));
+            loopLine(GL | 0x17, VPROF_RUN(VPROF_UI2D, if (!full_game_3d) status_vitals_update(FALSE)));
             /*KLC - no longer needed
             if (_change_flag&ANIM_UPDATE)
             {
@@ -145,12 +146,12 @@ void game_loop(void) {
             if (_change_flag & INVENTORY_UPDATE) {
                 TRACE("%s: INVENTORY_UPDATE", __FUNCTION__);
                 chg_unset_flg(INVENTORY_UPDATE);
-                loopLine(GL | 0x1B, inventory_draw());
+                loopLine(GL | 0x1B, VPROF_RUN(VPROF_UI2D, inventory_draw()));
             }
             if (_change_flag & MFD_UPDATE) {
                 TRACE("%s: MFD_UPDATE", __FUNCTION__);
                 chg_unset_flg(MFD_UPDATE);
-                loopLine(GL | 0x18, mfd_update());
+                loopLine(GL | 0x18, VPROF_RUN(VPROF_UI2D, mfd_update()));
             }
 
             if (_change_flag & DEMOVIEW_UPDATE) {
@@ -162,7 +163,7 @@ void game_loop(void) {
         }
         if (!full_game_3d) {
             TRACE("%s: update_meters", __FUNCTION__);
-            loopLine(GL | 0x19, update_meters(FALSE));
+            loopLine(GL | 0x19, VPROF_RUN(VPROF_UI2D, update_meters(FALSE)));
         }
         if (!full_game_3d && olh_overlay_on) {
             TRACE("%s: olh_overlay", __FUNCTION__);
@@ -170,28 +171,28 @@ void game_loop(void) {
         }
 
         TRACE("%s: physics_run", __FUNCTION__);
-        loopLine(GL | 0x15, physics_run());
+        loopLine(GL | 0x15, VPROF_RUN(VPROF_SIM, physics_run()));
         {
             if (!olh_overlay_on && olh_active && !global_fullmap->cyber) {
                 TRACE("%s: olh_scan_objects", __FUNCTION__);
-                olh_scan_objects();
+                VPROF_RUN(VPROF_HELPSCAN, olh_scan_objects());
             }
         }
         // KLC - does nothing!         loopLine(GL|0x1D,synchronous_update());
         if (sfx_on || music_on) {
             TRACE("%s: sound_frame_update", __FUNCTION__);
-            loopLine(GL | 0x1C, mlimbs_do_ai());
-            loopLine(GL | 0x1E, sound_frame_update());
+            loopLine(GL | 0x1C, VPROF_RUN(VPROF_SIM, mlimbs_do_ai()));
+            loopLine(GL | 0x1E, VPROF_RUN(VPROF_SIM, sound_frame_update()));
         }
 
         if (pal_fx_on) {
-            loopLine(GL | 0x1F, palette_advance_all_fx(*tmd_ticks));
+            loopLine(GL | 0x1F, VPROF_RUN(VPROF_SIM, palette_advance_all_fx(*tmd_ticks)));
 
 			gamma_dealfunc(gShockPrefs.doGamma);
         }
 
         TRACE("%s: destroy_destroyed_objects", __FUNCTION__);
-        loopLine(GL | 0x20, destroy_destroyed_objects());
-        loopLine(GL | 0x21, check_cspace_death());
+        loopLine(GL | 0x20, VPROF_RUN(VPROF_SIM, destroy_destroyed_objects()));
+        loopLine(GL | 0x21, VPROF_RUN(VPROF_SIM, check_cspace_death()));
     }
 }

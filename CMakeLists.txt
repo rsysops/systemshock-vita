@@ -24,6 +24,8 @@ option(ENABLE_DEBUG_BLIT "Enable debugging blitter" OFF)
 add_feature_info(ENABLE_DEBUG_BLIT ENABLE_DEBUG_BLIT "Enable debugging blitter")
 option(ENABLE_OPENGL "Enable OpenGL support" ON)
 add_feature_info(ENABLE_OPENGL ENABLE_OPENGL "Enable OpenGL support")
+option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log (VITA only)" OFF)
+add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
 
 set(ENABLE_SDL2 "BUNDLED" CACHE STRING "Enable SDL2 (ON/BUNDLED, default BUNDLED)")
 set_property(CACHE ENABLE_SDL2 PROPERTY STRINGS "ON" "BUNDLED")
@@ -138,6 +140,9 @@ configure_file("${CMAKE_SOURCE_DIR}/src/GameSrc/Headers/shockolate_version.h.in"
 if(VITA)
 	add_definitions(-DVITA)
 	add_definitions(-DVITA2D)
+	# Keep the music mix the Vita port has always had: both OPL3 emulators
+	# play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE.md).
+	add_definitions(-DOPL3_HALF_SQUARE_WAVES)
 	include_directories(src/vita)
 	set(stratagus_SRCS ${stratagus_SRCS} ${vita_SRCS})
 	set(VITA_FLAGS "-Ofast -mcpu=cortex-a9 -mfpu=neon -fgraphite-identity -floop-nest-optimize -fno-lto")
@@ -146,6 +151,10 @@ if(VITA)
 	set(VITA_LIBS "-lSDL2 -lvita2d -pthread -ljpeg -lpng -lwebp -lz -lvorbisfile -lvorbis -logg -lmikmod -lmodplug -lxmp-lite -lopusfile -lopus -lScePower_stub -lSceAudio_stub -lSceCtrl_stub -lSceHid_stub \
 	-lSceTouch_stub -lSceDisplay_stub -lSceGxm_stub -lSceAppMgr_stub -lSceSysmodule_stub -lSceCommonDialog_stub -lFLAC -lmpg123 -lSceMotion_stub -lSceAppUtil_stub -lSceShaccCgExt -ltaihen_stub \
 	-fno-builtin-memcpy -fno-builtin-memset -fno-builtin-memmove -fno-builtin-memcmp")
+	if(ENABLE_VITA_PROFILE)
+		add_definitions(-DVITA_PROFILE)
+		set(VITA_LIBS "${VITA_LIBS} -lScePgf_stub")
+	endif()
 	SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
 	include("${CMAKE_SOURCE_DIR}/vita/vita.cmake")
 endif()
@@ -283,6 +292,7 @@ set(GAME_SRC
 	src/GameSrc/viewhelp.c
 	src/GameSrc/vitals.c
 	src/GameSrc/vmail.c
+	src/GameSrc/vprof.c
 	src/GameSrc/wares.c
 	src/GameSrc/weapons.c
 	src/GameSrc/wrapper.c

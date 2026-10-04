@@ -55,6 +55,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "status.h"
 #include "tickcount.h"
 #include "tools.h"
+#include "vprof.h"
 #include "wrapper.h"
 
 // how is the game doing, anyway, set to true at end of time
@@ -124,13 +125,14 @@ void loopmode_enter(short loopmode) { (*enter_modes[loopmode])(); }
 extern void MousePollProc(void);
 void mainloop(int argc, char *argv[]) {
     while (_current_loop >= 0 && gPlayingGame) {
+        VPROF_FRAME_BEGIN();
         gShockTicks = TickCount();
 
         if (!(_change_flag & (ML_CHG_BASE << 1)))
-            loopLine(ML | 1, input_chk()); // go get the UI stuff going
+            loopLine(ML | 1, VPROF_RUN(VPROF_INPUT, input_chk())); // go get the UI stuff going
 
         // DG: at the beginning of each frame, get all the events from SDL
-        pump_events();
+        VPROF_RUN(VPROF_INPUT, pump_events());
 
         // Run the loop
         (*citadel_loops[_current_loop])();
@@ -154,9 +156,10 @@ void mainloop(int argc, char *argv[]) {
         status_bio_update();
         ZoomDrawProc(FALSE); //draw zoom rectangle if enabled; if not, returns immediately
 
-        SDLDraw();
+        VPROF_RUN(VPROF_PRESENT, SDLDraw());
 
         ZoomDrawProc(TRUE); //erase zoom rectangle if enabled; if not, returns immediately
+        VPROF_FRAME_END();
     }
 
     cit_success = TRUE;

@@ -31,26 +31,38 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "buffer.h"
 
 
-// build a table of line starts for the bitmap parameter
+// Build a table of line starts for the bitmap parameter.
+//
+// Rounding at the ends of a span can make the mappers ask for the line just
+// before the first or just after the last. Those two entries used to be
+// whatever memory surrounded the table, so the pixel drawn depended on what
+// had used temporary memory before, and would differ between the threads of
+// a split replay (3D/Source/rastq.c). They now repeat the first and the last
+// line.
 int32_t *gr_make_vtab (grs_bitmap *bm)
  {
- 	void 	*mem;
- 	int32_t *dest;
+ 	int32_t *tab;
  	int32_t i,add,row;
  	int32_t maxh;
  	
- 	mem = gr_alloc_temp(bm->h * sizeof(int32_t));
+ 	tab = (int32_t *) gr_alloc_temp((bm->h + 2) * sizeof(int32_t));
  	row = bm->row;
 	add = 0L;
 	maxh = bm->h;
-	dest = (int32_t *) mem;
 	
+	tab[0] = 0;
 	for (i=0; i<maxh; i++)
 	 {
-	 	*(dest++) = add;
+	 	tab[i+1] = add;
 	 	add += row;
 	 }
+	tab[maxh+1] = add - row;
 
- 	return((int32_t *) mem);
+ 	return(tab + 1);
  }
 
+// Free a table made by gr_make_vtab.
+void gr_free_vtab (int32_t *vtab)
+ {
+ 	gr_free_temp(vtab - 1);
+ }

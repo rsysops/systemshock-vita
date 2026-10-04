@@ -33,6 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "poly.h"
 #include "tlucdat.h"
 #include "tmapint.h"
+#include "band.h"
 #include <stdint.h>
 #include <string.h>
 
@@ -56,9 +57,10 @@ int gri_poly_loop(grs_tmap_loop_info *ti) {
     ushort grow = grd_bm.row;
     fix ti_left_dx = ti->left.dx;
     fix ti_right_dx = ti->right.dx;
+    int row = (ti_d - grd_bm.bits) / grow;
 
     do {
-        if ((d = fix_cint(ti_right_x) - fix_cint(ti_left_x)) > 0) {
+        if ((d = fix_cint(ti_right_x) - fix_cint(ti_left_x)) > 0 && gr_row_in_band(ti, row)) {
             int x;
 
             switch (ti_hlog) {
@@ -79,6 +81,7 @@ int gri_poly_loop(grs_tmap_loop_info *ti) {
         }
         /* update span extrema and destination. */
         ti_d += grow;
+        row++;
         ti_left_x += ti_left_dx;
         ti_right_x += ti_right_dx;
     } while ((--(ti->n)) > 0);

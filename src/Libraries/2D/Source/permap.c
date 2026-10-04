@@ -27,6 +27,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 
 #include "bitmap.h"
+#include "band.h"
 #include "buffer.h"
 #include "clpcon.h"
 #include "clpfcn.h"
@@ -64,9 +65,10 @@ void per_umap (grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
    short percode;
    grs_per_setup ps;
    uchar *save_bits;
+   grs_band *band = gr_band();
 
    ps.dp=bm->flags&BMF_TRANS;
-   if (2*grd_gc.fill_type + ps.dp==2*FILL_SOLID) {
+   if (2*gr_band_fill_type(band) + ps.dp==2*FILL_SOLID) {
       h_umap(bm, n, vpl, ti);
       return;
    }
@@ -134,8 +136,8 @@ void per_umap (grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
    ps.shell_func=gr_null;
 
    ps.dp+=ti->tmap_type+(GRD_FUNCS*bm->type);
-   if (grd_gc.fill_type!=FILL_NORM)
-      ps.fill_parm=grd_gc.fill_parm;
+   if (gr_band_fill_type(band)!=FILL_NORM)
+      ps.fill_parm=gr_band_fill_parm(band);
    else if (ti->flags&TMF_CLUT)
       if ((ps.clut=ti->clut)==NULL)
          ps.clut=gr_get_clut();
@@ -144,11 +146,11 @@ void per_umap (grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
    
    switch (percode) {
    case GR_PER_CODE_BIGSLOPE:
-   	  ((void (*)(grs_bitmap *, grs_per_setup *))(grd_tmap_hscan_init_table[ps.dp]))(bm,&ps);
+   	  ((void (*)(grs_bitmap *, grs_per_setup *))(gr_band_table(band)[ps.dp]))(bm,&ps);
       ((void (*)(grs_bitmap *, int, grs_vertex **, grs_per_setup *))(ps.shell_func))(bm,n,vpl,&ps);
       break;
    case GR_PER_CODE_SMALLSLOPE:
-      ((void (*)(grs_bitmap *, grs_per_setup *))(grd_tmap_vscan_init_table[ps.dp]))(bm,&ps);
+      ((void (*)(grs_bitmap *, grs_per_setup *))((gr_band_table(band)+6)[ps.dp]))(bm,&ps);
       ((void (*)(grs_bitmap *, int, grs_vertex **, grs_per_setup *))(ps.shell_func))(bm,n,vpl,&ps);
       break;
    case GR_PER_CODE_LIN:

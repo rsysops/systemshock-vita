@@ -41,5 +41,6 @@ extern void v_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern int per_map(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern int h_map(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern int v_map(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
+extern int gr_blend_prepare(grs_bitmap *bm, grs_tmap_info *ti);
 
 #endif /* __TMAPFCN_H */

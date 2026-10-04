@@ -136,6 +136,7 @@ typedef struct {
    void (*loop_func)();       /* actually, chunk function */
    union {void (*left_edge_func)(), (*top_edge_func)();};
    union {void (*right_edge_func)(),(*bot_edge_func)();};
+   int band_top,band_bot;     /* canvas rows this call may write: see band.h */
 } grs_tmap_loop_info;
 
 #define TMS_RIGHT 0

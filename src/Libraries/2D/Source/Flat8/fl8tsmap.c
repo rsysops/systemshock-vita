@@ -26,6 +26,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "gente.h"
 #include "poly.h"
 #include "tmapint.h"
+#include "band.h"
 #include "vtab.h"
 
 // prototypes
@@ -67,7 +68,7 @@ int gri_trans_solid_lin_umap_loop(grs_tmap_loop_info *tli) {
     start_pdest = grd_bm.bits + (gr_row * (tli->y));
 
     do {
-        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0) {
+        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0 && gr_row_in_band(tli, tli->y)) {
             d = fix_ceil(tli->left.x) - tli->left.x;
             du = fix_div(du, dx);
             dv = fix_div(dv, dx);
@@ -141,11 +142,18 @@ int gri_trans_solid_floor_umap_loop(grs_tmap_loop_info *tli) {
     uchar t_wlog;
     uint32_t t_mask;
 
+    // u, v, du and dv only serve to draw the row, so a row outside the band
+    // doesn't need its divisions
+    int in_band = gr_row_in_band(tli, tli->y);
+
     solid_color = tli->solid;
-    u = fix_div(tli->left.u, tli->w);
-    du = fix_div(tli->right.u, tli->w) - u;
-    v = fix_div(tli->left.v, tli->w);
-    dv = fix_div(tli->right.v, tli->w) - v;
+    u = du = v = dv = 0;
+    if (in_band) {
+        u = fix_div(tli->left.u, tli->w);
+        du = fix_div(tli->right.u, tli->w) - u;
+        v = fix_div(tli->left.v, tli->w);
+        dv = fix_div(tli->right.v, tli->w) - v;
+    }
     dx = tli->right.x - tli->left.x;
 
     t_mask = tli->mask;
@@ -155,7 +163,7 @@ int gri_trans_solid_floor_umap_loop(grs_tmap_loop_info *tli) {
     gr_row = grd_bm.row;
 
     do {
-        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0) {
+        if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0 && in_band) {
             d = fix_ceil(tli->left.x) - tli->left.x;
             du = fix_div(du, dx);
             u += fix_mul(du, d);
@@ -190,16 +198,21 @@ int gri_trans_solid_floor_umap_loop(grs_tmap_loop_info *tli) {
         } else if (d < 0)
             return TRUE; /* punt this tmap */
         tli->w += tli->dw;
-        u = fix_div((tli->left.u += tli->left.du), tli->w);
+        tli->left.u += tli->left.du;
         tli->right.u += tli->right.du;
-        du = fix_div(tli->right.u, tli->w) - u;
-        v = fix_div((tli->left.v += tli->left.dv), tli->w);
+        tli->left.v += tli->left.dv;
         tli->right.v += tli->right.dv;
-        dv = fix_div(tli->right.v, tli->w) - v;
         tli->left.x += tli->left.dx;
         tli->right.x += tli->right.dx;
         dx = tli->right.x - tli->left.x;
         tli->y++;
+        in_band = gr_row_in_band(tli, tli->y);
+        if (in_band) {
+            u = fix_div(tli->left.u, tli->w);
+            du = fix_div(tli->right.u, tli->w) - u;
+            v = fix_div(tli->left.v, tli->w);
+            dv = fix_div(tli->right.v, tli->w) - v;
+        }
     } while (--(tli->n) > 0);
     return FALSE; /* tmap OK */
 }
@@ -231,6 +244,10 @@ int gri_solid_wall_umap_loop(grs_tmap_loop_info *tli) {
     uint32_t t_mask;
     int32_t gr_row;
     int y;
+    int b_top = tli->band_top, b_bot = tli->band_bot;
+    // does the column have rows in the band? If not, its u, v, du and dv are
+    // never used and their divisions are skipped.
+    int in_band;
 
     solid_color = tli->solid;
     u = fix_div(tli->left.u, tli->w);
@@ -245,10 +262,11 @@ int gri_solid_wall_umap_loop(grs_tmap_loop_info *tli) {
     t_wlog = tli->bm.wlog;
 
     gr_row = grd_bm.row;
+    in_band = (fix_cint(tli->left.y) < b_bot && fix_cint(tli->right.y) > b_top);
 
     // handle PowerPC loop
     do {
-        if ((d = fix_ceil(tli->right.y) - fix_ceil(tli->left.y)) > 0) {
+        if ((d = fix_ceil(tli->right.y) - fix_ceil(tli->left.y)) > 0 && in_band) {
 
             d = fix_ceil(tli->left.y) - tli->left.y;
             du = fix_div(du, dy);
@@ -256,8 +274,16 @@ int gri_solid_wall_umap_loop(grs_tmap_loop_info *tli) {
             u += fix_mul(du, d);
             v += fix_mul(dv, d);
 
+            // only the rows in the band, with u and v stepped over the rest
             t_yl = fix_cint(tli->left.y);
             t_yr = fix_cint(tli->right.y);
+            if (t_yl < b_top) {
+                u = gr_band_skip(u, du, b_top - t_yl);
+                v = gr_band_skip(v, dv, b_top - t_yl);
+                t_yl = b_top;
+            }
+            if (t_yr > b_bot)
+                t_yr = b_bot;
             p_dest = grd_bm.bits + (gr_row * t_yl) + tli->x;
 
             if (tli->bm.hlog == GRL_TRANS) {
@@ -283,16 +309,22 @@ int gri_solid_wall_umap_loop(grs_tmap_loop_info *tli) {
             return TRUE; /* punt this tmap */
 
         tli->w += tli->dw;
-        u = fix_div((tli->left.u += tli->left.du), tli->w);
+        tli->left.u += tli->left.du;
         tli->right.u += tli->right.du;
-        du = fix_div(tli->right.u, tli->w) - u;
-        v = fix_div((tli->left.v += tli->left.dv), tli->w);
+        tli->left.v += tli->left.dv;
         tli->right.v += tli->right.dv;
-        dv = fix_div(tli->right.v, tli->w) - v;
         tli->left.y += tli->left.dy;
         tli->right.y += tli->right.dy;
         dy = tli->right.y - tli->left.y;
         tli->x++;
+
+        in_band = (fix_cint(tli->left.y) < b_bot && fix_cint(tli->right.y) > b_top);
+        if (in_band) {
+            u = fix_div(tli->left.u, tli->w);
+            du = fix_div(tli->right.u, tli->w) - u;
+            v = fix_div(tli->left.v, tli->w);
+            dv = fix_div(tli->right.v, tli->w) - v;
+        }
 
     } while (--(tli->n) > 0);
 

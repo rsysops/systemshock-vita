@@ -43,4 +43,17 @@ struct MusicDevice
 #define MUSICTYPE_SBLASTER "sblaster"
 #define MUSICTYPE_GENMIDI  "genmidi"
 
+// OPL3 emulator used by the ADLMIDI device
+typedef enum MusicOpl3Emu
+{
+    Music_Opl3Nuked,
+    Music_Opl3DosBox,
+} MusicOpl3Emu;
+
 MusicDevice *CreateMusicDevice(MusicType type);
+
+// No-op unless dev is an ADLMIDI device. Switching an open device resets its
+// synth (sounding notes are cut), so callers must hold the music lock.
+void AdlMidiSetEmulator(MusicDevice *dev, MusicOpl3Emu emu);
+// The ADLMIDI device's emulator, or -1 if dev isn't an ADLMIDI device.
+int AdlMidiGetEmulator(MusicDevice *dev);

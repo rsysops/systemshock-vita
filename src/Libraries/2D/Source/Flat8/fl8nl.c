@@ -36,6 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "poly.h"
 #include "tlucdat.h"
 #include "tmapint.h"
+#include "band.h"
 #include "vtab.h"
 
 // prototypes
@@ -51,6 +52,7 @@ int gri_tluc8_lin_umap_loop(grs_tmap_loop_info *tli)
   uint32_t t_mask = tli->mask;
   uchar t_wlog = tli->bm.wlog;
   uchar temp_pix;
+  int row = (tli->d - grd_bm.bits) / grd_bm.row;
 
   while (tli->n)
   {
@@ -60,8 +62,11 @@ int gri_tluc8_lin_umap_loop(grs_tmap_loop_info *tli)
     uchar *p       = tli->d + fix_cint(tli->left.x);
     uchar *p_final = tli->d + fix_cint(tli->right.x);
 
-    du = fix_div(du, dx);
-    dv = fix_div(dv, dx);
+    if (gr_row_in_band(tli, row)) {
+      du = fix_div(du, dx);
+      dv = fix_div(dv, dx);
+    } else
+      p_final = p; //nothing to draw on this row
 
     switch (tli->bm.hlog)
     {
@@ -174,6 +179,7 @@ int gri_tluc8_lin_umap_loop(grs_tmap_loop_info *tli)
     tli->right.x += tli->right.dx;
 
     tli->d += grd_bm.row;
+    row++;
     tli->n --;
   }
 

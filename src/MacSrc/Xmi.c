@@ -3,6 +3,7 @@
 #include "Xmi.h"
 #include "MusicDevice.h"
 #include "Prefs.h"
+#include "vprof.h"
 
 unsigned int NumTracks;
 char ChannelThread[16]; // 16 device channels
@@ -22,6 +23,10 @@ SDL_atomic_t ThreadCommand[NUM_THREADS];
 MusicDevice *MusicDev;
 static SDL_mutex *MyMutex;
 
+// The mode of the last theme loaded, to set up a recreated device the same way
+static MusicMode LoadedMode;
+static bool HaveLoadedMode = false;
+
 void MusicCallback(void *userdata, Uint8 *stream, int len) {
     MusicDevice *dev;
 
@@ -33,7 +38,13 @@ void MusicCallback(void *userdata, Uint8 *stream, int len) {
     }
 
     SDL_memset(stream, 0, (size_t)len); // in case we don't get anything
+#ifdef VITA_PROFILE
+    SceInt64 t0 = sceKernelGetProcessTimeWide();
+#endif
     dev->generate(dev, (short *)((void *)stream), len / (int)(2 * sizeof(short)));
+#ifdef VITA_PROFILE
+    vprof_audio_add((unsigned)(sceKernelGetProcessTimeWide() - t0), sceKernelGetCpuId());
+#endif
     SDL_UnlockMutex(MyMutex);
 }
 
@@ -429,6 +440,8 @@ int ReadXMI(const char *filename) {
     if (strstr(filename, "sblaster") != NULL)
         mode = Music_SoundBlaster;
     SDL_LockMutex(MyMutex);
+    LoadedMode = mode;
+    HaveLoadedMode = true;
     if (MusicDev) {
         MusicDev->setupMode(MusicDev, mode);
     }
@@ -722,6 +735,16 @@ void InitDecXMI(void) {
     int musicrate = 48000;
 
     switch (gShockPrefs.soMidiBackend) {
+#ifdef VITA
+    case OPT_SEQ_DOSBox:
+    case OPT_SEQ_Nuked:
+    {
+        INFO("Creating ADLMIDI device");
+        musicdev = CreateMusicDevice(Music_AdlMidi);
+        AdlMidiSetEmulator(musicdev, (gShockPrefs.soMidiBackend == OPT_SEQ_Nuked) ? Music_Opl3Nuked
+                                                                                   : Music_Opl3DosBox);
+    } break;
+#else
     case OPT_SEQ_ADLMIDI: // adlmidi
     {
         INFO("Creating ADLMIDI device");
@@ -732,6 +755,7 @@ void InitDecXMI(void) {
         INFO("Creating native MIDI device");
         musicdev = CreateMusicDevice(Music_Native);
     } break;
+#endif
 #ifdef USE_FLUIDSYNTH
     case OPT_SEQ_FluidSyn: // fluidsynth
     {
@@ -760,6 +784,11 @@ void InitDecXMI(void) {
     // force prefs to align with music device output
     if (musicdev) {
         gShockPrefs.soMidiOutput = musicdev->outputIndex;
+        // The sound bank is per device and otherwise only set when a theme
+        // loads, so a device recreated mid-theme would play with the wrong one.
+        if (HaveLoadedMode) {
+            musicdev->setupMode(musicdev, LoadedMode);
+        }
     }
 
     MusicDev = musicdev;
@@ -779,7 +808,12 @@ void ReloadDecXMI(void) {
             deviceTypeMatch = 0;
             break;
         case Music_AdlMidi:
+#ifdef VITA
+            deviceTypeMatch = (AdlMidiGetEmulator(MusicDev) ==
+                               ((gShockPrefs.soMidiBackend == OPT_SEQ_Nuked) ? Music_Opl3Nuked : Music_Opl3DosBox));
+#else
             deviceTypeMatch = (gShockPrefs.soMidiBackend == 0);
+#endif
             break;
         case Music_Native:
             deviceTypeMatch = (gShockPrefs.soMidiBackend == 1);

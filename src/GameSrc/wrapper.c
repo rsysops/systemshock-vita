@@ -412,13 +412,20 @@ static struct {
     {REF_STR_VitaRes4, {"640 x 480", "640 x 480", "640 x 480"}},
     {REF_STR_VitaRes5, {"960 x 544", "960 x 544", "960 x 544"}},
     {REF_STR_Cursor, {"Cursor", "Curseur", "Mauszeiger"}},
+    {REF_STR_Multicore, {"Multicore", "Multicoeur", "Mehrkern"}},
 #endif
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 
     {REF_STR_Seqer, {"Midi Player", "Lecteur MIDI", "MIDI-Player"}},
+#ifdef VITA
+    // ADLMIDI with either OPL3 emulator; the Vita has no native MIDI
+    {REF_STR_ADLMIDI, {"DOSBox OPL3", "DOSBox OPL3", "DOSBox OPL3"}},
+    {REF_STR_NativeMI, {"Nuked OPL3", "Nuked OPL3", "Nuked OPL3"}},
+#else
     {REF_STR_ADLMIDI, {"ADLMIDI", "ADLMIDI", "ADLMIDI"}},
     {REF_STR_NativeMI, {"Native MIDI", "MIDI natif", "System-MIDI"}},
+#endif
 #ifdef USE_FLUIDSYNTH
     {REF_STR_FluidSyn, {"FluidSynth", "FluidSynth", "FluidSynth"}},
 #endif
@@ -2401,6 +2408,11 @@ static void cursor_dealfunc(uchar unused) {
     (void)unused;
 }
 
+static void multicore_dealfunc(uchar unused) {
+    VitaApplyMulticore();
+    (void)unused;
+}
+
 void vita_input_init(uchar butid) {
     LGRect r;
     char *keys;
@@ -2436,6 +2448,12 @@ void vita_input_init(uchar butid) {
     standard_button_rect(&r, i);
     multi_init(i, keys[1], REF_STR_Cursor, REF_STR_GyroOff, ID_NULL,
                 sizeof(gShockPrefs.showCursor), &gShockPrefs.showCursor, 2, cursor_dealfunc, &r);
+    i++;
+
+    // 3D view drawn on three cores
+    standard_button_rect(&r, i);
+    multi_init(i, keys[2], REF_STR_Multicore, REF_STR_GyroOff, ID_NULL,
+                sizeof(gShockPrefs.multicore), &gShockPrefs.multicore, 2, multicore_dealfunc, &r);
     i++;
 
     standard_button_rect(&r, 5);

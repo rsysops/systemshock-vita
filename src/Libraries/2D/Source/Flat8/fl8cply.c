@@ -34,6 +34,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "rgb.h"
 #include "scrdat.h"
 #include "tmapint.h"
+#include "band.h"
 
 // prototypes
 int gri_cpoly_loop(grs_tmap_loop_info *ti);
@@ -44,24 +45,30 @@ int gri_cpoly_loop(grs_tmap_loop_info *ti) {
     int x, d;
     fix dx, frac;
     fix r, g, b, dr, dg, db;
+    int row = (ti->d - grd_bm.bits) / grd_bm.row;
+    int in_band;
 
     do {
-        dx = ti->right.x - ti->left.x;
-        frac = fix_ceil(ti->left.x) - ti->left.x;
+        // the colours and their steps only serve to draw the row
+        in_band = gr_row_in_band(ti, row);
+        if (in_band) {
+            dx = ti->right.x - ti->left.x;
+            frac = fix_ceil(ti->left.x) - ti->left.x;
 
-        r = ti->left.u;
-        dr = fix_div(ti->right.u - r, dx);
-        r += fix_mul(frac, dr);
+            r = ti->left.u;
+            dr = fix_div(ti->right.u - r, dx);
+            r += fix_mul(frac, dr);
 
-        g = ti->left.v;
-        dg = fix_div(ti->right.v - g, dx);
-        g += fix_mul(frac, dg);
+            g = ti->left.v;
+            dg = fix_div(ti->right.v - g, dx);
+            g += fix_mul(frac, dg);
 
-        b = ti->left.i;
-        db = fix_div(ti->right.i - b, dx);
-        b += fix_mul(frac, db);
+            b = ti->left.i;
+            db = fix_div(ti->right.i - b, dx);
+            b += fix_mul(frac, db);
+        }
 
-        if ((d = fix_cint(ti->right.x) - fix_cint(ti->left.x)) > 0) {
+        if ((d = fix_cint(ti->right.x) - fix_cint(ti->left.x)) > 0 && in_band) {
             switch (ti->bm.hlog) {
             case GRL_OPAQUE:
                 for (x = fix_cint(ti->left.x); x < fix_cint(ti->right.x); x++) {
@@ -91,6 +98,7 @@ int gri_cpoly_loop(grs_tmap_loop_info *ti) {
         ti->left.i += ti->left.di;
         ti->right.i += ti->right.di;
         ti->d += grd_bm.row;
+        row++;
     } while ((--(ti->n)) > 0);
     return FALSE;
 }

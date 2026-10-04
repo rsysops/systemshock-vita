@@ -30,20 +30,23 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "lg.h"
 #include "memall.h"
 #include "tmpalloc.h"
+#include "lgslot.h"
 //#include <_lg.h>
 
 /* arbitrary size for buffer.  used if a buffer isn't explicitly set. */
 #define TEMP_BUF_SIZE 16384
 
-/* memstack to use for temporary memory requests. */
-static MemStack *temp_mem_stack=NULL;
+/* memstack to use for temporary memory requests: one per thread slot, so
+   the rasterizer's worker threads don't share one (see lgslot.h). */
+static MemStack *temp_mem_stacks[LG_MAX_SLOTS];
 
 /* TRUE if buffer is allocated by temp_mem_init. */
-static uchar stack_dynamic=FALSE;
+static uchar stack_dynamics[LG_MAX_SLOTS];
 
 MemStack *temp_mem_get_stack(void)
 {
-   return temp_mem_stack;
+   int slot=lg_slot();
+   return temp_mem_stacks[slot];
 }
 
 /* sets the memstack to be used by the temporary memory routines to ms.
@@ -52,6 +55,7 @@ MemStack *temp_mem_get_stack(void)
    error. */
 int temp_mem_init(MemStack *ms)
 {
+   int slot=lg_slot();
    if (ms==NULL) {
       /* allocate memstack struct and buffer dynamically. */
 //      Spew(DSRC_LG_Tempmem,
@@ -62,15 +66,15 @@ int temp_mem_init(MemStack *ms)
          WARN("%s: can't allocate dynamic buffer.", __FUNCTION__);
          return -1;
       }
-      stack_dynamic=TRUE;
+      stack_dynamics[slot]=TRUE;
       ms->baseptr=(void *)(ms+1);
       ms->sz=TEMP_BUF_SIZE;
       MemStackInit(ms);
-      temp_mem_stack=ms;      /* save pointer to temp memstack */
+      temp_mem_stacks[slot]=ms;      /* save pointer to temp memstack */
       return 0;
    } else {
       /* use passed in memstack. */
-      temp_mem_stack=ms;
+      temp_mem_stacks[slot]=ms;
       return 0;
    }
 }
@@ -79,36 +83,40 @@ int temp_mem_init(MemStack *ms)
    if the buffer was allocated dynamically, it's freed. */
 int temp_mem_uninit(void)
 {
-   if (stack_dynamic==TRUE) {
+   int slot=lg_slot();
+   if (stack_dynamics[slot]==TRUE) {
 //      Spew(DSRC_LG_Tempmem,
 //           ("TempMemUninit: freeing dynamically allocated stack\n"));
-      free(temp_mem_stack);
-//      free((Ptr)temp_mem_stack);
-      stack_dynamic=FALSE;
+      free(temp_mem_stacks[slot]);
+//      free((Ptr)temp_mem_stacks[slot]);
+      stack_dynamics[slot]=FALSE;
    }
-   temp_mem_stack=NULL;
+   temp_mem_stacks[slot]=NULL;
    return 0;
 }
 
-/* allocate a temporary buffer of size n from temp_mem_stack. */
+/* allocate a temporary buffer of size n from the temporary memstack. */
 void *temp_malloc(long n)
 {
-   if (temp_mem_stack==NULL)
+   int slot=lg_slot();
+   if (temp_mem_stacks[slot]==NULL)
       if (temp_mem_init(NULL)!=0)
          return NULL;
-   return MemStackAlloc(temp_mem_stack,n);
+   return MemStackAlloc(temp_mem_stacks[slot],n);
 }
 
 /* resize temporary buffer pointed to by p to be new size n. */
 void *temp_realloc(void *p,long n)
 {
-   return MemStackRealloc(temp_mem_stack,p,n);
+   int slot=lg_slot();
+   return MemStackRealloc(temp_mem_stacks[slot],p,n);
 }
 
 /* free temporary buffer pointed to by p. */
 int temp_free(void *p)
 {
-   return MemStackFree(temp_mem_stack,p)==FALSE;
+   int slot=lg_slot();
+   return MemStackFree(temp_mem_stacks[slot],p)==FALSE;
 }
 
 #ifdef DBG_ON
@@ -121,7 +129,7 @@ int temp_spew_mem_init(MemStack *ms,char *file,int line)
    r=temp_mem_init(ms);
    Spew(DSRC_LG_Tempmem,
         ("TempMemInit: stack: %p rval: %d (file: %s line: %d)\n",
-         temp_mem_stack,r,file,line));
+         temp_mem_get_stack(),r,file,line));
    return r;
 }
 

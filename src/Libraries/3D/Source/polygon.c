@@ -29,6 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "GlobalV.h"
 #include "lg.h"
 #include "OpenGL.h"
+#include "rastq.h"
 
 // prototypes
 int check_and_draw_common(long c, int n_verts, g3s_phandle *p);
@@ -321,7 +322,7 @@ draw_poly_common_raw:
     }
 
     // draw it
-    ((void (*)(long c, int n, grs_vertex **vpl))grd_canvas_table[poly_index[gour_flag]])(poly_color, n_verts, p_vpl);
+    rastq_poly(poly_index[gour_flag], poly_color, n_verts, p_vpl);
 
     return CLIP_NONE;
 }
@@ -339,6 +340,7 @@ int g3_draw_point(g3s_phandle p) {
 
     sx = (p->sx + 0x08000) >> 16; // round & get int part
     sy = (p->sy + 0x08000) >> 16; // round & get int part
+    rastq_flush();
     return (((int (*)(short x, short y))grd_canvas_table[DRAW_POINT])(sx, sy));
 }
 
@@ -397,6 +399,7 @@ int draw_line_common(g3s_phandle p0, g3s_phandle p1) {
     if (draw_color == 255)
         draw_color = 0;
 
+    rastq_flush();
     if (gour_flag == 0) // normal line
     {
         // use wire poly lines.  Always clip.

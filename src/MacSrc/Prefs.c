@@ -30,6 +30,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //--------------------
 #include "Shock.h"
 #include "Prefs.h"
+#ifdef VITA
+#include "rastq.h"
+#endif
 
 #include "popups.h"
 #include "olhext.h"
@@ -90,6 +93,7 @@ static const char *VITA_GYRO = "vita-gyro";
 static const char *VITA_GYRO_SPEED = "vita-gyro-speed";
 static const char *VITA_CONTROLLER_SPEED = "vita-controller-speed";
 static const char *VITA_CURSOR = "vita-cursor";
+static const char *VITA_MULTICORE = "vita-multicore";
 #endif
 
 static void SetShockGlobals(void);
@@ -126,6 +130,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;
     gShockPrefs.showCursor = false;
+    gShockPrefs.multicore = true;
 #else
     gShockPrefs.doVideoMode = 3;
 #endif
@@ -253,7 +258,7 @@ int16_t LoadPrefs(void) {
                 audiolog_setting = as;
         } else if (strcasecmp(key, PREF_MIDI_BACKEND) == 0) {
             int mb = atoi(value);
-            if (mb >= 0 && mb <= 2)
+            if (mb >= 0 && mb < OPT_SEQ_Max)
                 gShockPrefs.soMidiBackend = (short)mb;
         } else if (strcasecmp(key, PREF_MIDI_OUTPUT) == 0) {
             int mo = atoi(value);
@@ -273,6 +278,8 @@ int16_t LoadPrefs(void) {
                 gShockPrefs.controllerAimingSpeed = cas;
         } else if (strcasecmp(key, VITA_CURSOR) == 0) {
             gShockPrefs.showCursor = is_true(value);
+        } else if (strcasecmp(key, VITA_MULTICORE) == 0) {
+            gShockPrefs.multicore = is_true(value);
         }
 #endif
     }
@@ -316,6 +323,7 @@ int16_t SavePrefs(void) {
     fprintf(f, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
+    fprintf(f, "%s = %d\n", VITA_MULTICORE, gShockPrefs.multicore);
 #endif
     fclose(f);
     return 0;
@@ -338,7 +346,20 @@ static void SetShockGlobals(void) {
     DoubleSize = (gShockPrefs.doResolution == 1); // Set this True for low-res.
     SkipLines = gShockPrefs.doUseQD;
     _fr_global_detail = gShockPrefs.doDetail;
+#ifdef VITA
+    VitaApplyMulticore();
+#endif
 }
+
+#ifdef VITA
+// On: the 3D passes are recorded and their pixels filled on three cores (see
+// docs/PERFORMANCE.md). Off: the original drawing, call by call on one core.
+void VitaApplyMulticore(void) {
+    rastq_set_mode(gShockPrefs.multicore ? RASTQ_TRUST_STABLE : RASTQ_OFF);
+    rastq_set_threads(gShockPrefs.multicore ? RASTQ_THREADS : 1);
+    rastq_set_min_rows(RASTQ_SMALL_VIEW_ROWS);
+}
+#endif
 
 //************************************************************************************
 

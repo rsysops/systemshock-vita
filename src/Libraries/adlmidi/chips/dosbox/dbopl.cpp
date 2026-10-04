@@ -175,23 +175,43 @@ static Bit16u SinTable[ 512 ];
 
 //6 is just 0 shifted and masked
 
+#ifdef OPL3_HALF_SQUARE_WAVES
+//Not in upstream: waveforms 6 and 7 as a one-sided pulse (full level, then
+//silence), to match what Nuked 1.7.4 has always produced on ARM. The pulse is
+//two extra entries, read with the same mask and start as the square.
+#define HALF_SQUARE_BASE	( 8 * 512 )
+static Bit16s WaveTable[ HALF_SQUARE_BASE + 513 ];
+#else
 static Bit16s WaveTable[ 8 * 512 ];
+#endif
 //Distance into WaveTable the wave starts
 static const Bit16u WaveBaseTable[8] = {
 	0x000, 0x200, 0x200, 0x800,
+#ifdef OPL3_HALF_SQUARE_WAVES
+	0xa00, 0xc00, HALF_SQUARE_BASE, HALF_SQUARE_BASE,
+#else
 	0xa00, 0xc00, 0x100, 0x400,
+#endif
 
 };
 //Mask the counter with this
 static const Bit16u WaveMaskTable[8] = {
 	1023, 1023, 511, 511,
+#ifdef OPL3_HALF_SQUARE_WAVES
+	1023, 1023, 512, 512,
+#else
 	1023, 1023, 512, 1023,
+#endif
 };
 
 //Where to start the counter on at keyon
 static const Bit16u WaveStartTable[8] = {
 	512, 0, 0, 0,
+#ifdef OPL3_HALF_SQUARE_WAVES
+	0, 512, 512, 512,
+#else
 	0, 512, 512, 256,
+#endif
 };
 #endif
 
@@ -1301,57 +1321,77 @@ void Chip::Setup( Bit32u rate ) {
 		EnvelopeSelect( i, index, shift );
 		linearRates[i] = (Bit32u)( scale * (EnvelopeIncreaseTable[ index ] << ( RATE_SH + ENV_EXTRA - shift - 3 )));
 	}
-//	Bit32s attackDiffs[62];
-	//Generate the best matching attack rate
-	for ( Bit8u i = 0; i < 62; i++ ) {
-		Bit8u index, shift;
-		EnvelopeSelect( i, index, shift );
-		//Original amount of samples the attack would take
-		Bit32s original = (Bit32u)( (AttackSamplesTable[ index ] << shift) / scale);
-
-		Bit32s guessAdd = (Bit32u)( scale * (EnvelopeIncreaseTable[ index ] << ( RATE_SH - shift - 3 )));
-		Bit32s bestAdd = guessAdd;
-		Bit32u bestDiff = 1 << 30;
-		for( Bit32u passes = 0; passes < 16; passes ++ ) {
-			Bit32s volume = ENV_MAX;
-			Bit32s samples = 0;
-			Bit32u count = 0;
-			while ( volume > 0 && samples < original * 2 ) {
-				count += guessAdd;
-				Bit32s change = count >> RATE_SH;
-				count &= RATE_MASK;
-				if ( GCC_UNLIKELY(change) ) { // less than 1 %
-					volume += ( ~volume * change ) >> 3;
-				}
-				samples++;
-
-			}
-			Bit32s diff = original - samples;
-			Bit32u lDiff = labs( diff );
-			//Init last on first pass
-			if ( lDiff < bestDiff ) {
-				bestDiff = lDiff;
-				bestAdd = guessAdd;
-				//We hit an exactly matching sample count
-				if ( !bestDiff )
-					break;
-			}
-			//Linear correction factor, not exactly perfect but seems to work
-			double correct = (original - diff) / (double)original;
-			guessAdd = (Bit32u)(guessAdd * correct);
-			//Below our target
-			if ( diff < 0 ) {
-				//Always add one here for rounding, an overshoot will get corrected by another pass decreasing
-				guessAdd++;
-			}
-		}
-		attackRates[i] = bestAdd;
-		//Keep track of the diffs for some debugging
-//		attackDiffs[i] = bestDiff;
+	//Not in upstream 1.4.0: the search below simulates every attack envelope
+	//sample by sample (tens of millions of iterations), and libADLMIDI builds
+	//a new chip on every reset and bank change. The result only depends on
+	//the rate, so keep it per rate, as later libADLMIDI versions do.
+	static struct { Bit32u rate; Bit32u attackRates[76]; } attackCache[4];
+	static int attackCacheCount = 0;
+	int cached = -1;
+	for ( int c = 0; c < attackCacheCount; c++ ) {
+		if ( attackCache[c].rate == rate )
+			cached = c;
 	}
-	for ( Bit8u i = 62; i < 76; i++ ) {
-		//This should provide instant volume maximizing
-		attackRates[i] = 8 << RATE_SH;
+	if ( cached >= 0 ) {
+		memcpy( attackRates, attackCache[cached].attackRates, sizeof( attackRates ) );
+	} else {
+//		Bit32s attackDiffs[62];
+		//Generate the best matching attack rate
+		for ( Bit8u i = 0; i < 62; i++ ) {
+			Bit8u index, shift;
+			EnvelopeSelect( i, index, shift );
+			//Original amount of samples the attack would take
+			Bit32s original = (Bit32u)( (AttackSamplesTable[ index ] << shift) / scale);
+
+			Bit32s guessAdd = (Bit32u)( scale * (EnvelopeIncreaseTable[ index ] << ( RATE_SH - shift - 3 )));
+			Bit32s bestAdd = guessAdd;
+			Bit32u bestDiff = 1 << 30;
+			for( Bit32u passes = 0; passes < 16; passes ++ ) {
+				Bit32s volume = ENV_MAX;
+				Bit32s samples = 0;
+				Bit32u count = 0;
+				while ( volume > 0 && samples < original * 2 ) {
+					count += guessAdd;
+					Bit32s change = count >> RATE_SH;
+					count &= RATE_MASK;
+					if ( GCC_UNLIKELY(change) ) { // less than 1 %
+						volume += ( ~volume * change ) >> 3;
+					}
+					samples++;
+
+				}
+				Bit32s diff = original - samples;
+				Bit32u lDiff = labs( diff );
+				//Init last on first pass
+				if ( lDiff < bestDiff ) {
+					bestDiff = lDiff;
+					bestAdd = guessAdd;
+					//We hit an exactly matching sample count
+					if ( !bestDiff )
+						break;
+				}
+				//Linear correction factor, not exactly perfect but seems to work
+				double correct = (original - diff) / (double)original;
+				guessAdd = (Bit32u)(guessAdd * correct);
+				//Below our target
+				if ( diff < 0 ) {
+					//Always add one here for rounding, an overshoot will get corrected by another pass decreasing
+					guessAdd++;
+				}
+			}
+			attackRates[i] = bestAdd;
+			//Keep track of the diffs for some debugging
+//			attackDiffs[i] = bestDiff;
+		}
+		for ( Bit8u i = 62; i < 76; i++ ) {
+			//This should provide instant volume maximizing
+			attackRates[i] = 8 << RATE_SH;
+		}
+		if ( attackCacheCount < 4 ) {
+			attackCache[attackCacheCount].rate = rate;
+			memcpy( attackCache[attackCacheCount].attackRates, attackRates, sizeof( attackRates ) );
+			attackCacheCount++;
+		}
 	}
 	//Setup the channels with the correct four op flags
 	//Channels are accessed through a table so they appear linear here
@@ -1465,6 +1505,14 @@ void InitTables( void ) {
 		WaveTable[ 0xe00 + i ] = WaveTable[ 0x200 + i * 2 ];
 		WaveTable[ 0xf00 + i ] = WaveTable[ 0x200 + i * 2 ];
 	}
+#endif
+#ifdef OPL3_HALF_SQUARE_WAVES
+#if ( DBOPL_WAVE != WAVE_TABLEMUL )
+#error OPL3_HALF_SQUARE_WAVES is only written for WAVE_TABLEMUL
+#endif
+	//The square's peak, then silence
+	WaveTable[ HALF_SQUARE_BASE + 512 ] = WaveTable[ 0x300 ];
+	WaveTable[ HALF_SQUARE_BASE ] = 0;
 #endif
 
 	//Create the ksl table

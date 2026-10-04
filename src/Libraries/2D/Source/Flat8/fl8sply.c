@@ -32,6 +32,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "poly.h"
 #include "tlucdat.h"
 #include "tmapint.h"
+#include "band.h"
 
 // prototypes
 int gri_spoly_loop(grs_tmap_loop_info *ti);
@@ -46,19 +47,25 @@ int gri_spoly_loop(grs_tmap_loop_info *ti) {
     fix xl, xr;
     uchar *ti_d;
     fix ti_li, ti_ri;
+    int row, in_band;
 
     xl = ti->left.x;
     xr = ti->right.x;
     ti_li = ti->left.i;
     ti_ri = ti->right.i;
     ti_d = ti->d;
+    row = (ti_d - grd_bm.bits) / grd_bm.row;
 
     do {
-        i = ti_li;
-        di = fix_div(ti_ri - i, xr - xl);
-        i += fix_mul(fix_ceil(xl) - xl, di);
+        // i and di only serve to draw the row
+        in_band = gr_row_in_band(ti, row);
+        if (in_band) {
+            i = ti_li;
+            di = fix_div(ti_ri - i, xr - xl);
+            i += fix_mul(fix_ceil(xl) - xl, di);
+        }
 
-        if ((d = fix_cint(xr) - fix_cint(xl)) > 0) {
+        if ((d = fix_cint(xr) - fix_cint(xl)) > 0 && in_band) {
             switch (ti->bm.hlog) {
                 int x;
             case GRL_OPAQUE:
@@ -91,6 +98,7 @@ int gri_spoly_loop(grs_tmap_loop_info *ti) {
         }
         /* update span extrema and destination. */
         ti_d += grd_bm.row;
+        row++;
         xl += ti->left.dx;
         xr += ti->right.dx;
         ti_li += ti->left.di;

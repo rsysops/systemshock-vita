@@ -45,6 +45,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "shockolate_version.h"
 #include "status.h"
 #include "version.h"
+#include "vprof.h"
 
 #ifdef VITA
 #include <psp2/kernel/clib.h>
@@ -496,6 +497,9 @@ void SDLDraw() {
     vita2d_draw_rectangle(0, 0, VITA_FULLSCREEN_WIDTH, VITA_FULLSCREEN_HEIGHT, 0xff000000);
     vita2d_draw_texture_scale(texBuffer, destRect.x, destRect.y, (float)(destRect.w) / gScreenWide,
                                 (float)(destRect.h) / gScreenHigh);
+#ifdef VITA_PROFILE
+    vprof_overlay_draw();
+#endif
     vita2d_end_drawing();
     vita2d_common_dialog_update();
     vita2d_swap_buffers();

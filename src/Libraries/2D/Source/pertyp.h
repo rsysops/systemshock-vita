@@ -76,7 +76,7 @@ typedef struct {
    fix c;
 } grs_per_setup;
 
-typedef struct {
+typedef struct grs_per_info_s {
    uchar *p_dst_final;
    int p_dst_off;
    union {fix y_fix,x_fix;};
