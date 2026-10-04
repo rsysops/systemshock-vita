@@ -9,3 +9,5 @@
 * FPS lock 30?
 * Move the rendering to the GPU?
 * Game crash on button / hack
+* Add a message alert if the resource are absent
+* Add a message for shader compilation

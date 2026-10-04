@@ -4,7 +4,7 @@
 // Records the calls that hand a finished 2D polygon to the pixel-filling
 // mappers during a 3D pass, and replays them later in the same order, on one
 // thread or on several that each draw a band of rows. See
-// docs/PERFORMANCE.md, "Multicore rasterizer".
+// docs/PERFORMANCE-CPU.md, "Multicore rasterizer".
 
 #include <stddef.h>
 
@@ -21,7 +21,7 @@ enum {
 #define RASTQ_THREADS 3
 // A view with fewer rows than this is better replayed by one thread. On the
 // Vita that is the on-screen help's scan, a third of the screen's size in
-// flat colours that change with almost every call (docs/PERFORMANCE.md).
+// flat colours that change with almost every call (docs/PERFORMANCE-CPU.md).
 #define RASTQ_SMALL_VIEW_ROWS 272
 
 // Why a call was drawn by the main thread alone
@@ -47,6 +47,14 @@ typedef struct {
     unsigned late_us;                   // the longest a worker took to start
     int rows[RASTQ_THREADS + 1];        // the last split of the biggest view
     int cpu[RASTQ_THREADS];             // the core each thread last drew on
+    // Replays handed to a GPU:
+    unsigned gpu_scenes;                // lists the GPU drew
+    unsigned gpu_polys;                 // calls in them
+    unsigned gpu_fallbacks;             // lists it refused, drawn by the CPU
+    unsigned long long gpu_submit_us;   // sending a list
+    unsigned long long gpu_wait_us;     // waiting for the GPU to finish it
+    unsigned long long gpu_check_pixels; // pixels compared with the CPU's
+    unsigned long long gpu_check_diff;  // of those, how many differed
 } rastq_stats_t;
 
 extern rastq_stats_t rastq_stats;
@@ -57,6 +65,27 @@ void rastq_set_mode(int mode);
 int rastq_set_threads(int threads);
 // Views with fewer canvas rows than this are replayed by the caller alone.
 void rastq_set_min_rows(int rows);
+
+// A GPU that can fill the recorded calls in place of the CPU. On Vita it is
+// src/MacSrc/VitaGpu.c; see docs/PERFORMANCE-GPU.md. So far it fills every
+// call as a polygon in one palette index.
+typedef struct {
+    // Starts a scene on a canvas. 0 if it can't draw into that canvas.
+    int (*begin)(uchar *bits, int w, int h, int row);
+    void (*flat_poly)(int n, const grs_vertex *verts, int color);
+    // Ends the scene and returns once the canvas holds the result.
+    void (*end)(void);
+    // Told of each comparison of its result with the CPU's, and how many
+    // pixels differed. May be NULL.
+    void (*compared)(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing);
+} rastq_gpu;
+
+// Offers a GPU to the queue (NULL: none), and says whether to use it.
+void rastq_set_gpu(const rastq_gpu *gpu);
+void rastq_use_gpu(int on);
+// Will the next large view be handed to the GPU? Its caller then gives it a
+// canvas the GPU can draw into.
+int rastq_gpu_next(void);
 
 // Pixels that don't change between a draw call and the end of its pass.
 void rastq_stable_pixels(const uchar *pixels, size_t size);

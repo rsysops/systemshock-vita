@@ -51,6 +51,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <psp2/kernel/clib.h>
 #include <psp2/power.h>
 #include <vita2d.h>
+#include "VitaGpu.h"
 #include <unistd.h>
 
 int _newlib_heap_size_user = 256 * 1024 * 1024;
@@ -277,6 +278,41 @@ bool CheckArgument(char *arg) {
 }
 
 #ifdef VITA2D
+#ifdef VITA_PROFILE
+// The canvas the GPU draws the 3D view into (see docs/PERFORMANCE-GPU.md): a
+// paletted texture like the screen's, so that a view drawn there can be shown
+// as it is, without copying it to the screen buffer and on to texBuffer.
+static vita2d_texture *viewTexture;
+static int showViewTexture;
+
+static void MakeViewTexture(int width, int height)
+{
+    if (viewTexture != NULL) {
+        vgpu_set_canvas(NULL, 0, 0, 0);
+        vita2d_free_texture(viewTexture);
+    }
+    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
+    viewTexture = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
+    if (viewTexture != NULL) {
+        memset(vita2d_texture_get_datap(viewTexture), 0, vita2d_texture_get_stride(viewTexture) * height);
+        memcpy(vita2d_texture_get_palette(viewTexture), vita2d_texture_get_palette(texBuffer), sizeof(uint32_t) * 256);
+        vgpu_set_canvas(vita2d_texture_get_datap(viewTexture), width, height, vita2d_texture_get_stride(viewTexture));
+    }
+}
+
+// A full-screen view that the GPU drew into the view texture can be shown
+// from there. Returns whether the next SDLDraw will do that, in which case
+// the view needn't be copied to the screen buffer.
+int VitaShowView(const unsigned char *bits, int width, int height)
+{
+    if (vprof_variant != 2 || viewTexture == NULL || bits != vita2d_texture_get_datap(viewTexture) ||
+        width != (int)vita2d_texture_get_width(viewTexture) || height != (int)vita2d_texture_get_height(viewTexture))
+        return 0;
+    showViewTexture = 1;
+    return 1;
+}
+#endif
+
 void InitVita2D(int width, int height)
 {
     vita2d_init();
@@ -287,6 +323,11 @@ void InitVita2D(int width, int height)
     texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
     palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
     memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+
+#ifdef VITA_PROFILE
+    vgpu_init();
+    MakeViewTexture(width, height);
+#endif
 
     SetRenderRect(width, height);
 }
@@ -302,6 +343,9 @@ void ResizeVita2D(int width, int height)
     texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
     palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
     memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+#ifdef VITA_PROFILE
+    MakeViewTexture(width, height);
+#endif
 
     if (window != NULL) {
         SDL_SetWindowSize(window, width, height);
@@ -485,17 +529,30 @@ void SetSDLPalette(int index, int count, uchar *pal) {
     }
 
     memcpy(vita2d_texture_get_palette(texBuffer), palette32Bit, sizeof(uint32_t) * 256);
+#ifdef VITA_PROFILE
+    if (viewTexture != NULL)
+        memcpy(vita2d_texture_get_palette(viewTexture), palette32Bit, sizeof(uint32_t) * 256);
+#endif
 #endif
 }
 
 void SDLDraw() {
 #ifdef VITA2D
-    SDL_memcpy(palettedTexturePointer, drawSurface->pixels, gScreenWide * gScreenHigh * sizeof(uint8_t));
+    vita2d_texture *shown = texBuffer;
+
+#ifdef VITA_PROFILE
+    if (showViewTexture) {
+        // this frame is the 3D view as the GPU left it in its own texture
+        shown = viewTexture;
+        showViewTexture = 0;
+    } else
+#endif
+        SDL_memcpy(palettedTexturePointer, drawSurface->pixels, gScreenWide * gScreenHigh * sizeof(uint8_t));
 
     vita2d_start_drawing();
 
     vita2d_draw_rectangle(0, 0, VITA_FULLSCREEN_WIDTH, VITA_FULLSCREEN_HEIGHT, 0xff000000);
-    vita2d_draw_texture_scale(texBuffer, destRect.x, destRect.y, (float)(destRect.w) / gScreenWide,
+    vita2d_draw_texture_scale(shown, destRect.x, destRect.y, (float)(destRect.w) / gScreenWide,
                                 (float)(destRect.h) / gScreenHigh);
 #ifdef VITA_PROFILE
     vprof_overlay_draw();

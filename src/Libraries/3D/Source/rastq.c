@@ -1,4 +1,4 @@
-// Record, then replay in row bands: see rastq.h and docs/PERFORMANCE.md.
+// Record, then replay in row bands: see rastq.h and docs/PERFORMANCE-CPU.md.
 
 #if defined(VITA_PROFILE) && !defined(RASTQ_SELFCHECK)
 #define RASTQ_SELFCHECK
@@ -69,6 +69,10 @@ static struct {
     int mode;
     int threads;  // threads a replay is split across
     int min_rows; // views with fewer rows aren't split
+    const rastq_gpu *gpu;
+    int use_gpu;   // hand views to the GPU
+    int gpu_view;  // this view goes to the GPU
+    int gpu_check; // this view: compare the GPU's result with the CPU's
     int active;
     int checking;
     grs_canvas *canvas;
@@ -161,6 +165,19 @@ int rastq_set_threads(int threads) {
 }
 
 void rastq_set_min_rows(int rows) { rq.min_rows = rows; }
+
+void rastq_set_gpu(const rastq_gpu *gpu) { rq.gpu = gpu; }
+
+void rastq_use_gpu(int on) { rq.use_gpu = on; }
+
+int rastq_gpu_next(void) {
+#if defined(VITA) && defined(VITA_PROFILE)
+    // Profile builds alternate what they compare (see vprof.h).
+    return rq.gpu != NULL && vprof_variant != 0;
+#else
+    return rq.gpu != NULL && rq.use_gpu;
+#endif
+}
 
 void rastq_stable_pixels(const uchar *pixels, size_t size) {
     int i;
@@ -417,6 +434,93 @@ static void test_ranges(void) {
 }
 #endif
 
+// ---- replay on a GPU -------------------------------------------------------
+
+// The one palette index a call is filled with while the GPU path has no
+// textures: the polygon's colour, or the texel in the middle of the bitmap.
+static int flat_color(const rastq_cmd *c) {
+    if (c->kind == RQ_POLY)
+        return (int)(c->color & 0xff);
+    return c->bm.bits[(size_t)(c->bm.h / 2) * c->bm.row + c->bm.w / 2];
+}
+
+static int gpu_draw(void) {
+    grs_bitmap *bm = &rq.canvas->bm;
+    long long start = rastq_clock_us(), sent, done;
+    unsigned k;
+
+    if (!rq.gpu->begin(bm->bits, bm->w, bm->h, bm->row))
+        return 0;
+    for (k = 0; k < rq.count; k++)
+        rq.gpu->flat_poly(cmds[k].n, cmds[k].verts, flat_color(&cmds[k]));
+    sent = rastq_clock_us();
+    rq.gpu->end();
+    done = rastq_clock_us();
+    if (!rq.gpu_check) {
+        rastq_stats.gpu_scenes++;
+        rastq_stats.gpu_polys += rq.count;
+        rastq_stats.gpu_submit_us += sent - start;
+        rastq_stats.gpu_wait_us += done - sent;
+    }
+    return 1;
+}
+
+#ifdef RASTQ_SELFCHECK
+// What the GPU draws so far, drawn by the CPU: every call as a flat polygon.
+static void cpu_flat_replay(void) {
+    grs_vertex verts[RASTQ_MAX_VERTS];
+    grs_vertex *vpl[RASTQ_MAX_VERTS];
+    unsigned k;
+    int i;
+
+    if (grd_canvas->gc.fill_type != FILL_NORM)
+        gr_set_fill_type(FILL_NORM);
+    for (k = 0; k < rq.count; k++) {
+        const rastq_cmd *c = &cmds[k];
+        for (i = 0; i < c->n; i++) {
+            verts[i] = c->verts[i];
+            vpl[i] = &verts[i];
+        }
+        ((void (*)(long, int, grs_vertex **))grd_canvas_table[FIX_UPOLY])(flat_color(c), c->n, vpl);
+    }
+}
+#endif
+
+// Has the GPU draw the list. Returns 0 if it wouldn't, with the canvas as it
+// was.
+static int gpu_replay(void) {
+    int ok = 0;
+
+#ifdef RASTQ_SELFCHECK
+    if (rq.gpu_check) {
+        // A GPU doesn't fill exactly the pixels the software mappers do, so
+        // this counts how many differ instead of expecting none.
+        grs_bitmap *bm = &rq.canvas->bm;
+        unsigned differing = 0;
+        int x, y;
+
+        memcpy(check_before, bm->bits, canvas_bytes());
+        if (!gpu_draw())
+            return 0;
+        memcpy(check_direct, bm->bits, canvas_bytes());
+        memcpy(bm->bits, check_before, canvas_bytes());
+        cpu_flat_replay();
+        for (y = 0; y < bm->h; y++) {
+            const uchar *cpu = bm->bits + (size_t)y * bm->row, *gpu = check_direct + (size_t)y * bm->row;
+            for (x = 0; x < bm->w; x++)
+                differing += cpu[x] != gpu[x];
+        }
+        rastq_stats.gpu_check_diff += differing;
+        rastq_stats.gpu_check_pixels += (unsigned long long)bm->w * bm->h;
+        if (rq.gpu->compared != NULL)
+            rq.gpu->compared(check_direct, bm->bits, bm->w, bm->h, bm->row, differing);
+        return 1;
+    }
+#endif
+    VPROF_RUN(VPROF_RASTER, ok = gpu_draw());
+    return ok;
+}
+
 void rastq_flush(void) {
     grs_canvas *prev;
     int32_t fill_type;
@@ -433,6 +537,14 @@ void rastq_flush(void) {
     fill_parm = grd_canvas->gc.fill_parm;
     clip = grd_canvas->gc.clip;
     choose_bands();
+
+    if (rq.gpu_view) {
+        if (gpu_replay()) {
+            rastq_stats.flushes++;
+            goto drawn;
+        }
+        rastq_stats.gpu_fallbacks++;
+    }
 
 #ifdef RASTQ_SELFCHECK
     if (rq.test_ranges && !rq.checking)
@@ -465,6 +577,7 @@ void rastq_flush(void) {
 #endif
         rastq_stats.flushes++;
 
+drawn:
     if (grd_canvas->gc.fill_type != fill_type)
         gr_set_fill_type(fill_type);
     grd_canvas->gc.fill_parm = fill_parm;
@@ -482,7 +595,8 @@ void rastq_begin(void) {
 
 #if defined(VITA) && defined(VITA_PROFILE)
     // Profile builds alternate what they compare (see vprof.h).
-    rq.mode = vprof_variant == 0 ? RASTQ_OFF : RASTQ_TRUST_STABLE;
+    rq.mode = RASTQ_TRUST_STABLE;
+    rq.use_gpu = vprof_variant != 0;
     rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
     if (rq.threads != RASTQ_THREADS)
         rastq_set_threads(RASTQ_THREADS);
@@ -495,6 +609,9 @@ void rastq_begin(void) {
     rq.count = 0;
     rq.used = 0;
     rq.checking = 0;
+    rq.gpu_check = 0;
+    // small views stay on the CPU, as they stay on one thread
+    rq.gpu_view = rq.use_gpu && rq.gpu != NULL && rq.canvas->bm.h >= rq.min_rows;
     rq.balance = NULL;
     if (rq.threads > 1 && rq.canvas->bm.h >= rq.min_rows)
         rq.balance = find_split(rq.canvas, rq.threads);
@@ -503,7 +620,12 @@ void rastq_begin(void) {
         rq.view_finish_us[i] = 0;
 #ifdef RASTQ_SELFCHECK
     if (check_interval != 0 && view % check_interval == 0 && canvas_bytes() <= RASTQ_CHECK_BYTES) {
-        rq.checking = 1;
+        // On the CPU the view is also drawn directly and the two compared.
+        // The GPU's result is compared with the CPU's when it is drawn.
+        if (rq.gpu_view)
+            rq.gpu_check = 1;
+        else
+            rq.checking = 1;
 #if defined(VITA) && defined(VITA_PROFILE)
         // A checked frame draws everything several times: keep it out of the
         // timings.

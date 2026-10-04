@@ -1,4 +1,4 @@
-// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE.md,
+// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE-CPU.md,
 // "How to measure", for the spec this implements.
 
 #ifdef VITA_PROFILE
@@ -12,6 +12,7 @@
 #include "mainloop.h"
 #include "rastq.h"
 #include "vprof.h"
+#include "VitaGpu.h"
 
 #define VPROF_WINDOWS_PER_VARIANT 5
 #define VPROF_FIXDIV_CHECK_CASES 1000000
@@ -95,6 +96,7 @@ static void vprof_startup_checks(void) {
     fp = vprof_open_log();
     if (fp != NULL) {
         fprintf(fp, "fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
+        fprintf(fp, "%s\n", vgpu_report());
         fclose(fp);
     }
 }
@@ -120,6 +122,10 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.batches = 0;
     rastq_stats.wait_us = 0;
     rastq_stats.late_us = 0;
+    rastq_stats.gpu_scenes = 0;
+    rastq_stats.gpu_polys = 0;
+    rastq_stats.gpu_submit_us = 0;
+    rastq_stats.gpu_wait_us = 0;
     for (i = 0; i < RASTQ_SOLO_REASONS; i++)
         rastq_stats.solo[i] = 0;
     for (i = 0; i < RASTQ_THREADS; i++)
@@ -183,7 +189,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "calls_per_frame=%.1f raster_call_avg=%.3f | music=%.1f%% acpu=%d mcpu=%d | "
                 "record=%.2f/%.2f cmds=%.1f copied=%.1fKB flushes=%.2f check=%u/%u | "
                 "views=%.2f batches=%.1f solo=%.1f/%.1f wait=%.2f busy=%.2f/%.2f/%.2f late=%u "
-                "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f\n",
+                "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f | "
+                "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -221,7 +228,14 @@ static void vprof_window_flush(SceInt64 now) {
                 rastq_stats.rows[1], rastq_stats.rows[2], rastq_stats.rows[3],
                 rastq_stats.cpu[0], rastq_stats.cpu[1], rastq_stats.cpu[2],
                 rastq_stats.check_leak_rows,
-                frame_avg_ms(VPROF_HELPSCAN, g_frame_samples), frame_max_ms(VPROF_HELPSCAN));
+                frame_avg_ms(VPROF_HELPSCAN, g_frame_samples), frame_max_ms(VPROF_HELPSCAN),
+                (double)rastq_stats.gpu_scenes / g_frame_samples,
+                (double)rastq_stats.gpu_polys / g_frame_samples,
+                us_to_ms(rastq_stats.gpu_submit_us) / g_frame_samples,
+                us_to_ms(rastq_stats.gpu_wait_us) / g_frame_samples,
+                rastq_stats.gpu_fallbacks,
+                rastq_stats.gpu_check_diff,
+                rastq_stats.gpu_check_pixels);
         fclose(fp);
     }
 }
@@ -300,6 +314,9 @@ void vprof_frame_end(void) {
         rastq_stats.check_runs = now_stats.check_runs;
         rastq_stats.check_bad_rows = now_stats.check_bad_rows;
         rastq_stats.check_leak_rows = now_stats.check_leak_rows;
+        rastq_stats.gpu_fallbacks = now_stats.gpu_fallbacks;
+        rastq_stats.gpu_check_pixels = now_stats.gpu_check_pixels;
+        rastq_stats.gpu_check_diff = now_stats.gpu_check_diff;
     } else {
         g_views += rastq_stats.views - g_rastq_at_frame_begin.views;
         g_frame_total_us += elapsed;
@@ -373,9 +390,12 @@ void vprof_overlay_draw(void) {
     vita2d_pgf_draw_text(g_pgf, 4, 48, 0xffffffff, 1.0f, line);
 
     (void)raster_call_avg_ms;
-    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds split=%d/%d/%d check=%u/%u leaks=%u", _current_loop,
-             vprof_variant, (long long)(window_age_us / 1000000), rastq_stats.rows[1], rastq_stats.rows[2],
-             rastq_stats.rows[3], rastq_stats.check_bad_rows, rastq_stats.check_runs, rastq_stats.check_leak_rows);
+    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds check=%u/%u leaks=%u gpuwait=%.1fms gpudiff=%.1f/1000",
+             _current_loop, vprof_variant, (long long)(window_age_us / 1000000), rastq_stats.check_bad_rows,
+             rastq_stats.check_runs, rastq_stats.check_leak_rows, us_to_ms(rastq_stats.gpu_wait_us) / samples,
+             rastq_stats.gpu_check_pixels
+                 ? 1000.0 * (double)rastq_stats.gpu_check_diff / (double)rastq_stats.gpu_check_pixels
+                 : 0.0);
     vita2d_pgf_draw_text(g_pgf, 4, 64, 0xffffffff, 1.0f, line);
 }
 

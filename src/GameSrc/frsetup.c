@@ -142,6 +142,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 #include "OpenGL.h"
+#include "VitaGpu.h"
+#include "rastq.h"
 
 // Internal Prototypes
 void fr_tfunc_grab_start(void);
@@ -639,6 +641,18 @@ int fr_start_view(void) {
         opengl_start_frame();
     }
 
+    // A frame the GPU will draw goes into the GPU's canvas, not the view's
+    // own memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only
+    // the main view: not the help scan, the security cameras or the 360 view.
+    if (_fr->flags & FR_DOUBLEB_MASK) {
+        extern uchar view360_is_rendering;
+        uchar *gpu_bits = NULL;
+
+        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && rastq_gpu_next())
+            gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, _fr->draw_canvas.bm.row);
+        _fr->draw_canvas.bm.bits = gpu_bits != NULL ? gpu_bits : _fr->main_canvas.bm.bits;
+    }
+
     // check detail for canvas sizing
     gr_set_canvas(&_fr->draw_canvas);
     if (_fr_curflags & FR_PICKUPM_MASK) {
@@ -891,9 +905,11 @@ int fr_send_view(void) {
                         Fast_Slot_Copy(&gDoubleSizeOffCanvas.bm);
                 } else // For high-res, just copy from the draw canvas.
                 {
-                    if (full_game_3d)
-                        Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
-                    else
+                    if (full_game_3d) {
+                        // a view in the GPU's canvas can be shown from there
+                        if (!VitaShowView(_fr->draw_canvas.bm.bits, _fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h))
+                            Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
+                    } else
                         Fast_Slot_Copy(&_fr->draw_canvas.bm);
                 }
             }

@@ -601,6 +601,45 @@ static void set_split(int split) {
 #define set_split(split) ((void)0)
 #endif
 
+#ifndef RASTQ_REFERENCE
+// A stand-in for a GPU, to exercise the queue's GPU path: it fills the flat
+// polygons it is given with the CPU, so the queue's comparison of "the GPU's"
+// result with the CPU's must find no difference.
+static unsigned fake_gpu_compared;
+
+static int fake_gpu_begin(uchar *bits, int w, int h, int row) {
+    (void)row;
+    if (gr_get_fill_type() != FILL_NORM)
+        gr_set_fill_type(FILL_NORM);
+    return bits == canvas_bits && w == cw && h == ch;
+}
+
+static void fake_gpu_flat_poly(int n, const grs_vertex *verts, int color) {
+    grs_vertex v[MAX_VERTS * 2], *vpl[MAX_VERTS * 2];
+    int i;
+
+    for (i = 0; i < n; i++) {
+        v[i] = verts[i];
+        vpl[i] = &v[i];
+    }
+    ((void (*)(long, int, grs_vertex **))grd_canvas_table[FIX_UPOLY])(color, n, vpl);
+}
+
+static void fake_gpu_end(void) {}
+
+static void fake_gpu_compared_cb(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing) {
+    (void)differing;
+    (void)gpu;
+    (void)cpu;
+    (void)w;
+    (void)h;
+    (void)row;
+    fake_gpu_compared++;
+}
+
+static const rastq_gpu fake_gpu = {fake_gpu_begin, fake_gpu_flat_poly, fake_gpu_end, fake_gpu_compared_cb};
+#endif
+
 // Finds the first call of a failing scene whose presence makes replay differ.
 static void explain(const op_t *ops, int count, int split) {
     static const char *op_names[] = {"tmap", "sprite", "poly", "rect"};
@@ -729,6 +768,34 @@ int main(int argc, char **argv) {
                                    rastq_stats.check_leak_rows, rastq_stats.check_runs);
                             explain(ops, count, split);
                         }
+                        bad++;
+                    }
+                }
+
+                // The queue's GPU path, with the stand-in: the scene drawn,
+                // and its comparison with the CPU's flat fill.
+                {
+                    unsigned compared = fake_gpu_compared;
+                    int drawn_ok, check_ok;
+
+                    rastq_set_gpu(&fake_gpu);
+                    rastq_use_gpu(1);
+                    rastq_set_check_interval(0);
+                    memset(&rastq_stats, 0, sizeof(rastq_stats));
+                    draw_scene(ops, count, RASTQ_TRUST_STABLE, result[4]);
+                    drawn_ok = rastq_stats.gpu_scenes > 0 && rastq_stats.gpu_fallbacks == 0;
+                    rastq_set_check_interval(1);
+                    memset(&rastq_stats, 0, sizeof(rastq_stats));
+                    draw_scene(ops, count, RASTQ_TRUST_STABLE, result[4]);
+                    check_ok = rastq_stats.gpu_check_pixels > 0 && rastq_stats.gpu_check_diff == 0 &&
+                               fake_gpu_compared > compared;
+                    rastq_use_gpu(0);
+                    rastq_set_gpu(NULL);
+                    if (!drawn_ok || !check_ok) {
+                        if (bad < 10)
+                            printf("  %dx%d frame %d (%d calls), GPU path: drawn %s, %llu of %llu pixels differ\n", cw, ch,
+                                   f, count, drawn_ok ? "ok" : "not ok", rastq_stats.gpu_check_diff,
+                                   rastq_stats.gpu_check_pixels);
                         bad++;
                     }
                 }

@@ -26,8 +26,11 @@ typedef enum {
 
 // Variants of the code under test, alternated every few 1 s windows so they
 // can be compared within one session. Currently the rasterizer queue
-// (rastq.h): 0 = draw directly on one core, 1 = record and replay on three.
-#define VPROF_VARIANT_COUNT 2
+// (rastq.h): 0 = record and replay on three cores, 1 = record and have the
+// GPU draw (so far in flat colours: see docs/PERFORMANCE-GPU.md), with the
+// view copied to the screen buffer as before, 2 = the same, with a
+// full-screen view shown straight from the GPU's canvas.
+#define VPROF_VARIANT_COUNT 3
 extern int vprof_variant;
 
 // Leaves the current frame out of the window's statistics.

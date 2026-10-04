@@ -1,0 +1,8 @@
+---- start
+loading the shader compiler
+compiling the shaders
+flat vertex shader compiled: 284 bytes
+flat fragment shader compiled: 228 bytes
+drawing the index check
+index check drawn: 0 wrong; timing memory
+gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | 512KB us: gpu_write=706 gpu_read=4856 ram_write=254 ram_read=1184
