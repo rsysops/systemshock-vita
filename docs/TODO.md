@@ -7,3 +7,5 @@
 * Native resolution for the movies?
 * FPS lock 30/60
 * Move the rendering to the GPU?
+* Game crash on button / hack
+* Audio log are slow to load

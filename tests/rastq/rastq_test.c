@@ -315,14 +315,6 @@ static int make_tmap(op_t *o) {
     double p[4][3];
 
     pick_bitmap(o, &textures[rnd_in(0, N_TEXTURES - 1)], 1);
-    // The 1D wall mapper reads a texel past the end of its texture. In the
-    // game that texture is terrain, in memory that never changes. Out of the
-    // unpack buffer it would read leftovers of earlier draws, which a replay
-    // leaves there at a different time than direct drawing does.
-    if (family == 2 && (o->src == SRC_UNPACKED || o->src == SRC_RSD)) {
-        o->src = SRC_POOL;
-        o->bm = textures[rnd_in(0, N_TEXTURES - 1)].flat;
-    }
     // The row mappers also take textures whose sides aren't powers of two.
     // They read a texel past the end of those, so only from fixed memory.
     if (family != 2 && family != 3 && (rnd() & 3) == 0) {
@@ -393,6 +385,14 @@ static int make_tmap(op_t *o) {
     if (light == 2) {
         o->ti.flags |= TMF_CLUT;
         o->ti.clut = ltab + (rnd_in(0, 15) << 8);
+    }
+    // The perspective mapper is the one unclipped mapper that looks at the
+    // clip rectangle: it ends its scanlines there.
+    if (family == 3 && (rnd() & 3) == 0) {
+        o->clip[0] = (short)rnd_in(0, cw / 3);
+        o->clip[1] = (short)rnd_in(0, ch / 3);
+        o->clip[2] = (short)rnd_in(cw * 2 / 3, cw);
+        o->clip[3] = (short)rnd_in(ch * 2 / 3, ch);
     }
 
     // Only combinations the 2D library implements: the others hang h_umap.
@@ -590,7 +590,7 @@ static long differing(const uchar *a, const uchar *b) {
 #ifndef RASTQ_REFERENCE
 // How the replays of a frame are split
 enum { SPLIT_NONE, SPLIT_BANDS, SPLIT_THREADS };
-static int band_count, band_bounds[8];
+static int band_count, band_bounds[16];
 
 static void set_split(int split) {
     rastq_test_bands(split == SPLIT_BANDS ? band_count : 0, band_bounds);
@@ -694,7 +694,7 @@ int main(int argc, char **argv) {
                 static const char *names[] = {"", "bands", "threads"};
                 int split, b, c;
 
-                band_count = aux_in(1, 5);
+                band_count = aux_in(1, 12);
                 for (b = 0; b < band_count - 1; b++)
                     band_bounds[b] = aux_in(0, ch);
                 for (b = 0; b < band_count - 1; b++)

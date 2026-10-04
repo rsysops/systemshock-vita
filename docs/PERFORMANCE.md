@@ -219,7 +219,8 @@ retry:
   different spots.
   - The retry's profile build does this itself: code under test reads
     `vprof_variant`, which cycles through `VPROF_VARIANT_COUNT` values
-    (both in `src/Libraries/H/vprof.h`) every 5 windows. It only switches
+    (both in `src/Libraries/H/vprof.h`) every 5 windows. As the retry
+    leaves it, variant 0 draws on one core and variant 1 on three. It only switches
     at a window boundary, so no window mixes two variants, and each log
     line carries `var=N`. Each step just redefines what the variants mean.
   - Each log line also carries `music=` (the time spent synthesizing
@@ -538,7 +539,7 @@ Each of these can be done and measured on its own, before any threading.
 
 ### Record, then replay
 
-Built in the retry's steps 4 and 5 as `src/Libraries/3D/Source/rastq.c`.
+Built in the retry's steps 4 to 6 as `src/Libraries/3D/Source/rastq.c`.
 The notes below say what the code does.
 
 - **Recording.** Between `fr_pipe_start` and `fr_pipe_end` in `fr_rend`,
@@ -573,6 +574,13 @@ The notes below say what the code does.
     and recorded as the resulting FLAT8/TLUC8 bitmap. That is the same
     init function the RSD path would chain to. If unpacking fails,
     nothing is drawn, like the original.
+  - **Sprites for the blend mapper** (`gri_trans_blend_clut_lin_umap_init`,
+    `Flat8/fl8bl.c`) are doubled at record time by the mapper's own code
+    (`gr_blend_prepare`), into the unpack buffer as when drawing, and
+    recorded as what that mapper goes on to draw: the doubled bitmap
+    through the CLUT linear mapper. That makes them band-safe; until
+    step 6 the main thread drew one such sprite alone in every frame of
+    the first area.
   - **Except for `per_umap`.** `rsd8_pm_init` always takes the
     horizontal-scan mapper, while the unpacked bitmap may get the
     vertical-scan one. Those calls are drawn directly.
@@ -602,9 +610,9 @@ The notes below say what the code does.
   The only canvas switch inside the pass is text-screen rendering
   (`objsim.c`), which makes no 3D calls.
 - **The arena.** 4 MB and 4096 records. Flush **after** storing a record
-  once less than 256 KB remains, never before: a replay can overwrite the
-  unpack buffer the current call's pixels live in (the sprite blend
-  mapper doubles its bitmap into it), so they must be copied first.
+  once less than 256 KB remains, never before, so that nothing the flush
+  draws comes between a call and the copy of its pixels. (Until step 6 a
+  replay could overwrite the unpack buffer those pixels may live in.)
 - **Replay.**
   - Walk the list in order on the recorded canvas.
   - Set the canvas state per record: `gr_set_fill_type` (the macro, which
@@ -612,18 +620,24 @@ The notes below say what the code does.
   - Restore the canvas state afterwards. If the flush happens while
     another canvas is current, switch to the recorded canvas for the
     replay and back.
-  - When the view is split: a run of consecutive band-safe commands with
-    the same fill_type/fill_parm/clip is one batch, drawn by all threads
-    at once, one row band each. The main thread sets the canvas state
-    before each batch; workers only read it. Commands that aren't
-    band-safe are drawn by the main thread alone with a full band.
+  - When the view is split: a run of consecutive band-safe commands is
+    one batch, drawn by all threads at once, one row band each. Each
+    thread keeps the fill type, fill parm and clip of the command it is
+    drawing in its own band (see "Per-thread state"), so the commands of a
+    batch needn't share them. Commands that aren't band-safe are drawn by
+    the main thread alone with a full band.
+  - Until step 6 the workers read that state from the canvas, so a batch
+    ended wherever it changed: 4 batches for the main view, and 6.2 ms of
+    waiting per frame.
   - A view with fewer than 272 rows (`RASTQ_SMALL_VIEW_ROWS`) is replayed
     by the main thread alone: see "Results of the retry".
-- **Known limit.** A wall texture taken from the unpack buffer could see
-  different leftover bytes past its end than direct drawing would,
-  because the blend mapper's scratch use of that buffer is deferred to
-  the replay. Game walls use fixed texture memory, and the on-device
-  self-check found nothing.
+- **A limit that step 6 removed.** Until then the blend mapper doubled
+  its sprite into the unpack buffer during the replay, so a wall texture
+  taken from that buffer could see different leftover bytes past its end
+  than direct drawing would. Blend sprites are now doubled at record
+  time, which leaves the buffer as direct drawing does, and a replay no
+  longer writes to it. The harness draws such walls again, without a
+  difference.
 - **Measured cost** (`docs/profile-step-4.txt`): full 3D view, 960×544,
   standing still in the first area, three variants alternating every 5 s,
   self-checked frames left out. Medians:
@@ -721,8 +735,10 @@ pixels outside the band. Rules per loop family:
     - polygons: `GRC_POLY + GRD_FUNCS * type`
   - Not split, and drawn on the main thread instead:
     - scalers (`fl8s.c`, `fl8ns.c`)
-    - the blend mapper (`fl8bl.c`)
     - anything unknown
+  - The blend mapper (`fl8bl.c`) isn't on the list either, but the
+    recorder no longer sends it anything: see "Recording-time
+    conversions".
   - Opaque bitmaps with SOLID fill resolve to `gri_solid_poly_init`, a
     row loop, so they are safe.
 - **Per-thread state.**
@@ -736,8 +752,15 @@ pixels outside the band. Rules per loop family:
   - **Per-thread copies.** Each thread gets its own copies of the
     vertices, `grs_bitmap` and `grs_tmap_info`, because `h_umap` rewrites
     vertex `w` and `per_umap` rewrites `ti` and `bm->bits`.
+  - **Drawing state.** A band (`grs_band`) can carry the fill type, fill
+    parm, function table and clip of the call its thread is drawing. Five
+    places read them from the band when it has them, and from the canvas
+    otherwise: `h_umap` and `v_umap` (`Gen/gentm.c`), `per_umap`
+    (`permap.c`) and the two pairs of perspective shells, for the clip.
+    The table is `(*grd_function_fill_table)[fill_type]`, which is what
+    `gr_set_fill_type` puts in `grd_function_table`.
   - **Everything else is shared and read-only during a replay:** the
-    canvas, `grd_function_table`, the light tables and the recorded
+    canvas's bitmap, the fill tables, the light tables and the recorded
     pixels. The thread sanitizer confirmed it: the one global the mappers
     write is `gOVResult`, which `fix_mul_div` now also stores
     conditionally on Vita.
@@ -761,6 +784,8 @@ same hand-out code runs on the PC with pthreads, for the harness.
   - Then music, SDL audio and other default-priority threads on cores 1–2
     preempt a spinning worker instead of sharing time slices with it.
 - **Hand-out.**
+  - A batch is a whole run of band-safe calls, so a view is normally
+    handed out once.
   - The main thread publishes a batch by bumping a generation counter,
     draws its own band, then spins until a done counter reaches the
     number of workers. Every worker answers every batch, so the job never
@@ -781,8 +806,11 @@ same hand-out code runs on the PC with pthreads, for the harness.
     proportional to `share / finish time`, with 50% smoothing and a 5%
     minimum band.
   - Balancing on drawing time alone ignores a worker that started late.
-  - Standing still in the first area it settles around rows 258 and 408
+  - Standing still in the first area it settles around rows 255 and 405
     of 544: the main thread takes the top 47%.
+  - It only works well with one hand-out per view. With 4 batches per
+    view (step 5) each batch waited for its own slowest thread, and the
+    main thread waited 6.2 ms per frame; with one (step 6), 0.8 ms.
 - **One split per 3D view.** Every frame also draws a smaller 3D view, on
   a 320×181 canvas at 960×544. Key the split on the canvas (bits, w, h); a
   shared split lets each view pull the other's balance.
@@ -793,9 +821,10 @@ same hand-out code runs on the PC with pthreads, for the harness.
   - It was meant to run 4 times a second, but the timer in
     `olh_scan_objects` (`src/GameSrc/olh.c`) is never updated, so it runs
     every frame. It costs 3.5 ms per frame, almost all scene traversal.
-  - It changes its fill colour with almost every call, so nearly every
-    call is its own batch (39 of them). The retry keeps views under 272
-    rows on the main thread: see "Results of the retry".
+  - It changes its fill colour with almost every call. In step 5, where
+    a batch ended at every such change, that made 39 batches, and
+    splitting the view was slower than not. The retry keeps views under
+    272 rows on the main thread: see "Results of the retry".
   - `render_hack_cameras()` in `src/GameSrc/render.c` adds one more view
     per visible hacked security-camera monitor.
 
@@ -824,9 +853,10 @@ same hand-out code runs on the PC with pthreads, for the harness.
       they hang `h_umap`.
     - Pad textures on both sides, e.g. 64 KB of a fixed byte, because
       mappers read just outside them.
-    - Give the 1D wall mapper textures from fixed memory only, as the game
-      does. From the unpack buffer it reads leftovers whose timing a
-      replay changes (see "Known limit" under "Record, then replay").
+    - Until step 6 the 1D wall mapper could only be given textures from
+      fixed memory: from the unpack buffer it reads leftovers whose timing
+      a replay changed (see "A limit that step 6 removed" under "Record,
+      then replay").
   - **Test.** Draw each list once in a single pass, then again band by
     band with the replay's batching rules, and compare all pixels. Also
     check that a single command drawn with one band writes nothing
@@ -882,6 +912,22 @@ same hand-out code runs on the PC with pthreads, for the harness.
     - Result: 0 differing frames on four seeds of 2,100 scenes each, with
       both arena sizes. The sanitizer builds run a tenth of the scenes,
       also without a difference or a report.
+  - **Retry, step 6:** the same harness, with what the step added.
+    - Scenes replay in 1 to 12 bands, and perspective calls get clip
+      rectangles of their own, so a shell that read the canvas's clip
+      would show.
+    - Blend sprites, which the scenes already had, are now recorded
+      doubled and count as band-safe.
+    - 1D walls are drawn from the unpack buffer again, compressed or
+      unpacked by the caller.
+    - While the step compared them, the batch-per-state mode and the strip
+      queue were tested alongside the mode that was kept.
+    - It fails on deliberate mistakes: a thread's fill type, fill parm or
+      function table not updated between calls; a perspective shell or
+      `per_umap` reading the canvas instead of its band; a blend sprite
+      recorded for the wrong mapper, or copied with its size before
+      doubling.
+    - Result: 0 differing frames on four seeds of 2,100 scenes each.
 - **On-device self-check (profile builds).**
   - First attempt: every ~100 views, replay the view normally, then again
     on one thread, and compare row by row (`check=rows/checks`, always
@@ -904,6 +950,8 @@ same hand-out code runs on the PC with pthreads, for the harness.
   - Result (`docs/profile-step-5.txt`): `check=0/311` and `leaks=0`, about
     200 checks standing still and 110 walking. A second session
     (`docs/profile-step-5b.txt`) gave `check=0/310` and `leaks=0`.
+  - Retry, step 6 (`docs/profile-step-6.txt`): `check=0/588` and
+    `leaks=0`, spread over the four ways of splitting it compared.
 
 ## Pitfalls found, in the order they were hit
 
@@ -977,6 +1025,10 @@ one-core figure of each session is its own reference.
 | 3 (`profile-step-3b.txt`) | DOSBox music | 27.1 fps, music 52% of a core | 26.8 fps, music 12% |
 | 4 (`profile-step-4.txt`) | record + replay on one core | 27.0 fps | 26.8 fps (+0.3 ms) |
 | 5 (`profile-step-5.txt`, repeated in `profile-step-5b.txt`) | row bands on three cores | 27.0 fps | 35.3 fps (+31%) |
+| 6 (`profile-step-6.txt`) | one hand-out per view | 35.4 fps (step 5) | 44.8 fps (+27%) |
+
+From the step 1 baseline of 24.7 fps that is +81%; from one core after
+step 2 (27.0 fps), +66%.
 
 Step 5 in detail (medians; t=32–324; music 11% of a core):
 
@@ -1021,6 +1073,46 @@ Step 5 in detail (medians; t=32–324; music 11% of a core):
 - **In the game:** "Multicore" in Vita Options, on by default. Off is the
   one-core drawing, call by call, as before.
 
+Step 6 in detail (medians; t=31–363; music 11% of a core). All four
+variants draw on three cores; the first is step 5 as it was committed:
+
+| variant | windows | fps | frame | raster (wall) | main waits | threads' drawing, summed |
+|---|---|---|---|---|---|---|
+| fixed bands, a batch per drawing state (step 5) | 80 | 35.4 | 28.3 ms | 15.4 ms | 6.2 ms | 26.0 ms |
+| fixed bands, one hand-out per run | 81 | 44.8 | 22.3 ms | 9.6 ms | 0.8 ms | 25.2 ms |
+| 6 row strips taken from a queue | 85 | 41.5 | 24.1 ms | 11.2 ms | 2.3 ms | 27.2 ms |
+| 12 row strips taken from a queue | 83 | 40.4 | 24.7 ms | 11.9 ms | 1.8 ms | 29.9 ms |
+
+- **+9.4 fps over step 5** for the fixed bands with one hand-out, against
+  the nearest step 5 blocks in 17 comparisons; +6.0 for 6 strips and +5.1
+  for 12. Its one weak block was its very first (32.9 fps), before the
+  bands had balanced.
+- **Identical frames:** `check=0/588`, `leaks=0`.
+- **What made the difference.** Each thread now carries its own drawing
+  state, and the blend sprite is prepared when it is recorded, so the
+  main view is one batch instead of four. The finish-time balance then
+  does its job: the main thread's wait falls from 6.2 to 0.8 ms.
+- **Why the strip queue lost.** In the queue variants the view is cut
+  into 6 or 12 equal strips and each thread takes the next free one. That
+  also removes most of the wait, and needs no balancing, but every strip
+  repeats part of each call's set-up: the threads' drawing adds up to
+  27.2 ms with 6 strips and 29.9 ms with 12, against 25.2 ms with three
+  bands. The queue and the batch-per-state path were removed after this
+  capture; the code keeps the fixed bands only.
+- **Walking** to the main hallway (79–80 windows per variant; the scenes
+  differ, so only the waiting compares): the kept variant waits 1.8 ms at
+  the median and 3.2 ms at worst, against 4.3 ms and 12.9 ms for step 5.
+  The balance follows a changing scene well enough.
+- **What is left.**
+  - *One frame a second is about 6 ms longer:* the worst frame of a
+    window is 28 ms against 22 ms on average. In most seconds a worker
+    still starts about 4 ms late once, with the music thread on its core.
+  - *The help scan costs 3.6 ms per frame,* now 16% of the frame.
+  - *The threads' drawing adds up to 25.2 ms* against about 24.3 ms on
+    one core: 4% of work repeated in the bands.
+- **For players:** switching On-Screen Help off in the game's options
+  skips the help scan, which is worth about 3.6 ms per frame here.
+
 ## Recommended order for the retry
 
 1. ~~**Profiler and baseline.** 960×544, standing still in the first
@@ -1041,27 +1133,33 @@ Step 5 in detail (medians; t=32–324; music 11% of a core):
    `leaks=0` on device) — see "Row bands, bit-exact", "Threads",
    "Results of the retry", `docs/profile-step-5.txt` and
    `docs/profile-step-5b.txt`.
-6. **Then look at the remaining main-thread wait** (6.2 ms of a 28.3 ms
-   frame) and the other costs step 5 measured.
-   - Fewer batch boundaries per frame: the main view has 4.
-   - The one call per frame that runs on one thread: find out which
-     mapper it is, and make it band-aware if it is cheap to do.
-   - Late workers: see whether the music thread can be kept off the
-     workers' cores, or off whichever core is busiest.
-   - Possibly dynamic row strips taken from a queue, so every batch
-     balances itself and a late worker costs less. Weigh that against the
-     7% of work every band repeats.
-   - Separately from the threads: give the on-screen help's scan back its
-     4-per-second timer. It costs 3.5 ms per frame.
+6. ~~**Then look at the remaining main-thread wait.**~~ **Done**: +27%
+   fps over step 5 (35.4 to 44.8) with identical frames (`check=0/588`
+   on device), by handing a view out once instead of in a batch per
+   drawing state — see "Results of the retry" and
+   `docs/profile-step-6.txt`. Row strips taken from a queue were tried
+   and were slower.
+
+The retry's order ends here. Ideas it leaves open, none of them planned:
+
+- **The late worker.** About once a second a worker starts about 4 ms
+  late. The music thread runs on cores 1 and 2, which are the workers'.
+  Keeping it off the core of a busy worker might remove the long frame.
+- **The on-screen help scan** redraws the scene every frame (3.6 ms). Its
+  code has a 4-per-second timer that is never updated, upstream as well,
+  so every frame is how the game has always behaved. Restoring the timer
+  would make the help label and its pointer lag behind objects while
+  turning; it was left alone for that reason.
+- **Core 3** is reserved for the system. The stock system gives a game's
+  threads cores 0 to 2 only.
 
 ## Ranked recommendations
 
 1. **Multicore software rasterizer, redone as above.** Done in the
-   retry's step 5: +31% at 960×544, bit-exact. The first attempt's last
-   session measured +49%, from a slower baseline and with a wider spread.
+   retry's steps 5 and 6: 27.0 to 44.8 fps at 960×544 (+66%), bit-exact.
+   The first attempt's last session measured +49%.
 2. **Speed-ups that don't need threads.** The FPU `fix_div` and the
-   DOSBox music emulator are done. The on-screen help's scan is the next
-   one (see step 6).
+   DOSBox music emulator are done.
 3. **Frame-pacing fix.** Decouple `SDLDraw()`/`mainloop.c` from vsync's
    default blocking swap, for example with `vita2d_set_vblank_wait(0)`
    plus explicit pacing, or with `sceDisplayWaitVblankStartMulti()`. It

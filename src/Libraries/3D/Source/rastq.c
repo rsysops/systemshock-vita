@@ -24,13 +24,14 @@
 #endif
 #define RASTQ_MAX_CMDS 4096
 #define RASTQ_MAX_VERTS 100
-// Room kept free after every record. It must exceed the unpack buffer, so a
-// bitmap living there is always copied before a replay can overwrite it.
+// Room kept free after every record. It must exceed the unpack buffer, so
+// that a bitmap living there, the biggest a call can bring, always fits.
 #define RASTQ_HEADROOM (256 * 1024)
 // Rows added on each side of a call's vertices to bound the rows it may
 // write: the mappers' edge walks can end a row beyond them.
 #define RASTQ_ROW_MARGIN 2
-#define RASTQ_MAX_BANDS 8
+// More than the threads: the tests replay in up to this many bands.
+#define RASTQ_MAX_BANDS 16
 // A band is never thinner than this share of the view.
 #define RASTQ_MIN_BAND 0.05f
 
@@ -75,7 +76,7 @@ static struct {
     size_t used;
 
     // the view being recorded
-    rastq_split *split;
+    rastq_split *balance; // NULL: this view isn't split
     unsigned view_batches;
     long long view_finish_us[RASTQ_THREADS];
 
@@ -253,11 +254,11 @@ static void choose_bands(void) {
         rq.bands = rq.test_bands;
         for (i = 1; i < rq.bands; i++)
             rq.rows[i] = rq.test_bounds[i - 1];
-    } else if (rq.split != NULL) {
+    } else if (rq.balance != NULL) {
         float below = 0;
-        rq.bands = rq.split->threads;
+        rq.bands = rq.balance->threads;
         for (i = 1; i < rq.bands; i++) {
-            below += rq.split->share[i - 1];
+            below += rq.balance->share[i - 1];
             rq.rows[i] = (int)(below * h + 0.5f);
         }
     }
@@ -291,31 +292,42 @@ static void draw_cmd(const rastq_cmd *c, const grs_band *band) {
     }
 }
 
-static void set_band(int slot, int band) {
-    grd_bands[slot].top = rq.rows[band];
-    grd_bands[slot].bot = rq.rows[band + 1];
-}
-
-static void draw_batch(int slot) {
+// Draws the batch on the calling thread, inside band `band` of the split.
+// The threads are at different calls at any one time, so each keeps the
+// drawing state of its call in its own band, not in the canvas.
+static void draw_batch(int slot, int band) {
+    grs_band *b = &grd_bands[slot];
     unsigned k;
-    for (k = batch.first; k < batch.end; k++)
-        draw_cmd(&cmds[k], &grd_bands[slot]);
-    grd_bands[slot] = full_band;
+
+    b->top = rq.rows[band];
+    b->bot = rq.rows[band + 1];
+    for (k = batch.first; k < batch.end; k++) {
+        const rastq_cmd *c = &cmds[k];
+
+        if (c->row_bot > b->top && c->row_top < b->bot) {
+            // what gr_set_fill_type and the canvas would hold for this call
+            b->own_state = 1;
+            b->fill_type = c->fill_type;
+            b->fill_parm = c->fill_parm;
+            b->table = (*grd_function_fill_table)[c->fill_type];
+            b->clip = &c->clip;
+        }
+        draw_cmd(c, b);
+    }
+    *b = full_band;
 }
 
 // What each thread does with a batch: slot s draws band s.
 static void batch_job(int slot) {
     batch.begin_us[slot] = rastq_clock_us();
-    set_band(slot, slot);
-    draw_batch(slot);
+    draw_batch(slot, slot);
 #ifdef VITA_PROFILE
     rastq_stats.cpu[slot] = rastq_thread_cpu();
 #endif
     batch.end_us[slot] = rastq_clock_us();
 }
 
-// Draws cmds[first..end), which are band-safe and share one canvas state
-// that is already set.
+// Draws cmds[first..end), which are band-safe.
 static void run_batch(unsigned first, unsigned end) {
     int i;
 
@@ -323,24 +335,21 @@ static void run_batch(unsigned first, unsigned end) {
     batch.end = end;
 
     if (rq.only_band >= 0) {
-        set_band(0, rq.only_band);
-        draw_batch(0);
+        draw_batch(0, rq.only_band);
         return;
     }
     if (rq.test_bands > 0) {
-        for (i = 0; i < rq.bands; i++) {
-            set_band(0, i);
-            draw_batch(0);
-        }
+        for (i = 0; i < rq.bands; i++)
+            draw_batch(0, i);
         return;
     }
 
     batch.start_us = rastq_clock_us();
-    VPROF_RUN(VPROF_RASTER, rastq_threads_run(batch_job, rq.bands));
+    VPROF_RUN(VPROF_RASTER, rastq_threads_run(batch_job, rq.threads));
     {
         long long now = rastq_clock_us();
         rastq_stats.wait_us += now - batch.end_us[0];
-        for (i = 0; i < rq.bands; i++) {
+        for (i = 0; i < rq.threads; i++) {
             long long late = batch.begin_us[i] - batch.start_us;
             rastq_stats.busy_us[i] += batch.end_us[i] - batch.begin_us[i];
             rq.view_finish_us[i] += batch.end_us[i] - batch.start_us;
@@ -360,34 +369,29 @@ static void apply_state(const rastq_cmd *c) {
     grd_canvas->gc.clip = c->clip;
 }
 
-static int same_state(const rastq_cmd *a, const rastq_cmd *b) {
-    return a->fill_type == b->fill_type && a->fill_parm == b->fill_parm &&
-           memcmp(&a->clip, &b->clip, sizeof(a->clip)) == 0;
-}
-
 static void replay(void) {
     unsigned k = 0, end;
 
     while (k < rq.count) {
         rastq_cmd *c = &cmds[k];
 
-        apply_state(c);
         if (rq.bands == 1) {
+            apply_state(c);
             VPROF_RUN(VPROF_RASTER, draw_cmd(c, &full_band));
             k++;
         } else if (!c->band_safe) {
             // The other threads are idle, so this call's place in the
             // drawing order is kept.
             if (rq.only_band < 0) {
+                apply_state(c);
                 VPROF_RUN(VPROF_RASTER, draw_cmd(c, &full_band));
                 if (!rq.checking)
                     rastq_stats.solo[RASTQ_SOLO_MAPPER]++;
             }
             k++;
         } else {
-            // The workers only read the canvas state, so a batch ends where
-            // the state changes.
-            for (end = k + 1; end < rq.count && cmds[end].band_safe && same_state(c, &cmds[end]); end++)
+            // a whole run of band-safe calls is handed out at once
+            for (end = k + 1; end < rq.count && cmds[end].band_safe; end++)
                 ;
             run_batch(k, end);
             k = end;
@@ -479,7 +483,7 @@ void rastq_begin(void) {
 #if defined(VITA) && defined(VITA_PROFILE)
     // Profile builds alternate what they compare (see vprof.h).
     rq.mode = vprof_variant == 0 ? RASTQ_OFF : RASTQ_TRUST_STABLE;
-    rq.min_rows = vprof_variant == 2 ? RASTQ_SMALL_VIEW_ROWS : 0;
+    rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
     if (rq.threads != RASTQ_THREADS)
         rastq_set_threads(RASTQ_THREADS);
 #endif
@@ -491,9 +495,9 @@ void rastq_begin(void) {
     rq.count = 0;
     rq.used = 0;
     rq.checking = 0;
-    rq.split = NULL;
+    rq.balance = NULL;
     if (rq.threads > 1 && rq.canvas->bm.h >= rq.min_rows)
-        rq.split = find_split(rq.canvas, rq.threads);
+        rq.balance = find_split(rq.canvas, rq.threads);
     rq.view_batches = 0;
     for (i = 0; i < RASTQ_THREADS; i++)
         rq.view_finish_us[i] = 0;
@@ -516,14 +520,14 @@ void rastq_end(void) {
     if (!rq.active)
         return;
     rastq_flush();
-    if (rq.split != NULL) {
+    if (rq.balance != NULL) {
         // A checked view also drew single bands, which says nothing about
         // how the threads compare.
         if (rq.view_batches != 0 && !rq.checking)
-            rebalance(rq.split, rq.view_finish_us);
+            rebalance(rq.balance, rq.view_finish_us);
         if (rq.canvas->bm.h >= rastq_stats.rows[RASTQ_THREADS]) {
             rastq_stats.rows[0] = 0;
-            for (i = 1; i < rq.split->threads; i++)
+            for (i = 1; i < rq.balance->threads; i++)
                 rastq_stats.rows[i] = rq.rows[i];
             for (; i <= RASTQ_THREADS; i++)
                 rastq_stats.rows[i] = rq.canvas->bm.h;
@@ -536,8 +540,8 @@ void rastq_end(void) {
 // ---- recording -----------------------------------------------------------
 
 // Flushes once the next record might not fit. This runs after the current
-// call's pixels are copied, never before: a replay can overwrite the unpack
-// buffer they may live in.
+// call's pixels are copied, never before, so that nothing drawn by the flush
+// can come between a call and the copy of its pixels.
 static void flush_if_low(void) {
     if (rq.count == RASTQ_MAX_CMDS || arena_free() < RASTQ_HEADROOM)
         rastq_flush();
@@ -617,6 +621,7 @@ static int poly_band_safe(int index) {
 
 static int record_bitmap(rastq_tmap_func func, grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti) {
     grs_bitmap rbm = *bm;
+    grs_tmap_info rti = *ti;
     size_t pixels, margin, need;
     rastq_cmd *c;
 
@@ -649,11 +654,22 @@ static int record_bitmap(rastq_tmap_func func, grs_bitmap *bm, int n, grs_vertex
     if (bm->type == BMT_RSD8 && gr_rsd8_convert(bm, &rbm) != GR_UNPACK_RSD8_OK)
         return RQ_DROPPED;
 
+    // A sprite for the blend mapper is doubled now, the way that mapper
+    // would when drawing, and recorded as what it then draws: a call every
+    // thread can take part in. It leaves the unpack buffer as direct drawing
+    // would.
+    if (func == h_umap && gr_blend_prepare(&rbm, &rti)) {
+        pixels = (size_t)rbm.row * rbm.h;
+        margin = rbm.row;
+        if (pixels + 2 * margin + n * sizeof(grs_vertex) + 16 > arena_free())
+            return RQ_DIRECT; // can't happen: the headroom exceeds the unpack buffer
+    }
+
     c = new_cmd(RQ_TMAP, n, vpl);
     c->func = func;
     c->bm = rbm;
-    c->ti = *ti;
-    c->band_safe = (uchar)tmap_band_safe(func, &rbm, ti);
+    c->ti = rti;
+    c->band_safe = (uchar)tmap_band_safe(func, &rbm, &rti);
     if (rq.mode != RASTQ_TRUST_STABLE || !is_stable(rbm.bits, pixels)) {
         uchar *copy = arena_alloc(pixels + 2 * margin);
         memcpy(copy, rbm.bits - margin, pixels + 2 * margin);

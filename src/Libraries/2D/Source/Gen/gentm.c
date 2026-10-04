@@ -70,13 +70,13 @@ void h_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
 }*/
 
 
-   if (grd_gc.fill_type!=FILL_NORM)
-      info.clut=(uchar *)grd_gc.fill_parm;
+   if (gr_band_fill_type(band)!=FILL_NORM)
+      info.clut=(uchar *)gr_band_fill_parm(band);
    else if (ti->flags&TMF_CLUT)
       if ((info.clut=ti->clut)==NULL)
          info.clut=gr_get_clut();
 
-   tm_init = (tm_init_type) grd_tmap_init_table[info.n];
+   tm_init = (tm_init_type) gr_band_table(band)[info.n];
 
    info.left_edge_func=info.right_edge_func=info.loop_func=gr_null;
 
@@ -203,25 +203,24 @@ void v_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
    fix *old_w = NULL;               /* list of old w values from vpl */
    grs_tmap_loop_info info;         /* values for inner loop routine */
    void (*tm_init)(grs_tmap_loop_info *);
-   grs_band *band;
+   grs_band *band = gr_band();
 
    info.n=bm->flags&BMF_TRANS;
-   if (info.n+2*grd_gc.fill_type==2*FILL_SOLID) {
+   if (info.n+2*gr_band_fill_type(band)==2*FILL_SOLID) {
       h_umap(bm,n,vpl,ti);
       return;
    }
    info.n+=ti->tmap_type+GRD_FUNCS*bm->type;
-   band = gr_band();
    info.band_top = band->top;
    info.band_bot = band->bot;
 
-   if (grd_gc.fill_type!=FILL_NORM)
-      info.clut=(uchar *)grd_gc.fill_parm;
+   if (gr_band_fill_type(band)!=FILL_NORM)
+      info.clut=(uchar *)gr_band_fill_parm(band);
    else if (ti->flags&TMF_CLUT)
       if ((info.clut=ti->clut)==NULL)
          info.clut=gr_get_clut();
 
-   tm_init = (tm_init_type2) grd_tmap_init_table[info.n];
+   tm_init = (tm_init_type2) gr_band_table(band)[info.n];
    info.top_edge_func=info.bot_edge_func=info.loop_func=gr_null;
 
    /* start with degenerate min and max values. */

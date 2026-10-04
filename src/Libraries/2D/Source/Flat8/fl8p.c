@@ -62,6 +62,7 @@ void gri_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
     int n_min, n_left, n_right;
     int j;
     grs_band *band = gr_band();
+    const grs_clip *clip = gr_band_clip(band);
 
     pi.scale = grd_bm.w;
     pi.scan_slope = ps->scan_slope;
@@ -123,11 +124,11 @@ void gri_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
         pi.x = fix_cint(vpl[n_left]->x);
         pi.xl = fix_cint(vpl[n_right]->x);
         if (pi.scan_slope > 0) {
-            x_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.bot - 1) - pi.yp, 1), pi.scan_slope));
-            x_min = fix_int(fix_div(fix_make((grd_int_clip.top - 1) - pi.yp, 1), pi.scan_slope)) + 1;
+            x_max = safe_fix_cint(fix_div(fix_make((clip->i.bot - 1) - pi.yp, 1), pi.scan_slope));
+            x_min = fix_int(fix_div(fix_make((clip->i.top - 1) - pi.yp, 1), pi.scan_slope)) + 1;
         } else {
-            x_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.top - 1) - pi.yp, 1), pi.scan_slope));
-            x_min = fix_int(fix_div(fix_make((grd_int_clip.bot - 1) - pi.yp, 1), pi.scan_slope)) + 1;
+            x_max = safe_fix_cint(fix_div(fix_make((clip->i.top - 1) - pi.yp, 1), pi.scan_slope));
+            x_min = fix_int(fix_div(fix_make((clip->i.bot - 1) - pi.yp, 1), pi.scan_slope)) + 1;
         }
         if (pi.x < x_min)
             pi.x = x_min;
@@ -245,11 +246,11 @@ void gri_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
                 pi.x = fix_cint(vpl[n_left]->x);
                 pi.xl = fix_cint(vpl[n_right]->x);
                 if (pi.scan_slope > 0) {
-                    x_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.bot - 1) - pi.yp, 1), pi.scan_slope));
-                    x_min = fix_int(fix_div(fix_make((grd_int_clip.top - 1) - pi.yp, 1), pi.scan_slope)) + 1;
+                    x_max = safe_fix_cint(fix_div(fix_make((clip->i.bot - 1) - pi.yp, 1), pi.scan_slope));
+                    x_min = fix_int(fix_div(fix_make((clip->i.top - 1) - pi.yp, 1), pi.scan_slope)) + 1;
                 } else {
-                    x_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.top - 1) - pi.yp, 1), pi.scan_slope));
-                    x_min = fix_int(fix_div(fix_make((grd_int_clip.bot - 1) - pi.yp, 1), pi.scan_slope)) + 1;
+                    x_max = safe_fix_cint(fix_div(fix_make((clip->i.top - 1) - pi.yp, 1), pi.scan_slope));
+                    x_min = fix_int(fix_div(fix_make((clip->i.bot - 1) - pi.yp, 1), pi.scan_slope)) + 1;
                 }
                 if (pi.x < x_min)
                     pi.x = x_min;
@@ -295,11 +296,11 @@ void gri_per_umap_hscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
                 continue;
             }
             if (pi.scan_slope > 0) {
-                x_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.bot - 1) - pi.yp, 1), pi.scan_slope));
-                x_min = fix_int(fix_div(fix_make((grd_int_clip.top - 1) - pi.yp, 1), pi.scan_slope)) + 1;
+                x_max = safe_fix_cint(fix_div(fix_make((clip->i.bot - 1) - pi.yp, 1), pi.scan_slope));
+                x_min = fix_int(fix_div(fix_make((clip->i.top - 1) - pi.yp, 1), pi.scan_slope)) + 1;
             } else {
-                x_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.top - 1) - pi.yp, 1), pi.scan_slope));
-                x_min = fix_int(fix_div(fix_make((grd_int_clip.bot - 1) - pi.yp, 1), pi.scan_slope)) + 1;
+                x_max = safe_fix_cint(fix_div(fix_make((clip->i.top - 1) - pi.yp, 1), pi.scan_slope));
+                x_min = fix_int(fix_div(fix_make((clip->i.bot - 1) - pi.yp, 1), pi.scan_slope)) + 1;
             }
             if (xl_min > x_min)
                 x_min = xl_min;
@@ -335,6 +336,7 @@ void gri_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
     int n_min, n_top, n_bot;
     int j;
     grs_band *band = gr_band();
+    const grs_clip *clip = gr_band_clip(band);
 
     pi.scale = grd_bm.w;
     pi.scan_slope = ps->scan_slope;
@@ -390,11 +392,11 @@ void gri_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
         pi.y = fix_cint(vpl[n_top]->y);
         pi.yl = fix_cint(vpl[n_bot]->y);
         if (pi.scan_slope > 0) {
-            y_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.right - 1) - pi.xp, 1), pi.scan_slope));
-            y_min = fix_int(fix_div(fix_make((grd_int_clip.left - 1) - pi.xp, 1), pi.scan_slope)) + 1;
+            y_max = safe_fix_cint(fix_div(fix_make((clip->i.right - 1) - pi.xp, 1), pi.scan_slope));
+            y_min = fix_int(fix_div(fix_make((clip->i.left - 1) - pi.xp, 1), pi.scan_slope)) + 1;
         } else {
-            y_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.left - 1) - pi.xp, 1), pi.scan_slope));
-            y_min = fix_int(fix_div(fix_make((grd_int_clip.right - 1) - pi.xp, 1), pi.scan_slope)) + 1;
+            y_max = safe_fix_cint(fix_div(fix_make((clip->i.left - 1) - pi.xp, 1), pi.scan_slope));
+            y_min = fix_int(fix_div(fix_make((clip->i.right - 1) - pi.xp, 1), pi.scan_slope)) + 1;
         }
         if (pi.y < y_min)
             pi.y = y_min;
@@ -513,11 +515,11 @@ void gri_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
                 pi.y = fix_cint(vpl[n_top]->y);
                 pi.yl = fix_cint(vpl[n_bot]->y);
                 if (pi.scan_slope > 0) {
-                    y_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.right - 1) - pi.xp, 1), pi.scan_slope));
-                    y_min = fix_int(fix_div(fix_make((grd_int_clip.left - 1) - pi.xp, 1), pi.scan_slope)) + 1;
+                    y_max = safe_fix_cint(fix_div(fix_make((clip->i.right - 1) - pi.xp, 1), pi.scan_slope));
+                    y_min = fix_int(fix_div(fix_make((clip->i.left - 1) - pi.xp, 1), pi.scan_slope)) + 1;
                 } else {
-                    y_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.left - 1) - pi.xp, 1), pi.scan_slope));
-                    y_min = fix_int(fix_div(fix_make((grd_int_clip.right - 1) - pi.xp, 1), pi.scan_slope)) + 1;
+                    y_max = safe_fix_cint(fix_div(fix_make((clip->i.left - 1) - pi.xp, 1), pi.scan_slope));
+                    y_min = fix_int(fix_div(fix_make((clip->i.right - 1) - pi.xp, 1), pi.scan_slope)) + 1;
                 }
                 if (pi.y < y_min)
                     pi.y = y_min;
@@ -563,11 +565,11 @@ void gri_per_umap_vscan(grs_bitmap *bm, int n, grs_vertex **vpl, grs_per_setup *
                 continue;
             }
             if (pi.scan_slope > 0) {
-                y_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.right - 1) - pi.xp, 1), pi.scan_slope));
-                y_min = fix_int(fix_div(fix_make((grd_int_clip.left - 1) - pi.xp, 1), pi.scan_slope)) + 1;
+                y_max = safe_fix_cint(fix_div(fix_make((clip->i.right - 1) - pi.xp, 1), pi.scan_slope));
+                y_min = fix_int(fix_div(fix_make((clip->i.left - 1) - pi.xp, 1), pi.scan_slope)) + 1;
             } else {
-                y_max = safe_fix_cint(fix_div(fix_make((grd_int_clip.left - 1) - pi.xp, 1), pi.scan_slope));
-                y_min = fix_int(fix_div(fix_make((grd_int_clip.right - 1) - pi.xp, 1), pi.scan_slope)) + 1;
+                y_max = safe_fix_cint(fix_div(fix_make((clip->i.left - 1) - pi.xp, 1), pi.scan_slope));
+                y_min = fix_int(fix_div(fix_make((clip->i.right - 1) - pi.xp, 1), pi.scan_slope)) + 1;
             }
             if (yl_min > y_min)
                 y_min = yl_min;

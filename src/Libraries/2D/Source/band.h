@@ -7,8 +7,15 @@
 // bands produce exactly the pixels of one full pass. The band covers every
 // row unless the rasterizer queue (3D/Source/rastq.c) is replaying on several
 // threads. See docs/PERFORMANCE.md, "Row bands, bit-exact".
+//
+// Threads that draw different calls of a list at the same time can't share
+// the canvas's fill state and clip, so a band can carry those for its thread.
+// The mappers then use the band's instead of the canvas's.
+
+#include <stdint.h>
 
 #include "fix.h"
+#include "grs.h"
 #include "lgslot.h"
 
 #define GR_BAND_TOP (-0x40000000)
@@ -16,12 +23,25 @@
 
 typedef struct {
     int top, bot;
+    // The thread's own drawing state, used instead of the canvas's when
+    // own_state is set:
+    int own_state;
+    int32_t fill_type;      // as grd_gc.fill_type
+    intptr_t fill_parm;     // as grd_gc.fill_parm
+    void (**table)();       // as grd_function_table, for that fill type
+    const grs_clip *clip;   // as &grd_gc.clip
 } grs_band;
 
 extern grs_band grd_bands[LG_MAX_SLOTS];
 
 // The calling thread's band
 #define gr_band() (&grd_bands[lg_slot()])
+
+// The drawing state a mapper called with band b must use
+#define gr_band_fill_type(b) ((b)->own_state ? (b)->fill_type : grd_gc.fill_type)
+#define gr_band_fill_parm(b) ((b)->own_state ? (b)->fill_parm : grd_gc.fill_parm)
+#define gr_band_table(b) ((b)->own_state ? (b)->table : grd_function_table)
+#define gr_band_clip(b) ((b)->own_state ? (b)->clip : &grd_gc.clip)
 
 // Is canvas row y in the band a mapper call was given? (tli: its loop info)
 #define gr_row_in_band(tli, y) ((y) >= (tli)->band_top && (y) < (tli)->band_bot)
