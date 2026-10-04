@@ -77,8 +77,8 @@ run something like it. It was not chosen:
 | step | what | what it proves |
 |---|---|---|
 | G1 | Feasibility: GPU set-up, a shader compiled on the Vita, the list drawn as flat-coloured polygons into an 8-bit canvas | **done**: the pieces work, coverage matches, a view costs about 1.4 ms |
-| G2 | Buffers: keep the CPU out of the memory the GPU draws into, and show the GPU's canvas without copying it | whether a GPU frame is faster overall, still in flat colours |
-| G3 | Terrain: textures, light-table and CLUT lookups, perspective | the look, on walls, floors and ceilings |
+| G2 | Buffers: keep the CPU out of the memory the GPU draws into, and show the GPU's canvas without copying it | **done**: a GPU frame is faster overall in flat colours (45 fps → the screen's 60), with two faults to fix |
+| G3 | G2's two faults (the canvas shown while it is wiped; polygons the CPU skips), then textures, light-table and CLUT lookups, perspective | the look, on everything drawn from an ordinary 8-bit bitmap |
 | G4 | Sprites, transparency, flat and Gouraud polygons, clip rectangles | objects and creatures |
 | G5 | What needs the picture already drawn: translucent surfaces, lines, voxels; cyberspace policy | no holes left, or clean CPU fallbacks |
 | G6 | A "Renderer" setting in Vita Options, compiled shaders shipped, the paneled view | players need no extra module |
@@ -95,6 +95,10 @@ Open questions, and the step that answers each:
   (G1). G2 is about that.
 - ~~How long does the GPU take per view, and what does waiting for it
   cost?~~ About 1.4 ms for the main view in flat colours (G1).
+- ~~Is a GPU frame faster overall once the CPU stays out of GPU
+  memory?~~ Yes, in flat colours: it reaches the screen's refresh rate
+  where three cores give 45 fps (G2).
+- What do textures and the table lookups cost the GPU? (G3)
 - Can a shader read the pixel already drawn? Translucent surfaces need
   it; if not, those calls fall back to the CPU. (G4)
 
@@ -244,7 +248,9 @@ has to change is where the pixels live.
 
 ## Step G2: keep the CPU out of GPU memory
 
-Built, not yet run on a Vita. Profile builds only.
+Profile builds only.
+
+### What was built
 
 - **Two canvases.** The view keeps its ordinary-memory canvas
   (`offscreenDrawSurface`, as upstream). The GPU has its own: a second
@@ -266,3 +272,73 @@ Built, not yet run on a Vita. Profile builds only.
 - **Variants:** 0 = three cores, 1 = GPU with the view copied to the
   screen as before, 2 = GPU with a full-screen view shown from its
   canvas.
+
+### Results (`docs/profiles-gpu/profile-step-2.txt`, `gpudumps-step-2/`)
+
+Standing still in the first area, 960x544, medians of the 1 s windows.
+The GPU variants are in flat colours.
+
+| ms per frame | 0: three cores | 1: GPU, view copied | 2: GPU, shown from its canvas |
+|---|---|---|---|
+| pixel filling (`raster`) | 9.49 | 1.73 | 1.72 |
+| of which waiting for the GPU | | 1.29 | 1.28 |
+| 3D pass (`traverse`) | 12.32 | 4.50 | 4.40 |
+| stars, HUD, copy to screen (`sendview`) | 3.19 | 7.71 | 2.30 |
+| help scan | 3.53 | 3.54 | 3.49 |
+| `present` | 3.17 | 3.02 | 5.04 |
+| whole frame | 22.21 | 19.35 | 15.92 |
+| fps | 45.0 | 51.7 | 62.8 |
+
+- **The memory fix worked.** The three-core path and the help scan are
+  back at their step-6 speed: neither touches GPU memory any more.
+- **Copying the view out of GPU memory costs what the GPU saves.**
+  Variant 1's `sendview` is 4.5 ms longer than the three cores': the
+  copy to the screen buffer reads the whole canvas, in the slow
+  direction. Showing the canvas itself (variant 2) removes it.
+- **Variant 2 is at the screen's refresh rate.** The menus, which do no
+  work, log 61 fps with about 15 ms of every frame spent in `present`:
+  that is the display's 60 Hz by the profiler's clock. Variant 2's
+  `present` is 2 ms longer than the others' although it copies less,
+  which is the same wait. Its real work is about 11 to 13 ms a frame, so
+  62.8 fps is a floor for the flat-coloured GPU path, not its speed. The
+  next capture logs the wait on its own.
+- **Exactness unchanged**: `check=0/377`, `leaks=0`.
+- **`gpufallbacks=136`**: the paneled (non-full-screen) view, whose
+  804-pixel-wide canvas the GPU module refuses (`gpu.txt`). Expected;
+  that view is on the roadmap for G6.
+
+Two faults:
+
+- **Variant 2 glitches and flickers** (seen on the Vita: blocks of the
+  picture black, HUD text cut where the blocks meet). Every view starts
+  by wiping its canvas on the CPU (`gr_clear` in `fr_start_view`,
+  `src/GameSrc/frsetup.c`). vita2d draws the screen a moment after
+  `SDLDraw` asks for it, tile by tile, from the canvas texture; the next
+  frame's wipe lands in the middle of that. Variant 1 is immune: it
+  copies the finished view before the next frame starts. So a canvas
+  that is on its way to the screen must not be written, by the wipe or
+  by the next frame's drawing.
+- **The GPU draws polygons the CPU skips.** Standing still, 47 pixels of
+  522,240 differ per comparison. While walking, some comparisons differ
+  by thousands (dumps 02 to 05: 2,709 to 15,800 pixels): a whole
+  polygon present on the GPU's side only. The software fillers stop at
+  the first row whose right edge is left of its left edge, which for a
+  polygon wound the other way round is the first row; the GPU scene has
+  culling off and draws both windings.
+
+### Go for G3
+
+A GPU frame is faster overall once nothing on the CPU reads or wipes the
+GPU's memory. G3 starts with the two faults:
+
+- three GPU canvases used in turn, as vita2d does with the screen's own
+  buffers, so that a canvas is reused only after two newer frames have
+  been handed to the screen; and the wipe done by the GPU, as the first
+  rectangle of its scene;
+- polygons wound the way the software fillers reject are dropped before
+  they reach the GPU.
+
+Then textures: every software mapper ends by picking a texel and
+optionally passing it through a 256-entry table (a CLUT, a row of the
+light table, a solid colour). One shader can do that with the call's
+bitmap as one texture and the tables as rows of a second one.
