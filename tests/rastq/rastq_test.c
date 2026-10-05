@@ -1002,6 +1002,100 @@ static void explain_gpu(const op_t *ops, int count) {
 }
 #endif
 
+#ifndef RASTQ_REFERENCE
+// ---- the overlays' drawing (docs/PERFORMANCE-GPU.md, step G9) -------------
+// These have a generator of their own: the frames' must give the reference
+// build the same scenes.
+static uint64_t ov_state = 0x9E3779B97F4A7C15ULL;
+static int ov_in(int lo, int hi) {
+    ov_state ^= ov_state << 13;
+    ov_state ^= ov_state >> 7;
+    ov_state ^= ov_state << 17;
+    return lo + (int)((uint32_t)(ov_state >> 16) % (uint32_t)(hi - lo + 1));
+}
+
+// A bitmap with transparent and opaque pixels in runs, as overlays have them.
+static void ov_bitmap(grs_bitmap *bm, uchar *bits, int w, int h, int row, int trans) {
+    int x, y, run = 0, clear = 0;
+    for (y = 0; y < h; y++)
+        for (x = 0; x < row; x++) {
+            if (run == 0) {
+                run = ov_in(1, 9);
+                clear = ov_in(0, 2) != 0;
+            }
+            run--;
+            bits[y * row + x] = clear ? 0 : (uchar)ov_in(0, 255);
+        }
+    gr_init_bitmap(bm, bits, BMT_FLAT8, trans ? BMF_TRANS : 0, (short)w, (short)h);
+    bm->row = (ushort)row;
+}
+
+// gr_bitmap's transparent copy against one pixel at a time, and
+// gr_scale_bitmap anywhere against the bitmap stretched once and copied
+// (which is what the game keeps of its small HUD bitmaps). Returns the
+// number of failures.
+static int test_overlays(void) {
+    static uchar bits[80 * 40], expect[960 * 544], kept[256 * 128];
+    grs_bitmap bm;
+    int n, x, y, bad_copy = 0, bad_scale = 0, stretched = 0;
+
+    set_canvas(960, 544, 960);
+    for (n = 0; n < 4000; n++) {
+        int w = ov_in(1, 70), h = ov_in(1, 12), row = w + ov_in(0, 3);
+        int px = ov_in(-80, cw + 10), py = ov_in(-14, ch + 2), fill = ov_in(0, 255);
+
+        ov_bitmap(&bm, bits, w, h, row, 1);
+        memset(canvas_bits, fill, (size_t)crow * ch);
+        memset(expect, fill, (size_t)crow * ch);
+        for (y = 0; y < h; y++)
+            for (x = 0; x < w; x++)
+                if (bits[y * row + x] != 0 && px + x >= 0 && px + x < cw && py + y >= 0 && py + y < ch)
+                    expect[(size_t)(py + y) * crow + px + x] = bits[y * row + x];
+        gr_set_cliprect(0, 0, cw, ch);
+        gr_bitmap(&bm, (short)px, (short)py);
+        bad_copy += memcmp(canvas_bits, expect, (size_t)crow * ch) != 0;
+    }
+    for (n = 0; n < 2000; n++) {
+        int w = ov_in(1, 40), h = ov_in(1, 30), row = w + ov_in(0, 3), trans = ov_in(0, 1);
+        // the game's stretch on a 960x544 screen, or any other
+        int dw = ov_in(0, 1) ? w * 3 : ov_in(1, 250), dh = ov_in(0, 1) ? h * 544 / 200 : ov_in(1, 120);
+        int px, py, fill = ov_in(1, 255);
+
+        if (dh < 1)
+            dh = 1;
+        px = ov_in(0, cw - dw);
+        py = ov_in(0, ch - dh);
+        ov_bitmap(&bm, bits, w, h, row, trans);
+        gr_set_cliprect(0, 0, cw, ch);
+        // stretched once, at the corner of an empty canvas
+        memset(canvas_bits, 0, (size_t)crow * ch);
+        gr_scale_bitmap(&bm, 0, 0, (short)dw, (short)dh);
+        for (y = 0; y < dh; y++)
+            memcpy(kept + y * dw, canvas_bits + (size_t)y * crow, (size_t)dw);
+        // and where it is asked for
+        memset(canvas_bits, fill, (size_t)crow * ch);
+        memset(expect, fill, (size_t)crow * ch);
+        for (y = 0; y < dh; y++)
+            for (x = 0; x < dw; x++)
+                if (!trans || kept[y * dw + x] != 0) {
+                    expect[(size_t)(py + y) * crow + px + x] = kept[y * dw + x];
+                    stretched++;
+                }
+        gr_scale_bitmap(&bm, (short)px, (short)py, (short)dw, (short)dh);
+        bad_scale += memcmp(canvas_bits, expect, (size_t)crow * ch) != 0;
+    }
+    printf("overlays: %d of 4000 transparent copies differ from pixel by pixel, %d of 2000 stretched bitmaps "
+           "from stretched once and copied\n",
+           bad_copy, bad_scale);
+    // a stretch that draws nothing would pass
+    if (stretched < 2000 * 100) {
+        printf("overlays: the stretched bitmaps drew only %d pixels\n", stretched);
+        return 1;
+    }
+    return bad_copy + bad_scale;
+}
+#endif
+
 int main(int argc, char **argv) {
     // width, height, bytes a row: the last is the paneled view as the GPU has
     // it on the Vita, in a canvas made for the full screen
@@ -1023,6 +1117,11 @@ int main(int argc, char **argv) {
     rng_state = argc > 2 ? strtoull(argv[2], NULL, 10) : 0x9E3779B97F4A7C15ULL;
     even_light = getenv("RASTQ_GPU_EVEN") != NULL;
     setup();
+
+#ifndef RASTQ_REFERENCE
+    if (!hash_only)
+        bad += test_overlays();
+#endif
 
     for (s = 0; s < 4; s++) {
         set_canvas(sizes[s][0], sizes[s][1], sizes[s][2]);

@@ -156,6 +156,8 @@ if(VITA)
 		set(VITA_LIBS "${VITA_LIBS} -lScePgf_stub")
 	endif()
 	SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
+	# room after the code segment for what vita-elf-create adds there
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-T,${CMAKE_SOURCE_DIR}/vita/segment-gap.ld")
 	include("${CMAKE_SOURCE_DIR}/vita/vita.cmake")
 endif()
 
@@ -238,6 +240,7 @@ set(GAME_SRC
 	src/GameSrc/hflip.c
 	src/GameSrc/hkeyfunc.c
 	src/GameSrc/hud.c
+	src/GameSrc/hudkeep.c
 	src/GameSrc/hudobj.c
 	src/GameSrc/init.c
 	src/GameSrc/input.c

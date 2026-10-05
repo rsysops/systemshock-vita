@@ -23,6 +23,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frintern.h"
 #include "frprotox.h"
 #include "gamescr.h"
+#include "hudkeep.h"
 
 #ifdef VITA
 #include <stddef.h>
@@ -320,6 +321,13 @@ void ss_bitmap(grs_bitmap *bmp, short x, short y) {
         //      Warning(("scaling %d x %d to %d x %d\n",bmp->w,bmp->h,SCONV_X(bmp->w),SCONV_Y(bmp->h)));
     } else
         gr_bitmap(bmp, x, y);
+}
+
+void ss_kept_bitmap(grs_bitmap *bmp, short x, short y) {
+    if (perform_svga_conversion(OVERRIDE_SCALE) &&
+        hudkeep_scaled(bmp, SCONV_X(x), SCONV_Y(y), SCONV_X(bmp->w), SCONV_Y(bmp->h)))
+        return;
+    ss_bitmap(bmp, x, y);
 }
 
 void ss_ubitmap(grs_bitmap *bmp, short x, short y) {

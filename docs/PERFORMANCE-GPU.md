@@ -88,7 +88,7 @@ run something like it. It was not chosen:
 | G6 | The GPU renderer in the normal build behind a "Renderer" setting, default on; the paneled view; the screen buffer when the view stops being drawn; cyberspace and low resolution left to the CPU | **done**: played through both views, pause, panels, video mail and cyberspace without a glitch; 62.9 fps against 35.9 while walking and fighting |
 | G7 | Holding the screen's rate: the help scan's repeated questions, the queue told per view whether it is the GPU's, and measurements of where a GPU frame's CPU time, `sendview` and the input stalls go | **done**: the door is back at the screen's rate; the stalls are sound effects decoded for their first use; what is left under 60 fps (58.5 at one angle) is the HUD and the help scan on the CPU, next to 3.4 ms of the main thread waiting for the GPU |
 | G8 | The help scan run while the GPU draws, in place of the main thread waiting; the HUD measured part by part | **done**: where the scan runs the main thread waits 0.4 ms for the GPU in place of 3.4; G7's heavy angle and the paneled view with labels are at the screen's rate with 1.8 ms to spare. A heavier angle (132 polygons in 354 pieces, no scan) is at 53 to 57 fps |
-| G9 | A cheaper HUD: the help label drawn once and copied; the inventory, vitals and side panels' copies over the view | 1.5 ms off a full-screen frame, 3 ms with a label, on every renderer. **Not started** |
+| G9 | A cheaper HUD: outlined text drawn once and copied; the vitals' arrows and the inventory's buttons stretched once and copied; transparent copies four pixels at a time | **done**: the full-screen HUD from 2.2-3.3 ms to 1.35-1.9, from 4.4 to 1.5 with a help label, on every renderer, no pixel changed in 438 checks. The hallway angle is at 59 fps in full screen, 55 paneled |
 | G10 | The sending shared between the three cores: deciding what each call is and cutting it up, the hand-over staying in order | about 2 ms off the frames with many pieces. **Not started** |
 
 G2 was not in the first roadmap. G1 showed that the memory question
@@ -1486,3 +1486,172 @@ each call is and cutting it up, the hand-over staying in order), about
 
 Left out: the wait when the scan doesn't run (nothing else in the frame
 is free to run in that time); the paneled view's copy; the stalls.
+
+## Step G9: a cheaper HUD
+
+Built and run on a Vita. Results at the end of this section.
+
+The HUD is redrawn identically frame after frame, on every renderer.
+Three changes make that drawing cheaper without changing a pixel of it.
+
+### Outlined text is drawn once and kept
+
+`draw_shadowed_string` (`src/GameSrc/tools.c`) draws a string nine
+times: eight copies in the outline's colour around its place, then the
+text. `hudkeep_outlined` (`src/GameSrc/hudkeep.c`) makes those nine
+draws, with the same calls, into a canvas of its own, keeps the part
+they cover and copies it each frame, transparent where nothing was
+drawn. It covers the help label and the HUD's messages, which both end
+in that function.
+
+- A text is known by its string, font, colours and screen mode. Eight
+  are kept; the one unused the longest goes.
+- A text is made into a picture the second time it is asked for, so one
+  that changes every frame (a counter) is drawn as before and costs
+  nothing more.
+- Drawn as before whenever the copy couldn't be the same: a colour that
+  is palette index 0 (the picture's "nothing here"), a text that
+  reaches the edge of the 1024x128 canvas it is made in, a fill type
+  other than the normal one.
+
+### Small stretched bitmaps are kept
+
+`ss_bitmap` stretches a 320x200 bitmap to the screen's size at every
+call. The vitals are up to 46 arrows of a few pixels and two icons a
+frame, each a stretch of its own; the inventory's page buttons are a
+292x10 bitmap stretched to 876x27 every frame. `ss_kept_bitmap`
+(`src/GameSrc/gr2ss.c`, `hudkeep_scaled`) keeps the stretched result
+and copies it.
+
+- A bitmap is known by its pixels, compared byte for byte at every
+  call, not by its address: one that changed is stretched again.
+- Only uncompressed 8-bit bitmaps of at most 4,096 pixels, stretched to
+  at most 32,768, landing whole inside the clip rectangle. Anything else
+  is stretched as before (the vitals' icons, if they are compressed).
+- It rests on the stretch giving the same pixels wherever the bitmap
+  goes, which the PC test checks.
+
+Asked for where the game draws the same small bitmap frame after frame:
+`draw_status_arrow` and the icons in `src/GameSrc/vitals.c`, the page
+buttons in `inv_update_fullscreen`. `ss_bitmap` itself is unchanged.
+
+### Transparent copies go four pixels at a time
+
+`flat8_flat8_ubitmap` (`src/Libraries/2D/Source/Flat8/fl8fl8.c`) copied
+a transparent bitmap one pixel at a time, testing each. It now reads
+four: all transparent, it skips them; none transparent, it copies them;
+otherwise one by one as before. A bitmap copied onto itself goes the
+old way. This is the copy of the inventory and the side panels over the
+view, and of the kept pictures above.
+
+### Checked on the PC
+
+`tests/rastq/rastq_test.c` (`test_overlays`), in `tests/rastq/run.sh`:
+
+- 4,000 transparent copies of random bitmaps, at random places and
+  partly off the canvas, against one pixel at a time: none differs. A
+  wrong test of the four pixels, put in on purpose, fails 3,230 of them.
+- 2,000 random bitmaps stretched at random places against the same
+  bitmap stretched once at the corner and copied: none differs.
+
+Not checkable on the PC: the game's texts and bitmaps themselves. The
+profile build checks them as it runs.
+
+### New in the log (profile build)
+
+| field | what |
+|---|---|
+| `hudkept=text:a/b,scaled:c/d` | per frame: outlined texts copied / drawn, stretched bitmaps copied / stretched |
+| `hudcheck=bad/runs` | kept pictures also drawn the old way and compared (one text in 64, one bitmap in 2,039), and how many differed. `bad` must stay 0. A checked frame is left out of the timings |
+
+### The build
+
+`vita/segment-gap.ld`, passed to the linker from `CMakeLists.txt`: the
+profile package stopped building with "Cannot allocate 4584 bytes for
+SCE data at end of segment 0; segment 1 overlaps". `vita-elf-create`
+puts the module's data after the code segment and needs room there; the
+default linker script starts the data segment at the next 64 KB
+boundary, so the build failed whenever the code happened to end within
+4.5 KB of one, which this step's code did. The fragment keeps 8 KB free
+after the code. Both packages start on the Vita with it.
+
+### What the capture will show
+
+- `hudparts`: `label` from 1.75 ms to a few tenths, `vitals` and `inv`
+  down; `text` when a message shows.
+- `hudcheck` with `bad` at 0, and `hudkept` showing the copies are used
+  (about one text and fifty bitmaps a frame).
+- The full-screen HUD from 3.3 ms to about 2, and from 5 to about 2.2
+  with a label. Estimates: how the vitals' 0.9 ms splits between arrows,
+  icons and meters isn't measured.
+- To look at in the normal build: the outline and the text of labels
+  and messages, the health and energy bars as they change, the
+  inventory's pages and buttons, a side panel, in both views.
+
+### Results (`docs/profiles-gpu/profile-step-9.txt`, `gpu.txt`, `gpudumps-step-9/`)
+
+Medians of the 1 s windows, cut by the check numbers noted while
+playing:
+
+| | 0: three cores | 1: GPU | GPU: waiting for the screen |
+|---|---|---|---|
+| standing still | 46.8 fps | 63.2 fps | 5.6 ms (4.7 in G8) |
+| G7's heavy angle, labels on | 29.8 fps | 63.5 fps | 5.9 ms (1.8 in G8) |
+| a fight | 37.7 fps | 63.2 fps | 4.6 ms |
+| the hallway angle, full screen | 39.1 fps | 59.0 fps (16.95 ms; 55.4 fps in G8) | none |
+| the hallway angle, paneled | 61.4 fps | 55.3 fps (18.1 ms) | none |
+| fights, paneled | 61.9 fps | 63.0 fps | 3.4 ms |
+
+The HUD (`hud`, `hudparts`), ms a frame on the GPU renderer; three
+cores gain the same:
+
+| | G8 | G9 |
+|---|---|---|
+| full screen, no label | 2.2 to 3.3 | 1.35 to 1.9 |
+| full screen with a help label | 4.4 | 1.5 |
+| `label` | 1.76 | 0.20 |
+| `inv` | 1.2 | 0.6 |
+| `vitals` | 0.9 | 0.65 |
+| `hand`, when a weapon is out | 0.4 | 0.4 |
+
+- **`hudcheck=0/438`**: no kept picture differed from the old drawing.
+  No glitch was reported from the play-through.
+- `hudkept`: one text and 28 to 30 stretched bitmaps copied a frame,
+  none made again once the first frames are past.
+- **The vitals gained little.** The arrows are the 29 copies; what is
+  left is the two icons and the meters, which this step didn't touch.
+- `check=0`, `leaks=0`, `gpufallbacks=0`, 6.6% of the compared pixels
+  differ, 5 dumps.
+- **Stalls**: 24, most of them in the fights. 19 have a sound effect's
+  first decoding in them (20 to 190 ms), three a resource load alone,
+  two show nothing in the timers there are.
+
+What is left at the hallway angle, GPU renderer, ms a frame:
+
+| | full screen | paneled |
+|---|---|---|
+| sending (`gpuprepare` + `gpusubmit`), 133 polygons in 354 pieces | 5.1 | 4.8 |
+| blocked on the GPU, no scan to run meanwhile | 3.8 | 2.4 |
+| the view's way to the screen (`viewout`) | 0.1 | 2.9 |
+| HUD | 1.8 | 0.5 |
+| whole frame | 16.95 | 18.1 |
+
+In the paneled view three cores draw that angle in 16.3 ms: the GPU
+loses there by the 2.9 ms copy of the view out of GPU memory.
+
+### Go for G10
+
+The sending shared between the three cores: deciding what each call is
+and cutting it into pieces is done by the main thread alone while the
+two worker cores do nothing. The pieces are still handed to the GPU in
+the order the game drew them.
+
+Expected, not measured: about 2 ms off the frames with many pieces, the
+hallway angle near 14.7 ms in full screen and 15.8 ms paneled. How the
+5 ms split between the cutting and the hand-over, which stays on one
+core, is not known.
+
+After that, to choose from: the paneled view shown from GPU memory in
+place of copied (2.9 ms; everything the game draws over the view on the
+screen has to be looked at); the wait when the help scan doesn't run
+(2.4 to 3.8 ms); the stalls.

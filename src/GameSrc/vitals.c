@@ -208,7 +208,7 @@ errtype status_vitals_update(uchar Full_Redraw) {
         draw_status_bar(minx, maxx, health_x, STATUS_VITALS_Y_TOP);
         ref = ((global_fullmap->cyber) ? REF_IMG_bmCyberIcon1 : REF_IMG_bmHealthIcon1) + (health_x / 8);
         icon_bmp = lock_bitmap_from_ref(ref);
-        ss_bitmap(icon_bmp, STATUS_ICON_X, STATUS_VITALS_Y_TOP);
+        ss_kept_bitmap(icon_bmp, STATUS_ICON_X, STATUS_VITALS_Y_TOP);
         // gr_bitmap(icon_bmp, SCONV_X(STATUS_ICON_X), SCONV_Y(STATUS_VITALS_Y_TOP));
         RefUnlock(ref);
 
@@ -227,7 +227,7 @@ errtype status_vitals_update(uchar Full_Redraw) {
             draw_status_bar(minx, maxx, energy_x, STATUS_VITALS_Y_BOTTOM + 1);
             ref = REF_IMG_bmEnergyIcon1 + (energy_x / 8);
             icon_bmp = lock_bitmap_from_ref(ref);
-            ss_bitmap(icon_bmp, STATUS_ICON_X, STATUS_VITALS_Y_BOTTOM);
+            ss_kept_bitmap(icon_bmp, STATUS_ICON_X, STATUS_VITALS_Y_BOTTOM);
             // gr_bitmap(icon_bmp, SCONV_X(STATUS_ICON_X), SCONV_Y(STATUS_VITALS_Y_BOTTOM));
             RefUnlock(ref);
 
@@ -256,7 +256,7 @@ errtype draw_status_arrow(int x_coord, int y) {
         index = 1;
     else
         index = 2;
-    ss_bitmap(&status_arrows[index], STATUS_VITALS_X_BASE + (x_coord * STATUS_ANGLE_SIZE), y);
+    ss_kept_bitmap(&status_arrows[index], STATUS_VITALS_X_BASE + (x_coord * STATUS_ANGLE_SIZE), y);
     // gr_bitmap(&status_arrows[index],
     //					SCONV_X(STATUS_VITALS_X_BASE + (x_coord * STATUS_ANGLE_SIZE)),
     //					SCONV_Y(y));

@@ -13,5 +13,5 @@ texture units: bitmap 0, tables 1; transparent: bitmap 0, tables 1
 drawing the texture check
 texture check drawn: 0 0 0 0 wrong
 timing memory
-gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 (wrong columns of 256) | 512KB us: gpu_write=705 gpu_read=4856 ram_write=261 ram_read=1221
+gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 (wrong columns of 256) | 512KB us: gpu_write=705 gpu_read=4879 ram_write=298 ram_read=1234
 3 canvases 960x544, 960 bytes a row, the first at 0x62c00000

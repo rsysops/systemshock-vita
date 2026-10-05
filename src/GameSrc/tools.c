@@ -49,6 +49,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "OpenGL.h"
 #include "Shock.h"
 #include "VitaGpu.h"
+#include "hudkeep.h"
 
 //------------
 //  PROTOTYPES
@@ -91,6 +92,9 @@ void draw_shadowed_string(char *s, short x, short y, uchar shadow) {
         if ((convert_use_mode > 0) && (perform_svga_conversion(OVERRIDE_FONT))) {
             if (shadow_scale)
                 ss_point_convert(&(npt.x), &(npt.y), FALSE);
+            // the same nine draws, kept as a picture from one frame to the next
+            if (hudkeep_outlined(s, npt.x, npt.y, shadow))
+                return;
             gr_set_fcolor(shadow);
             ss_scale_string(s, npt.x - 1, npt.y - 1);
             ss_scale_string(s, npt.x, npt.y - 1);

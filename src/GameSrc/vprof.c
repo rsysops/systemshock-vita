@@ -14,6 +14,7 @@
 #include "rastq.h"
 #include "vprof.h"
 #include "VitaGpu.h"
+#include "hudkeep.h"
 
 #define VPROF_WINDOWS_PER_VARIANT 5
 #define VPROF_FIXDIV_CHECK_CASES 1000000
@@ -138,6 +139,9 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.gpu_overlap_us = 0;
     rastq_stats.gpu_cpu_us = 0;
     memset(&vgpu_counters, 0, sizeof(vgpu_counters));
+    // the checks' counts run on, like the other self-checks'
+    hudkeep_stats.text_hits = hudkeep_stats.text_misses = 0;
+    hudkeep_stats.scaled_hits = hudkeep_stats.scaled_misses = 0;
     rastq_stats.gpu_prepare_us = 0;
     for (i = 0; i < RASTQ_SOLO_REASONS; i++)
         rastq_stats.solo[i] = 0;
@@ -212,7 +216,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "helprend=%.2f/%.2f stars=%.2f/%.2f hud=%.2f/%.2f viewout=%.2f/%.2f | "
                 "sndload=%.2f/%.2f resload=%.2f/%.2f | "
                 "gpuoverlap=%.2f hudparts=hand:%.2f,label:%.2f,text:%.2f,buttons:%.2f,mfd:%.2f,inv:%.2f,"
-                "vitals:%.2f,icons:%.2f\n",
+                "vitals:%.2f,icons:%.2f | "
+                "hudkept=text:%.1f/%.2f,scaled:%.1f/%.2f hudcheck=%u/%u\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -296,7 +301,12 @@ static void vprof_window_flush(SceInt64 now) {
                 frame_avg_ms(VPROF_HUD_MFD, g_frame_samples),
                 frame_avg_ms(VPROF_HUD_INV, g_frame_samples),
                 frame_avg_ms(VPROF_HUD_VITALS, g_frame_samples),
-                frame_avg_ms(VPROF_HUD_ICONS, g_frame_samples));
+                frame_avg_ms(VPROF_HUD_ICONS, g_frame_samples),
+                (double)hudkeep_stats.text_hits / g_frame_samples,
+                (double)hudkeep_stats.text_misses / g_frame_samples,
+                (double)hudkeep_stats.scaled_hits / g_frame_samples,
+                (double)hudkeep_stats.scaled_misses / g_frame_samples,
+                hudkeep_stats.check_bad, hudkeep_stats.checks);
         fclose(fp);
     }
 }
