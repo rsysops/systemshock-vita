@@ -57,6 +57,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "grenades.h"
 #include "mfdext.h"
 #include "olhext.h"
+#include "vprof.h"
 #include "citres.h"
 #include "cit2d.h"
 #include "gr2ss.h"
@@ -254,6 +255,31 @@ void olh_scan_objects(void) {
         hudobj_set_id(olh_object.obj, TRUE);
     }
 #endif // SET_HUDOBJ
+}
+
+static uchar scan_render; // the render under way is the game loop's
+static uchar scan_ran;    // and the scan ran in it
+
+void olh_scan_render_begin(void) {
+    scan_render = TRUE;
+    scan_ran = FALSE;
+}
+
+void olh_scan_render_end(void) { scan_render = FALSE; }
+
+uchar olh_scan_in_render(void) {
+    // the game loop's own conditions (see game_loop)
+    if (!scan_render || scan_ran || olh_overlay_on || !olh_active || global_fullmap->cyber)
+        return FALSE;
+    scan_ran = TRUE;
+    VPROF_RUN(VPROF_HELPSCAN, olh_scan_objects());
+    return TRUE;
+}
+
+uchar olh_scan_ran_in_render(void) {
+    uchar ran = scan_ran;
+    scan_ran = FALSE;
+    return ran;
 }
 
 LGPoint draw_olh_string(char *s, short xl, short yl) {

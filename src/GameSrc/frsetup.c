@@ -135,6 +135,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "FrUtils.h"
 #include "fullscrn.h"
 #include "star.h"
+#include "hudobj.h"
+#include "olhext.h"
 
 #ifdef STEREO_SUPPORT
 #include <inp6d.h>
@@ -849,8 +851,18 @@ extern uchar view360_is_rendering;
 int fr_send_view(void) {
     uchar snd_frm = TRUE;
     bool ok_to_double;
+    // The GPU may still be drawing this view: rastq_end doesn't wait for
+    // it, and until rastq_gpu_finish the canvas is the GPU's. (Not the help
+    // scan's own view, which the CPU draws during that time.)
+    uchar gpu_draws = rastq_gpu_busy() && !(_fr_curflags & FR_PICKUPM_MASK);
 
     // printf("fr_send_view\n");
+
+    // the stars go into the pixels a star field left: they read the picture
+    if (gpu_draws && star_field_seen()) {
+        rastq_gpu_finish();
+        gpu_draws = FALSE;
+    }
 
     // JAEMZ JAEMZ JAEMZ
     // render the stars, if there were
@@ -866,6 +878,28 @@ int fr_send_view(void) {
 
     g3_end_frame();
     VPROF_MARK_END(VPROF_STARS);
+
+    if (gpu_draws) {
+        // Nothing above touched the canvas, and the view's 3D frame is
+        // closed. The help scan is a render of its own into a canvas of its
+        // own: it runs now, in the time the GPU takes, and not later in the
+        // game loop. Then the view goes on as if nothing had been rendered
+        // in between: the scan's render leaves the rectangles of its HUD
+        // objects, in its own coordinates, which the next frame used to
+        // clear before anything read them.
+        fauxrend_context *view = _fr;
+        uint flags = _fr_curflags;
+        grs_canvas *canvas = grd_canvas;
+        ubyte hudobjs = current_num_hudobjs;
+
+        if (olh_scan_in_render()) {
+            _fr = view;
+            _fr_curflags = flags;
+            current_num_hudobjs = hudobjs;
+            gr_set_canvas(canvas);
+        }
+        rastq_gpu_finish();
+    }
 
     if(should_opengl_swap()) {
         opengl_end_frame();

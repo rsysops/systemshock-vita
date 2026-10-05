@@ -87,7 +87,9 @@ run something like it. It was not chosen:
 | G5 | Light worked out per pixel in place of slabs; the colour-table fill type on the GPU, so that a frame is one scene; shader A dropped | **done**: shadow edges as fine as the CPU's; the screen's rate at the test spot (a 14.6 ms frame against 22.4 on three cores) and while walking (62.5 fps against 36.3) |
 | G6 | The GPU renderer in the normal build behind a "Renderer" setting, default on; the paneled view; the screen buffer when the view stops being drawn; cyberspace and low resolution left to the CPU | **done**: played through both views, pause, panels, video mail and cyberspace without a glitch; 62.9 fps against 35.9 while walking and fighting |
 | G7 | Holding the screen's rate: the help scan's repeated questions, the queue told per view whether it is the GPU's, and measurements of where a GPU frame's CPU time, `sendview` and the input stalls go | **done**: the door is back at the screen's rate; the stalls are sound effects decoded for their first use; what is left under 60 fps (58.5 at one angle) is the HUD and the help scan on the CPU, next to 3.4 ms of the main thread waiting for the GPU |
-| G8 | The help scan run while the GPU draws, in place of the main thread waiting; the HUD measured part by part | the heavy angle and the paneled view with help labels at the screen's rate with 2 to 3 ms to spare. **Not started** |
+| G8 | The help scan run while the GPU draws, in place of the main thread waiting; the HUD measured part by part | **done**: where the scan runs the main thread waits 0.4 ms for the GPU in place of 3.4; G7's heavy angle and the paneled view with labels are at the screen's rate with 1.8 ms to spare. A heavier angle (132 polygons in 354 pieces, no scan) is at 53 to 57 fps |
+| G9 | A cheaper HUD: the help label drawn once and copied; the inventory, vitals and side panels' copies over the view | 1.5 ms off a full-screen frame, 3 ms with a label, on every renderer. **Not started** |
+| G10 | The sending shared between the three cores: deciding what each call is and cutting it up, the hand-over staying in order | about 2 ms off the frames with many pieces. **Not started** |
 
 G2 was not in the first roadmap. G1 showed that the memory question
 decides whether the GPU path is worth anything, so it comes before
@@ -1298,3 +1300,189 @@ needs the CPU is not known.
 
 Left out: the stalls (their own task, later); the paneled view's copy
 (G8 gives it the time).
+
+## Step G8: use the GPU's time
+
+Built and run on a Vita. Results at the end of this section.
+
+### The queue hands the last scene over and doesn't wait
+
+`rastq_gpu` has a `finish` next to `end`: `end` gives the scene to the
+GPU (`sceGxmEndScene`), `finish` returns once the canvas holds it
+(`sceGxmFinish`). The queue still waits at once wherever the CPU touches
+the canvas within the view: before a call left to the CPU, between two
+scenes, in the profile build's comparison, and after a flush in the
+middle of a view (voxels and direct calls are drawn straight after it).
+Only the last scene of `rastq_end` is left to the GPU. Until
+`rastq_gpu_finish` the canvas is the GPU's; `rastq_gpu_busy` says so.
+
+### The view scans while the GPU draws
+
+`fr_send_view`, for a view the GPU is still drawing:
+
+1. If the view shows a star field (`star_field_seen`, which is
+   `star_render`'s own test), it waits first: the stars go into the
+   pixels the field left, so they read the picture.
+2. Otherwise the stars' block draws nothing and closes the view's 3D
+   frame, as it always did.
+3. It runs the help scan (`olh_scan_in_render`), a render of its own
+   into a canvas of its own, on the three cores.
+4. It waits for the GPU (`rastq_gpu_finish`), then draws the HUD and the
+   cursor and sends the view, as before.
+
+The scan is the game loop's: `game_loop` marks its `render_run` as the
+one the scan may run in, `olh_scan_in_render` runs `olh_scan_objects`
+under the loop's own conditions, and the loop skips its scan if the
+render ran it. Other renders (video mail, the wait cursor) never scan,
+as before. With the CPU renderers, or stars in view, the scan stays
+where it was.
+
+What the game sees: the same scan, a game step earlier (before
+`physics_run` in place of after), so the label is the one of the picture
+it is drawn on and not of the frame before.
+
+A second render between a view's render and its HUD changes four things
+the HUD and the send use, and `fr_send_view` puts them back: `_fr`,
+`_fr_curflags`, the current canvas, and `current_num_hudobjs`. The last
+one is a trap: the scan's render stores the rectangles of HUD objects
+(the target box, the beam's end) in its own small coordinates
+(`SET_HUDOBJ_RECT`). The next frame used to clear them before anything
+read them; run before the HUD, they would give a second, misplaced
+target box. The HUD's path makes no 3D calls, so the scan's 3D frame
+changes nothing for it.
+
+### Checked on the PC
+
+The test's stand-in GPU now draws aside and copies its picture to the
+canvas only at `finish`, so a canvas read or written before the wait
+shows as a wrong picture. `draw_scene` does what `fr_send_view` does:
+when the GPU still has the view's last scene, the CPU renders the same
+calls as a second view into another canvas, which must come out as the
+mappers draw it and leave the GPU's scene out, and only then waits. The
+comparison's GPU side must be the finished picture.
+
+`tests/rastq/run.sh 300`: passes; the GPU is left its last scene in 682
+of 1,200 frames (the others end on a call the CPU draws). Each of these,
+put into `rastq.c` on purpose, fails the test: no wait before a call
+left to the CPU, none after a flush in mid-view, none in the comparison,
+and waiting at the end after all.
+
+Not checkable on the PC: the game's side (the scan inside the render,
+the HUD after it), and how much of the GPU's time the CPU really gets.
+
+### New in the log (profile build)
+
+| field | what |
+|---|---|
+| `gpuwait=` | now: issuing the scene's draws, and the time the main thread is really blocked on the GPU |
+| `gpuoverlap=` | the time between handing the last scene over and starting to wait for it: what the CPU did meanwhile |
+| `hudparts=` | of `hud`: `hand` the weapon in hand, `label` the help label, `text` compass and messages, and in full screen `buttons` the two button panels, `mfd` the two side panels, `inv` the inventory, `vitals` vitals and meters, `icons` the side icons |
+
+`render3d` and `sendview` now contain the help scan when it runs in the
+render; `helpscan` is still its own time.
+
+### What the capture will show
+
+- `gpuoverlap` about the help scan's time and `gpuwait` near zero with
+  help on: the wait is hidden. If `gpuwait` stays at 3 ms, the GPU needs
+  a core the scan is using and the gain is smaller.
+- The heavy angle and the paneled view with labels at the screen's rate
+  (`swapwait` above 2 ms).
+- `hudparts`: whether `label` is the 1.75 ms step, and which part of the
+  full-screen HUD is the rest.
+- To look at in the normal build: the help labels follow objects as
+  before; one target box, in its place; a window onto space; pause,
+  video mail, the paneled view.
+
+### Results (`docs/profiles-gpu/profile-step-8.txt`, `gpu.txt`, `gpudumps-step-8/`)
+
+Medians of the 1 s windows, cut by the check numbers noted while
+playing:
+
+| | 0: three cores | 1: GPU | GPU: waiting for the screen |
+|---|---|---|---|
+| standing still | 46.2 fps | 63.3 fps | 4.7 ms (2.0 in G7) |
+| moving | 33.1 fps | 62.8 fps | 3.2 ms |
+| G7's heavy angle, labels on | 31.5 fps | 63.3 fps (58.5 in G7) | 1.8 ms |
+| the same, paneled | 51.0 fps | 63.1 fps | 1.8 ms (0.1 in G7) |
+| the hallway angle, full screen, no scan | 37.0 fps | 55.4 fps (18.0 ms) | none |
+| the same, paneled | 58.3 fps | 57.0 fps (17.6 ms) | none |
+| the hallway angle again, help off | 35.1 fps | 53.2 fps (18.8 ms) | none |
+| turning on the spot, help on | 40.7 fps | 62.8 fps | 3.3 ms |
+| the same spot, help off | 48.9 fps | 62.7 fps | 5.4 ms |
+| cyberspace (three cores in both) | 62.8 fps | 62.6 fps | 3.4 ms |
+
+- **The wait is hidden where the scan runs.** `gpuwait` is 0.2 to
+  0.45 ms (3.4 in G7) and `gpuoverlap` 2.4 to 3.8 ms, the scan's time:
+  the GPU doesn't need the cores the scan uses. No glitch was reported
+  from the play-through.
+- **Without the scan nothing changes**: `gpuwait` 3.2 to 3.7 ms,
+  `gpuoverlap` 0.02 ms.
+- `check=0`, `leaks=0`, `gpufallbacks=0`, 6.2% of the compared pixels
+  differ, 3 dumps.
+- **Stalls**: 14. Seven have a sound effect's first decoding in them,
+  three a resource load alone, two are the cyberspace level loading
+  (2.5 s in, 7.7 s out), and two (129 and 67 ms) show nothing in the
+  timers there are.
+
+The HUD's parts (`hudparts`, ms a frame, the same on three cores):
+
+| | full screen | paneled |
+|---|---|---|
+| help label, when one shows | 1.6 to 1.9 | 1.75 |
+| inventory | 1.2 | |
+| vitals and meters | 0.9 | |
+| a side panel, when one is open | 0.6 | |
+| weapon in hand | 0.4 | 0.4 |
+| messages, when there is one | 1.0 | |
+| button panels, side icons | 0.1 | |
+
+The label is G7's 1.75 ms step: `draw_shadowed_string`'s nine draws.
+
+**The hallway angle** (past the large door of the first rooms, looking
+down the main hallway) is a different case from G7's:
+
+| ms a frame, GPU renderer | standing still | the hallway angle |
+|---|---|---|
+| polygons, and the pieces they are cut into | 77, 76 | 132 to 139, 354 to 365 |
+| sending (`gpuprepare` + `gpusubmit`) | 1.8 | 5.0 |
+| blocked on the GPU (`gpuwait`) | 0.45 | 3.7 |
+| help scan | 2.9 | none |
+| HUD | 2.2 | 3.3 |
+| whole frame, without the wait for the screen | 11.1 | 18.0 to 18.8 |
+
+- It is heavy for the sending: lit polygons there are cut into 2.7
+  pieces each, on one core, while the two worker cores do nothing.
+- The wait has nothing to hide behind: the scan doesn't run there.
+- In the paneled view the GPU is slower than three cores there (57.0
+  against 58.3 fps): the sending, plus the 2.9 ms copy of the view out
+  of GPU memory.
+
+**Why the scan doesn't run there**: not the port. The level has a
+trigger past that door that switches on-screen help off and saves the
+option as off (`trap_questbit_func` in `src/GameSrc/trigger.c`, quest
+bit 0x2091, "special hack for auto shutoff of on-line help"); a new
+game switches it on again. That fits both G7 captures, where the scan
+also ended for good while leaving the first rooms. Kept as the original
+has it.
+
+### Go for G9
+
+A cheaper HUD, for every renderer:
+
+- the help label drawn into a small bitmap when its text changes and
+  copied each frame, in place of nine string draws a frame;
+- the copies of the inventory, the vitals and the side panels over the
+  view: large bitmaps, mostly see-through. How much there is to save is
+  to be read from the code first.
+
+Expected, not measured: 1.5 ms off a full-screen frame, 3 ms with a
+label. The hallway angle would be at 16.5 to 17 ms, near the screen's
+rate and not safely at it.
+
+Then G10: the sending shared between the three cores (deciding what
+each call is and cutting it up, the hand-over staying in order), about
+2 ms off the frames with many pieces.
+
+Left out: the wait when the scan doesn't run (nothing else in the frame
+is free to run in that time); the paneled view's copy; the stalls.

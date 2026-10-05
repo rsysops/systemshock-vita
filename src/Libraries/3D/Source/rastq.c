@@ -101,6 +101,10 @@ static struct {
     int gpu_survey; // this view isn't the GPU's: only count what it could draw of it
     int survey_next;
     int gpu_view_next; // the caller's word on the view that starts next
+    int gpu_out;       // a scene the GPU has and hasn't been waited for
+    int gpu_out_timed; // that scene's times count
+    long long gpu_out_us; // when it was handed over
+    int ending;        // the flush under way is the view's last
     int clear_pending; // the view's canvas is still to be cleared
     int clear_color;
     int active;
@@ -220,6 +224,26 @@ static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next(canvas->b
 void rastq_gpu_view(int on) { rq.gpu_view_next = on; }
 
 void rastq_gpu_survey(void) { rq.survey_next = 1; }
+
+// Waits for the scene the GPU still has, if it has one.
+static void gpu_finish(void) {
+    long long start, now;
+
+    if (!rq.gpu_out)
+        return;
+    start = rastq_clock_us();
+    rq.gpu->finish();
+    now = rastq_clock_us();
+    rq.gpu_out = 0;
+    if (rq.gpu_out_timed) {
+        rastq_stats.gpu_overlap_us += (unsigned long long)(start - rq.gpu_out_us);
+        rastq_stats.gpu_wait_us += (unsigned long long)(now - start);
+    }
+}
+
+int rastq_gpu_busy(void) { return rq.gpu_out; }
+
+void rastq_gpu_finish(void) { gpu_finish(); }
 
 int rastq_gpu_clear(int color) {
     if (!rq.gpu_view_next || !gpu_takes(grd_canvas))
@@ -759,6 +783,7 @@ static void gpu_prepare(void) {
 static int gpu_scene_begin(void) {
     grs_bitmap *bm = &rq.canvas->bm;
 
+    gpu_finish(); // a scene nobody waited for
     if (!rq.gpu->begin(bm->bits, bm->w, bm->h, bm->row, &gpu_tables[0][0], gpu_rows))
         return 0;
     if (rq.clear_pending) {
@@ -778,10 +803,19 @@ static int gpu_scene_begin(void) {
     return 1;
 }
 
-static void gpu_scene_end(void) {
+// Hands the scene to the GPU. With wait, the canvas holds it on return;
+// without, the GPU is left to it (see rastq_gpu_finish).
+static void gpu_scene_end(int wait) {
     gpu_lap(&rastq_stats.gpu_submit_us);
     rq.gpu->end();
     gpu_lap(&rastq_stats.gpu_wait_us);
+    rq.gpu_out = 1;
+    rq.gpu_out_timed = !rq.gpu_check;
+    rq.gpu_out_us = gpu_lap_us;
+    if (wait) {
+        gpu_finish();
+        gpu_lap_us = rastq_clock_us();
+    }
 }
 
 // A texture is taken to repeat no more than this many times along a polygon.
@@ -1117,7 +1151,7 @@ static int gpu_run(void) {
                 dead = 1;
             if (in_scene && !(sent = gpu_emit(c))) {
                 // the scene is full: the call opens the next one
-                gpu_scene_end();
+                gpu_scene_end(1);
                 in_scene = gpu_scene_begin();
                 if (!in_scene)
                     dead = 1;
@@ -1133,7 +1167,7 @@ static int gpu_run(void) {
             continue;
         }
         if (in_scene) {
-            gpu_scene_end();
+            gpu_scene_end(1); // the CPU draws on the canvas next
             in_scene = 0;
         }
         clear_on_cpu();
@@ -1145,8 +1179,10 @@ static int gpu_run(void) {
         }
         gpu_lap(&rastq_stats.gpu_cpu_us);
     }
+    // The last scene is left to the GPU: whoever touches the canvas next
+    // waits for it.
     if (in_scene)
-        gpu_scene_end();
+        gpu_scene_end(0);
     return 1;
 }
 
@@ -1186,6 +1222,7 @@ static int gpu_replay(void) {
         memcpy(check_before, bm->bits, canvas_bytes());
         if (!gpu_run())
             return 0;
+        gpu_finish();
         memcpy(check_direct, bm->bits, canvas_bytes());
         memcpy(bm->bits, check_before, canvas_bytes());
         replay();
@@ -1232,6 +1269,10 @@ void rastq_flush(void) {
     if (rq.gpu_view) {
         if (gpu_replay()) {
             rastq_stats.flushes++;
+            // what comes after a flush in the middle of a view is drawn
+            // straight to the canvas
+            if (!rq.ending)
+                gpu_finish();
             goto drawn;
         }
         rastq_stats.gpu_fallbacks++;
@@ -1337,7 +1378,9 @@ void rastq_end(void) {
 
     if (!rq.active)
         return;
+    rq.ending = 1;
     rastq_flush();
+    rq.ending = 0;
     if (rq.balance != NULL) {
         // A checked view also drew single bands, which says nothing about
         // how the threads compare.

@@ -91,6 +91,7 @@ static gpu_block blocks[MAX_BLOCKS];
 static gpu_target targets[MAX_TARGETS];
 static SceGxmColorSurface scene_color;
 static int in_scene;
+static int scene_out; // a scene ended and not waited for: the GPU may still be drawing it
 
 static vgpu_vertex *vertices;
 static uint16_t *indices;
@@ -369,12 +370,21 @@ static void refused(const char *why, const uchar *bits, int w, int h, int row, i
                 (unsigned)err);
 }
 
+// Returns once the GPU has drawn the scenes ended so far.
+static void vgpu_finish(void) {
+    if (scene_out)
+        sceGxmFinish(context);
+    scene_out = 0;
+}
+
 static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows) {
     gpu_target *t;
     int target_w = w, target_h = h, err;
 
     if (!ready)
         return 0;
+    // the tables, vertices and bitmaps of a scene still out are in use
+    vgpu_finish();
     // A view draws into the top left of one of the view canvases, whatever
     // its own size; the start-up checks into memory of their own.
     if (is_canvas(bits)) {
@@ -402,8 +412,8 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
         refused("no 8-bit color surface", bits, w, h, row, err);
         return 0;
     }
-    // The last scene has finished (vgpu_end waits), so its tables and
-    // bitmaps can be replaced.
+    // The last scene has finished, so its tables and bitmaps can be
+    // replaced.
     if (tables != NULL && tables_pixels != NULL)
         memcpy(tables_pixels, tables, (size_t)rows * 256);
     err = sceGxmBeginScene(context, 0, t->target, NULL, NULL, NULL, &scene_color, &t->depth_stencil);
@@ -586,8 +596,9 @@ static void vgpu_end(void) {
     vgpu_counters.draws += textured ? draw_count : 1;
     vgpu_counters.draw_us += (unsigned long long)(sceKernelGetProcessTimeWide() - start);
     sceGxmEndScene(context, NULL, NULL);
-    // the CPU goes on drawing into the canvas: the GPU must be done with it
-    sceGxmFinish(context);
+    // The GPU has the scene. Whoever touches the canvas next waits for it
+    // (vgpu_finish); until then the CPU is free for something else.
+    scene_out = 1;
     in_scene = 0;
 }
 
@@ -650,7 +661,7 @@ static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int 
 #define vgpu_compared NULL
 #endif
 
-static const rastq_gpu queue_hooks = {vgpu_begin, vgpu_flat, vgpu_tmap, vgpu_end, vgpu_compared};
+static const rastq_gpu queue_hooks = {vgpu_begin, vgpu_flat, vgpu_tmap, vgpu_end, vgpu_finish, vgpu_compared};
 
 // ---- set-up ----------------------------------------------------------------
 
@@ -854,6 +865,7 @@ static int index_check(int *first_bad, int *got, int *kept) {
     for (k = 0; k < 256; k++)
         quad(k, k + 1, k);
     vgpu_end();
+    vgpu_finish();
     for (k = 0; k < 256; k++) {
         int value = canvas[(CHECK_H / 2) * CHECK_W + k];
         if (value != k) {
@@ -870,6 +882,8 @@ static int index_check(int *first_bad, int *got, int *kept) {
     if (vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, NULL, 0)) {
         quad(0, CHECK_W / 2, 0x11);
         vgpu_end();
+        vgpu_finish();
+    vgpu_finish();
         *kept = canvas[(CHECK_H / 2) * CHECK_W + CHECK_W - 8] == 0x55 && canvas[(CHECK_H / 2) * CHECK_W + 8] == 0x11;
     }
     vgpu_free(canvas);
@@ -950,6 +964,7 @@ static int texture_check(int bad[CHECK_BANDS]) {
             vgpu_tmap(&tiles_bm, RASTQ_GPU_TRANS | RASTQ_GPU_WRAP, 4, v);
     }
     vgpu_end();
+    vgpu_finish();
 
     for (band = 0; band < CHECK_BANDS; band++) {
         const uchar *row = canvas + (band * BAND_H + BAND_H / 2) * CHECK_W;

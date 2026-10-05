@@ -22,6 +22,15 @@ typedef enum {
     VPROF_VIEWOUT,  // of sendview: the cursor and the view's way to the screen
     VPROF_SNDLOAD,  // a sound effect decoded for its first use
     VPROF_RESLOAD,  // a resource read from the card
+    // of hud:
+    VPROF_HUD_HAND,    // the weapon in hand
+    VPROF_HUD_LABEL,   // the help label
+    VPROF_HUD_TEXT,    // compass and messages
+    VPROF_HUD_BUTTONS, // full screen: the two button panels
+    VPROF_HUD_MFD,     // full screen: the two side panels
+    VPROF_HUD_INV,     // full screen: the inventory
+    VPROF_HUD_VITALS,  // full screen: vitals and meters
+    VPROF_HUD_ICONS,   // full screen: the side icons
     VPROF_PHASE_COUNT
 } vprof_phase_t;
 

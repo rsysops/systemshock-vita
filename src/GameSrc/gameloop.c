@@ -131,7 +131,11 @@ void game_loop(void) {
 
         if (localChanges) {
             TRACE("%s: render_run", __FUNCTION__);
+            // with the GPU renderer the help scan runs in there, while the
+            // GPU draws
+            olh_scan_render_begin();
             loopLine(GL | 0x1A, VPROF_RUN(VPROF_RENDER3D, render_run()));
+            olh_scan_render_end();
 
             TRACE("%s: status_vitals_update", __FUNCTION__);
             loopLine(GL | 0x17, VPROF_RUN(VPROF_UI2D, if (!full_game_3d) status_vitals_update(FALSE)));
@@ -175,7 +179,7 @@ void game_loop(void) {
         TRACE("%s: physics_run", __FUNCTION__);
         loopLine(GL | 0x15, VPROF_RUN(VPROF_SIM, physics_run()));
         {
-            if (!olh_overlay_on && olh_active && !global_fullmap->cyber) {
+            if (!olh_scan_ran_in_render() && !olh_overlay_on && olh_active && !global_fullmap->cyber) {
                 TRACE("%s: olh_scan_objects", __FUNCTION__);
                 VPROF_RUN(VPROF_HELPSCAN, olh_scan_objects());
             }

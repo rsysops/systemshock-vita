@@ -43,6 +43,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "faketime.h"
 #include "fullscrn.h"
 #include "olhext.h"
+#include "vprof.h"
 #include "cit2d.h"
 #include "damage.h"
 
@@ -592,12 +593,14 @@ errtype hud_update(uchar redraw_whole, frc *context) {
         xwid = SCREEN_VIEW_WIDTH;
         x = SCREEN_VIEW_X + X_MARGIN;
     }
+    VPROF_MARK_BEGIN(VPROF_HUD_TEXT);
     if ((!global_fullmap->cyber) && (player_struct.hud_modes & HUD_COMPASS))
         hud_update_compass(&y, x, xwid);
     hud_update_lines(x, &y, xwid, fc->ywid);
+    VPROF_MARK_END(VPROF_HUD_TEXT);
 
     if (olh_active)
-        olh_do_hudobjs(fc->xtop, fc->ytop);
+        VPROF_RUN(VPROF_HUD_LABEL, olh_do_hudobjs(fc->xtop, fc->ytop));
     hud_do_objs(fc->xtop, fc->ytop, fc->xwid, fc->ywid, FALSE);
 
     ResUnlock(RES_tinyTechFont);

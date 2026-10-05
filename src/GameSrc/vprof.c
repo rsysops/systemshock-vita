@@ -135,6 +135,7 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
         rastq_stats.gpu_whys[i] = 0;
     rastq_stats.gpu_submit_us = 0;
     rastq_stats.gpu_wait_us = 0;
+    rastq_stats.gpu_overlap_us = 0;
     rastq_stats.gpu_cpu_us = 0;
     memset(&vgpu_counters, 0, sizeof(vgpu_counters));
     rastq_stats.gpu_prepare_us = 0;
@@ -209,7 +210,9 @@ static void vprof_window_flush(SceInt64 now) {
                 "size:%.1f,other:%.1f | "
                 "gpuprepare=%.2f gpuupload=%.2f gpudraw=%.2f gpudraws=%.1f | "
                 "helprend=%.2f/%.2f stars=%.2f/%.2f hud=%.2f/%.2f viewout=%.2f/%.2f | "
-                "sndload=%.2f/%.2f resload=%.2f/%.2f\n",
+                "sndload=%.2f/%.2f resload=%.2f/%.2f | "
+                "gpuoverlap=%.2f hudparts=hand:%.2f,label:%.2f,text:%.2f,buttons:%.2f,mfd:%.2f,inv:%.2f,"
+                "vitals:%.2f,icons:%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -284,7 +287,16 @@ static void vprof_window_flush(SceInt64 now) {
                 frame_avg_ms(VPROF_HUD, g_frame_samples), frame_max_ms(VPROF_HUD),
                 frame_avg_ms(VPROF_VIEWOUT, g_frame_samples), frame_max_ms(VPROF_VIEWOUT),
                 frame_avg_ms(VPROF_SNDLOAD, g_frame_samples), frame_max_ms(VPROF_SNDLOAD),
-                frame_avg_ms(VPROF_RESLOAD, g_frame_samples), frame_max_ms(VPROF_RESLOAD));
+                frame_avg_ms(VPROF_RESLOAD, g_frame_samples), frame_max_ms(VPROF_RESLOAD),
+                us_to_ms(rastq_stats.gpu_overlap_us) / g_frame_samples,
+                frame_avg_ms(VPROF_HUD_HAND, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_LABEL, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_TEXT, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_BUTTONS, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_MFD, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_INV, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_VITALS, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_ICONS, g_frame_samples));
         fclose(fp);
     }
 }

@@ -82,7 +82,8 @@ typedef struct {
     unsigned gpu_fallbacks;             // lists it refused, drawn by the CPU
     unsigned long long gpu_prepare_us;  // deciding what each call is, and the tables
     unsigned long long gpu_submit_us;   // cutting the calls up and handing them over
-    unsigned long long gpu_wait_us;     // waiting for the GPU to finish them
+    unsigned long long gpu_wait_us;     // issuing a scene's draws, and waiting for the GPU to finish them
+    unsigned long long gpu_overlap_us;  // what the CPU did of something else while the GPU drew
     unsigned long long gpu_cpu_us;      // the CPU drawing between scenes
     unsigned long long gpu_check_pixels; // pixels compared with the CPU's
     unsigned long long gpu_check_diff;  // of those, how many differed
@@ -150,8 +151,10 @@ typedef struct {
     // bitmap's pixels are valid until the scene ends. 0: no room left in
     // this scene.
     int (*tmap)(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v);
-    // Ends the scene and returns once the canvas holds the result.
+    // Ends the scene: the GPU has it and draws it.
     void (*end)(void);
+    // Returns once the canvas holds the result of the scenes ended so far.
+    void (*finish)(void);
     // Told of each comparison of its result with the CPU's, and how many
     // pixels differed. May be NULL.
     void (*compared)(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing);
@@ -171,6 +174,11 @@ void rastq_gpu_view(int on);
 // thing in its scene and this returns 1. Otherwise it does nothing and
 // returns 0.
 int rastq_gpu_clear(int color);
+// rastq_end doesn't wait for the last scene of a view the GPU draws: until
+// rastq_gpu_finish, the canvas is the GPU's and the CPU must leave it alone,
+// but is free for anything else. rastq_gpu_busy: is a scene still out?
+int rastq_gpu_busy(void);
+void rastq_gpu_finish(void);
 // For a view the GPU is kept out of: has the view that rastq_begin starts
 // next count, in gpu_kinds and gpu_whys, what the GPU could draw of it.
 void rastq_gpu_survey(void);

@@ -74,6 +74,9 @@ void star_sky(void);
 // an object frame if you'd like to rotate them and such
 void star_render(void);
 
+// whether star_render has anything to draw, and so reads the canvas
+uchar star_field_seen(void);
+
 // transform star point frugally, only doing z if possible against
 // half plane, then projecting if in viewing pyramid
 g3s_phandle star_transform_point(g3s_vector *v);

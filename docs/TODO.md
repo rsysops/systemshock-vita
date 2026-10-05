@@ -14,3 +14,5 @@
 * Cyberspace GPU rendered?
 * Cyberspace controls are bad? Could add rear touchscreen controls as option?
 * Stutters: a sound effect is decoded on the main thread the first time it plays (~0.2 s freeze). Decode in the background or at level load? See PERFORMANCE-GPU.md, step G7
+* Classic vs Enhanced vs Port
+* On help HUD is disable automatically

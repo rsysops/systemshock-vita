@@ -111,6 +111,10 @@ static grs_canvas canvas;
 static int cw, ch, crow; // crow: bytes from one row to the next
 #define RESULTS 5
 static uchar *canvas_bits, *background, *result[RESULTS];
+// Where the stand-in GPU draws until it is waited for, and a second view's
+// canvas, for the CPU to draw while the GPU has the first
+static uchar *shadow_bits, *other_bits;
+static grs_canvas other_canvas;
 static uchar *ltab, *ipal, *stab, *unpack, *scratch;
 static uchar tluc_tables[32][256];
 static MemStack temp_stack;
@@ -254,6 +258,12 @@ static void set_canvas(int w, int h, int row) {
         free(result[i]);
         result[i] = malloc((size_t)row * h);
     }
+    free(shadow_bits);
+    free(other_bits);
+    shadow_bits = malloc((size_t)row * h);
+    other_bits = malloc((size_t)row * h);
+    gr_init_canvas(&other_canvas, other_bits, BMT_FLAT8, (short)w, (short)h);
+    other_canvas.bm.row = (ushort)row;
     gr_init_canvas(&canvas, canvas_bits, BMT_FLAT8, (short)w, (short)h);
     canvas.bm.row = (ushort)row;
     gr_set_canvas(&canvas);
@@ -611,27 +621,22 @@ static int make_scene(op_t *ops) {
 
 // ---- drawing ----------------------------------------------------------
 
-static void draw_scene(const op_t *ops, int count, int mode, uchar *out) {
-    int k, i, y;
-
-    // Same starting point every time, including memory the mappers may read
-    // without having written it.
-    memcpy(canvas_bits, background, (size_t)crow * ch);
+// Same starting point every time, including memory the mappers may read
+// without having written it.
+static void fresh_start(uchar *bits) {
+    memcpy(bits, background, (size_t)crow * ch);
     memset(unpack - PAD, 0x11, UNPACK_BYTES + 2 * PAD);
     memset(scratch - PAD, 0x22, SCRATCH_BYTES + 2 * PAD);
     memset(temp_mem, 0x33, TEMP_BYTES);
     gr_set_fill_type(FILL_NORM);
     gr_set_fill_parm(0);
     gr_set_cliprect(0, 0, cw, ch);
+}
 
-    rastq_set_mode(mode);
-#ifndef RASTQ_REFERENCE
-    // As a view starts: its canvas is one the GPU can draw into, and the
-    // clear is the GPU's if the view is.
-    rastq_gpu_view(1);
-    if (consistent_background && !rastq_gpu_clear(0x4d))
-        gr_clear(0x4d);
-#endif
+// A view's calls, on the current canvas.
+static void record_view(const op_t *ops, int count) {
+    int k, i, y;
+
     rastq_begin();
     for (k = 0; k < count; k++) {
         const op_t *o = &ops[k];
@@ -666,10 +671,56 @@ static void draw_scene(const op_t *ops, int count, int mode, uchar *out) {
         } else {
             rastq_flush();
             for (y = 0; y < o->rh; y++)
-                memset(canvas_bits + (size_t)(o->ry + y) * crow + o->rx, (int)o->color, (size_t)o->rw);
+                memset(grd_canvas->bm.bits + (size_t)(o->ry + y) * crow + o->rx, (int)o->color, (size_t)o->rw);
         }
     }
     rastq_end();
+}
+
+#ifndef RASTQ_REFERENCE
+// What a second view of the same calls must look like when the CPU draws it
+// while the GPU has the first (NULL: no second view), and what came of it
+static const uchar *other_expected;
+static unsigned left_out, other_views, other_bad, other_lost;
+
+// As the game does with its help scan: another view, the CPU's, rendered
+// between the end of the GPU's view and the wait for it. It must come out
+// as the mappers draw it, and leave the GPU's scene out.
+static void draw_other_view(const op_t *ops, int count) {
+    gr_set_canvas(&other_canvas);
+    fresh_start(other_bits);
+    rastq_gpu_view(0);
+    if (consistent_background)
+        gr_clear(0x4d);
+    record_view(ops, count);
+    gr_set_canvas(&canvas);
+    other_views++;
+    other_bad += memcmp(other_bits, other_expected, (size_t)crow * ch) != 0;
+    other_lost += !rastq_gpu_busy();
+}
+#endif
+
+static void draw_scene(const op_t *ops, int count, int mode, uchar *out) {
+    fresh_start(canvas_bits);
+    rastq_set_mode(mode);
+#ifndef RASTQ_REFERENCE
+    // As a view starts: its canvas is one the GPU can draw into, and the
+    // clear is the GPU's if the view is.
+    rastq_gpu_view(1);
+    if (consistent_background && !rastq_gpu_clear(0x4d))
+        gr_clear(0x4d);
+#endif
+    record_view(ops, count);
+#ifndef RASTQ_REFERENCE
+    // As a view is sent: the GPU may still have its last scene, and nothing
+    // reads the canvas before the wait.
+    if (rastq_gpu_busy()) {
+        left_out++;
+        if (other_expected != NULL)
+            draw_other_view(ops, count);
+        rastq_gpu_finish();
+    }
+#endif
     memcpy(out, canvas_bits, (size_t)crow * ch);
 }
 
@@ -739,14 +790,21 @@ static struct {
     int rows;
 } ref;
 static unsigned ref_compared;
+// A scene handed over and not waited for: its pixels aren't on the canvas
+static int ref_out;
+static unsigned ref_unfinished;
 // What the queue's comparison must hold against the GPU's picture when a
 // scene is drawn in one go, and whether the last comparison did
-static const uchar *ref_expected_cpu;
-static int ref_cpu_matched;
+static const uchar *ref_expected_cpu, *ref_expected_gpu;
+static int ref_cpu_matched, ref_gpu_matched;
 static int ref_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows) {
     if (bits != canvas_bits || w != cw || h != ch)
         return 0;
-    ref.bits = bits;
+    // It draws aside and the canvas gets the result at the wait, so that a
+    // canvas read or written too early shows in the picture.
+    ref_unfinished += ref_out;
+    memcpy(shadow_bits, bits, (size_t)row * h);
+    ref.bits = shadow_bits;
     ref.w = w;
     ref.h = h;
     ref.row = row;
@@ -854,17 +912,24 @@ static int ref_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vert
     return 1;
 }
 
-static void ref_end(void) {}
+static void ref_end(void) { ref_out = 1; }
+
+static void ref_finish(void) {
+    if (ref_out)
+        memcpy(canvas_bits, shadow_bits, (size_t)ref.row * ref.h);
+    ref_out = 0;
+}
 
 static void ref_compared_cb(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing) {
     (void)differing;
-    (void)gpu;
     ref_compared++;
     (void)w;
     ref_cpu_matched = ref_expected_cpu != NULL && memcmp(cpu, ref_expected_cpu, (size_t)row * h) == 0;
+    // the GPU's side of a comparison is its finished picture
+    ref_gpu_matched = ref_expected_gpu != NULL && memcmp(gpu, ref_expected_gpu, (size_t)row * h) == 0;
 }
 
-static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_end, ref_compared_cb};
+static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_end, ref_finish, ref_compared_cb};
 
 // The share of a frame's pixels that may differ between the stand-in and the
 // mappers, and the share over a whole run.
@@ -1080,7 +1145,9 @@ int main(int argc, char **argv) {
                         rastq_use_gpu(1);
                         rastq_set_check_interval(0);
                         memset(&rastq_stats, 0, sizeof(rastq_stats));
+                        other_expected = result[1];
                         draw_scene(gpu_ops, gpu_count, RASTQ_TRUST_STABLE, result[2]);
+                        other_expected = NULL;
                         diff = differing(result[1], result[2]);
                         far = differing_nearby(result[1], result[2]);
                         gpu_diff += diff;
@@ -1095,14 +1162,16 @@ int main(int argc, char **argv) {
                         rastq_set_check_interval(1);
                         memset(&rastq_stats, 0, sizeof(rastq_stats));
                         ref_expected_cpu = result[1];
+                        ref_expected_gpu = result[2];
                         draw_scene(gpu_ops, gpu_count, RASTQ_TRUST_STABLE, result[4]);
-                        ref_expected_cpu = NULL;
+                        ref_expected_cpu = ref_expected_gpu = NULL;
                         // in one go: one comparison, and nothing drawn past the queue
                         whole = ref_compared - compared == 1 && rastq_stats.solo[RASTQ_SOLO_DIRECT] == 0;
                         for (k = 0; k < gpu_count; k++)
                             whole = whole && gpu_ops[k].op != OP_RECT;
                         check_ok = rastq_stats.gpu_check_pixels > 0 && ref_compared > compared &&
-                                   (!whole || ref_cpu_matched) && differing(result[2], result[4]) == 0;
+                                   (!whole || (ref_cpu_matched && ref_gpu_matched)) &&
+                                   differing(result[2], result[4]) == 0;
                         gpu_whole_checks += whole;
                         rastq_use_gpu(0);
                         rastq_set_gpu(NULL);
@@ -1166,6 +1235,13 @@ int main(int argc, char **argv) {
            gpu_cpu_calls);
     if (gpu_whole_checks == 0) {
         printf("  no scene was compared in one go\n");
+        bad++;
+    }
+    printf("  the GPU was left its last scene %u times; %u views drawn by the CPU meanwhile\n", left_out, other_views);
+    if (left_out == 0 || other_views == 0 || other_bad || other_lost || ref_unfinished) {
+        printf("  of those views %u came out wrong and %u had the GPU waited for; %u scenes begun on one not "
+               "waited for\n",
+               other_bad, other_lost, ref_unfinished);
         bad++;
     }
     printf("  lit polygons in %u pieces; %.2f%% of pixels differ from the mappers', %.3f%% not near one that matches\n",
