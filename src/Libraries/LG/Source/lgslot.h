@@ -3,7 +3,7 @@
 
 // Which rasterizer thread is running. Slot 0 is the main thread, and any
 // thread that never registered; the others are the workers that fill pixels
-// in parallel (see docs/PERFORMANCE.md, "Multicore rasterizer"). Per-thread
+// in parallel (see docs/PERFORMANCE-CPU.md, "Multicore rasterizer"). Per-thread
 // state, such as temporary memory, is kept in one entry per slot.
 
 #define LG_MAX_SLOTS 3

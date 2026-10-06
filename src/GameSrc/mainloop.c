@@ -43,6 +43,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "InitMac.h"
 #include "Shock.h"
+#include "VitaGpu.h"
 #include "amaploop.h"
 #include "cutsloop.h"
 #include "game_screen.h"
@@ -101,6 +102,7 @@ void loopmode_switch(short *cmode) {
 #endif
 
     // Actually switch mode
+    VitaSyncView(); // the screens from here on are drawn on the screen buffer
     _last_mode = *cmode;
     (*exit_modes[_last_mode])();
     *cmode = _new_mode;

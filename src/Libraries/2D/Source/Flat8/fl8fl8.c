@@ -52,7 +52,37 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "bitmap.h"
 #include "cnvdat.h"
 #include "lg.h"
+#include <stdint.h>
 #include <string.h>
+
+// A row of a transparent bitmap, four pixels at a time: overlays are mostly
+// transparent, with their opaque pixels in runs. Source and destination
+// don't overlap.
+static void trans_row(uchar *dst, const uchar *src, int w) {
+    int i = 0;
+
+    for (; i + 4 <= w; i += 4) {
+        uint32_t four;
+        memcpy(&four, src + i, 4);
+        if (four == 0)
+            continue;
+        if (((four - 0x01010101u) & ~four & 0x80808080u) == 0) { // no pixel of the four is 0
+            memcpy(dst + i, &four, 4);
+            continue;
+        }
+        if (src[i] != 0)
+            dst[i] = src[i];
+        if (src[i + 1] != 0)
+            dst[i + 1] = src[i + 1];
+        if (src[i + 2] != 0)
+            dst[i + 2] = src[i + 2];
+        if (src[i + 3] != 0)
+            dst[i + 3] = src[i + 3];
+    }
+    for (; i < w; i++)
+        if (src[i] != 0)
+            dst[i] = src[i];
+}
 
 void flat8_flat8_ubitmap(grs_bitmap *bm, short x, short y) {
     uchar *m_src;
@@ -68,15 +98,24 @@ void flat8_flat8_ubitmap(grs_bitmap *bm, short x, short y) {
     m_src = bm->bits;
     m_dst = grd_bm.bits + grow * y + x;
 
-    if (bm->flags & BMF_TRANS)
-        while (h--) {
-            for (i = 0; i < w; i++)
-                if (m_src[i] != 0)
-                    m_dst[i] = m_src[i];
+    if (bm->flags & BMF_TRANS) {
+        // A bitmap drawn onto itself goes pixel by pixel, in the order it
+        // always did.
+        const uchar *src_end = m_src + (size_t)brow * (h > 0 ? h - 1 : 0) + w;
+        const uchar *dst_end = m_dst + (size_t)grow * (h > 0 ? h - 1 : 0) + w;
+        int apart = (const uchar *)m_dst >= src_end || (const uchar *)m_src >= dst_end;
+
+        while (h-- > 0) {
+            if (apart)
+                trans_row(m_dst, m_src, w);
+            else
+                for (i = 0; i < w; i++)
+                    if (m_src[i] != 0)
+                        m_dst[i] = m_src[i];
             m_src += brow;
             m_dst += grow;
         }
-    else
+    } else
         while (h--) {
             memmove(m_dst, m_src, w);
 

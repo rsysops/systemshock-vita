@@ -2640,7 +2640,7 @@ void inv_update_fullscreen(uchar full) {
         // CC - something about this in 640x480 mode does not scale correctly
         gr_bitmap(bm, 172, 470); // KLC - was ss_bitmap (with scaling)
     } else {
-        ss_bitmap(bm, INVENTORY_PANEL_X, BUTTON_PANEL_Y);
+        ss_kept_bitmap(bm, INVENTORY_PANEL_X, BUTTON_PANEL_Y);
     }
 
     bm->flags &= BMF_TRANS;

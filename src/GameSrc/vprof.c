@@ -1,10 +1,11 @@
-// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE.md,
+// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE-CPU.md,
 // "How to measure", for the spec this implements.
 
 #ifdef VITA_PROFILE
 
 #include <psp2/kernel/processmgr.h>
 #include <stdio.h>
+#include <string.h>
 #include <vita2d.h>
 
 #include "Shock.h"
@@ -12,6 +13,8 @@
 #include "mainloop.h"
 #include "rastq.h"
 #include "vprof.h"
+#include "VitaGpu.h"
+#include "hudkeep.h"
 
 #define VPROF_WINDOWS_PER_VARIANT 5
 #define VPROF_FIXDIV_CHECK_CASES 1000000
@@ -46,6 +49,7 @@ static SceInt64 g_mark_t0[VPROF_PHASE_COUNT];
 // this copy, taken when the frame began.
 static vprof_call_accum_t g_call_accum_at_frame_begin[VPROF_PHASE_COUNT];
 static rastq_stats_t g_rastq_at_frame_begin;
+static vgpu_counters_t g_vgpu_at_frame_begin;
 static int g_frame_discard = 0;
 
 // 3D views drawn in the window's frames
@@ -95,6 +99,7 @@ static void vprof_startup_checks(void) {
     fp = vprof_open_log();
     if (fp != NULL) {
         fprintf(fp, "fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
+        fprintf(fp, "%s\n", vgpu_report());
         fclose(fp);
     }
 }
@@ -120,6 +125,26 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.batches = 0;
     rastq_stats.wait_us = 0;
     rastq_stats.late_us = 0;
+    rastq_stats.gpu_scenes = 0;
+    rastq_stats.gpu_polys = 0;
+    rastq_stats.gpu_culled = 0;
+    rastq_stats.gpu_cpu_calls = 0;
+    rastq_stats.gpu_pieces = 0;
+    for (i = 0; i < RASTQ_GPU_KINDS; i++)
+        rastq_stats.gpu_kinds[i] = 0;
+    for (i = 0; i < RASTQ_GPU_WHYS; i++)
+        rastq_stats.gpu_whys[i] = 0;
+    rastq_stats.gpu_submit_us = 0;
+    rastq_stats.gpu_wait_us = 0;
+    rastq_stats.gpu_overlap_us = 0;
+    rastq_stats.gpu_cpu_us = 0;
+    memset(&vgpu_counters, 0, sizeof(vgpu_counters));
+    // the checks' counts run on, like the other self-checks'
+    hudkeep_stats.text_hits = hudkeep_stats.text_misses = 0;
+    hudkeep_stats.scaled_hits = hudkeep_stats.scaled_misses = 0;
+    rastq_stats.gpu_prepare_us = 0;
+    for (i = 0; i < RASTQ_THREADS; i++)
+        rastq_stats.gpu_cut[i] = 0;
     for (i = 0; i < RASTQ_SOLO_REASONS; i++)
         rastq_stats.solo[i] = 0;
     for (i = 0; i < RASTQ_THREADS; i++)
@@ -183,7 +208,18 @@ static void vprof_window_flush(SceInt64 now) {
                 "calls_per_frame=%.1f raster_call_avg=%.3f | music=%.1f%% acpu=%d mcpu=%d | "
                 "record=%.2f/%.2f cmds=%.1f copied=%.1fKB flushes=%.2f check=%u/%u | "
                 "views=%.2f batches=%.1f solo=%.1f/%.1f wait=%.2f busy=%.2f/%.2f/%.2f late=%u "
-                "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f\n",
+                "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f | "
+                "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu "
+                "gpuculled=%.1f gpucpu=%.1f/%.2f gputex=%.1fKB swapwait=%.2f | "
+                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f,shaded:%.1f,line:%.1f,point:%.1f gpupieces=%.1f "
+                "gpuwhy=tlucbm:%.1f,spoly:%.1f,tlucpoly:%.1f,poly:%.1f,fill:%.1f,verts:%.1f,light:%.1f,clip:%.1f,"
+                "size:%.1f,other:%.1f | "
+                "gpuprepare=%.2f gpuupload=%.2f gpudraw=%.2f gpudraws=%.1f | "
+                "helprend=%.2f/%.2f stars=%.2f/%.2f hud=%.2f/%.2f viewout=%.2f/%.2f | "
+                "sndload=%.2f/%.2f resload=%.2f/%.2f | "
+                "gpuoverlap=%.2f hudparts=hand:%.2f,label:%.2f,text:%.2f,buttons:%.2f,mfd:%.2f,inv:%.2f,"
+                "vitals:%.2f,icons:%.2f | "
+                "hudkept=text:%.1f/%.2f,scaled:%.1f/%.2f hudcheck=%u/%u | gpucut=%.1f/%.1f/%.1f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -221,7 +257,64 @@ static void vprof_window_flush(SceInt64 now) {
                 rastq_stats.rows[1], rastq_stats.rows[2], rastq_stats.rows[3],
                 rastq_stats.cpu[0], rastq_stats.cpu[1], rastq_stats.cpu[2],
                 rastq_stats.check_leak_rows,
-                frame_avg_ms(VPROF_HELPSCAN, g_frame_samples), frame_max_ms(VPROF_HELPSCAN));
+                frame_avg_ms(VPROF_HELPSCAN, g_frame_samples), frame_max_ms(VPROF_HELPSCAN),
+                (double)rastq_stats.gpu_scenes / g_frame_samples,
+                (double)rastq_stats.gpu_polys / g_frame_samples,
+                us_to_ms(rastq_stats.gpu_submit_us) / g_frame_samples,
+                us_to_ms(rastq_stats.gpu_wait_us) / g_frame_samples,
+                rastq_stats.gpu_fallbacks,
+                rastq_stats.gpu_check_diff,
+                rastq_stats.gpu_check_pixels,
+                (double)rastq_stats.gpu_culled / g_frame_samples,
+                (double)rastq_stats.gpu_cpu_calls / g_frame_samples,
+                us_to_ms(rastq_stats.gpu_cpu_us) / g_frame_samples,
+                (double)vgpu_counters.texture_bytes / 1024.0 / g_frame_samples,
+                us_to_ms(vgpu_counters.swap_wait_us) / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_FLAT] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_PLAIN] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_CLUT] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_LIT] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_SHADED] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_LINE] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_POINT] / g_frame_samples,
+                (double)rastq_stats.gpu_pieces / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_BITMAP] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_SHADED_POLY] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_POLY] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_OTHER_POLY] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_FILL] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_VERTS] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_LIGHT] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_CLIP] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_SIZE] / g_frame_samples,
+                (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_OTHER] / g_frame_samples,
+                us_to_ms(rastq_stats.gpu_prepare_us) / g_frame_samples,
+                us_to_ms(vgpu_counters.upload_us) / g_frame_samples,
+                us_to_ms(vgpu_counters.draw_us) / g_frame_samples,
+                (double)vgpu_counters.draws / g_frame_samples,
+                frame_avg_ms(VPROF_HELPREND, g_frame_samples), frame_max_ms(VPROF_HELPREND),
+                frame_avg_ms(VPROF_STARS, g_frame_samples), frame_max_ms(VPROF_STARS),
+                frame_avg_ms(VPROF_HUD, g_frame_samples), frame_max_ms(VPROF_HUD),
+                frame_avg_ms(VPROF_VIEWOUT, g_frame_samples), frame_max_ms(VPROF_VIEWOUT),
+                frame_avg_ms(VPROF_SNDLOAD, g_frame_samples), frame_max_ms(VPROF_SNDLOAD),
+                frame_avg_ms(VPROF_RESLOAD, g_frame_samples), frame_max_ms(VPROF_RESLOAD),
+                us_to_ms(rastq_stats.gpu_overlap_us) / g_frame_samples,
+                frame_avg_ms(VPROF_HUD_HAND, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_LABEL, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_TEXT, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_BUTTONS, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_MFD, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_INV, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_VITALS, g_frame_samples),
+                frame_avg_ms(VPROF_HUD_ICONS, g_frame_samples),
+                (double)hudkeep_stats.text_hits / g_frame_samples,
+                (double)hudkeep_stats.text_misses / g_frame_samples,
+                (double)hudkeep_stats.scaled_hits / g_frame_samples,
+                (double)hudkeep_stats.scaled_misses / g_frame_samples,
+                hudkeep_stats.check_bad, hudkeep_stats.checks,
+                (double)rastq_stats.gpu_cut[0] / g_frame_samples,
+                (double)rastq_stats.gpu_cut[1] / g_frame_samples,
+                (double)rastq_stats.gpu_cut[2] / g_frame_samples);
         fclose(fp);
     }
 }
@@ -271,6 +364,7 @@ void vprof_frame_begin(void) {
         g_call_accum_at_frame_begin[i] = g_call_accum[i];
     }
     g_rastq_at_frame_begin = rastq_stats;
+    g_vgpu_at_frame_begin = vgpu_counters;
     g_frame_discard = 0;
 
     g_frame_t0 = now;
@@ -300,6 +394,10 @@ void vprof_frame_end(void) {
         rastq_stats.check_runs = now_stats.check_runs;
         rastq_stats.check_bad_rows = now_stats.check_bad_rows;
         rastq_stats.check_leak_rows = now_stats.check_leak_rows;
+        rastq_stats.gpu_fallbacks = now_stats.gpu_fallbacks;
+        rastq_stats.gpu_check_pixels = now_stats.gpu_check_pixels;
+        rastq_stats.gpu_check_diff = now_stats.gpu_check_diff;
+        vgpu_counters = g_vgpu_at_frame_begin;
     } else {
         g_views += rastq_stats.views - g_rastq_at_frame_begin.views;
         g_frame_total_us += elapsed;
@@ -373,9 +471,14 @@ void vprof_overlay_draw(void) {
     vita2d_pgf_draw_text(g_pgf, 4, 48, 0xffffffff, 1.0f, line);
 
     (void)raster_call_avg_ms;
-    snprintf(line, sizeof(line), "mode=%d var=%d age=%llds split=%d/%d/%d check=%u/%u leaks=%u", _current_loop,
-             vprof_variant, (long long)(window_age_us / 1000000), rastq_stats.rows[1], rastq_stats.rows[2],
-             rastq_stats.rows[3], rastq_stats.check_bad_rows, rastq_stats.check_runs, rastq_stats.check_leak_rows);
+    snprintf(line, sizeof(line),
+             "mode=%d var=%d age=%llds check=%u/%u leaks=%u gpuwait=%.1fms gpucpu=%.0f gpudiff=%.1f/1000",
+             _current_loop, vprof_variant, (long long)(window_age_us / 1000000), rastq_stats.check_bad_rows,
+             rastq_stats.check_runs, rastq_stats.check_leak_rows, us_to_ms(rastq_stats.gpu_wait_us) / samples,
+             (double)rastq_stats.gpu_cpu_calls / samples,
+             rastq_stats.gpu_check_pixels
+                 ? 1000.0 * (double)rastq_stats.gpu_check_diff / (double)rastq_stats.gpu_check_pixels
+                 : 0.0);
     vita2d_pgf_draw_text(g_pgf, 4, 64, 0xffffffff, 1.0f, line);
 }
 

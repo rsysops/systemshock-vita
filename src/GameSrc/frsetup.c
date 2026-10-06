@@ -135,6 +135,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "FrUtils.h"
 #include "fullscrn.h"
 #include "star.h"
+#include "hudobj.h"
+#include "olhext.h"
 
 #ifdef STEREO_SUPPORT
 #include <inp6d.h>
@@ -142,6 +144,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #endif
 
 #include "OpenGL.h"
+#include "VitaGpu.h"
+#include "vprof.h"
+#include "rastq.h"
 
 // Internal Prototypes
 void fr_tfunc_grab_start(void);
@@ -634,10 +639,35 @@ int fr_start_view(void) {
     int use_zoom;
     uchar old_cam_type;
     int detail;
+    uchar *gpu_bits = NULL; // the GPU's canvas, if this view is drawn into one
 
     if(should_opengl_swap()) {
         opengl_start_frame();
     }
+
+    // A frame the GPU will draw goes into a GPU canvas, not the view's own
+    // memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only the
+    // main view: not the help scan, the security cameras or the 360 view.
+    // Nor in low resolution, where the view is doubled out of its canvas.
+    if (_fr->flags & FR_DOUBLEB_MASK) {
+        static ushort own_row; // of the view that gets a GPU canvas, in its own memory
+        extern uchar view360_is_rendering;
+        int gpu_row = 0;
+
+        if (_fr->draw_canvas.bm.bits != _fr->main_canvas.bm.bits) // the GPU drew it last time
+            _fr->draw_canvas.bm.row = own_row;
+        // (cyberspace, shaded between colours all over, only if the GPU does that)
+        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && !DoubleSize &&
+            (!_frp.faces.cyber || vgpu_shades()) && rastq_gpu_next(_fr->draw_canvas.bm.h))
+            gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, &gpu_row);
+        if (gpu_bits != NULL) {
+            // a GPU canvas is as wide as the screen, whatever the view's width
+            own_row = _fr->draw_canvas.bm.row;
+            _fr->draw_canvas.bm.row = (ushort)gpu_row;
+        }
+        _fr->draw_canvas.bm.bits = gpu_bits != NULL ? gpu_bits : _fr->main_canvas.bm.bits;
+    }
+    rastq_gpu_view(gpu_bits != NULL); // the queue draws this view with the GPU, or doesn't try
 
     // check detail for canvas sizing
     gr_set_canvas(&_fr->draw_canvas);
@@ -777,7 +807,13 @@ int fr_start_view(void) {
         _fr->horizon_call(&_fr->draw_canvas.bm, _fr_curflags);
     // KLC      else if (global_fullmap->cyber)
 
-    gr_clear(_frp.view.clear_color);
+    // In a GPU canvas the clear is the GPU's too, as the first thing in its
+    // scene: the screen may still be drawn from the canvas of the last frame,
+    // and the CPU is slow in that memory. Not for a view that isn't really
+    // rendered: that one never reaches the GPU.
+    if (gpu_bits == NULL || (_fr_curflags & (FR_NORENDR_MASK | FR_SOLIDFR_MASK)) ||
+        !rastq_gpu_clear(_frp.view.clear_color))
+        gr_clear(_frp.view.clear_color);
 
     // HAX HAX HAX Why is this not 0 already?
     // gr_clear(0);
@@ -807,8 +843,18 @@ extern uchar view360_is_rendering;
 int fr_send_view(void) {
     uchar snd_frm = TRUE;
     bool ok_to_double;
+    // The GPU may still be drawing this view: rastq_end doesn't wait for
+    // it, and until rastq_gpu_finish the canvas is the GPU's. (Not the help
+    // scan's own view, which the CPU draws during that time.)
+    uchar gpu_draws = rastq_gpu_busy() && !(_fr_curflags & FR_PICKUPM_MASK);
 
     // printf("fr_send_view\n");
+
+    // the stars go into the pixels a star field left: they read the picture
+    if (gpu_draws && star_field_seen()) {
+        rastq_gpu_finish();
+        gpu_draws = FALSE;
+    }
 
     // JAEMZ JAEMZ JAEMZ
     // render the stars, if there were
@@ -817,11 +863,35 @@ int fr_send_view(void) {
     // rotation every 20 minutes, every 1 minute after explosion
     // with OpenGL, the starts have already been rendered before everything else
 
+    VPROF_MARK_BEGIN(VPROF_STARS);
     g3_start_object_angles_y(&zvec, QUESTBIT_GET(0x14) ? player_struct.game_time * 3 : player_struct.game_time / 5);
     star_render();
     g3_end_object();
 
     g3_end_frame();
+    VPROF_MARK_END(VPROF_STARS);
+
+    if (gpu_draws) {
+        // Nothing above touched the canvas, and the view's 3D frame is
+        // closed. The help scan is a render of its own into a canvas of its
+        // own: it runs now, in the time the GPU takes, and not later in the
+        // game loop. Then the view goes on as if nothing had been rendered
+        // in between: the scan's render leaves the rectangles of its HUD
+        // objects, in its own coordinates, which the next frame used to
+        // clear before anything read them.
+        fauxrend_context *view = _fr;
+        uint flags = _fr_curflags;
+        grs_canvas *canvas = grd_canvas;
+        ubyte hudobjs = current_num_hudobjs;
+
+        if (olh_scan_in_render()) {
+            _fr = view;
+            _fr_curflags = flags;
+            current_num_hudobjs = hudobjs;
+            gr_set_canvas(canvas);
+        }
+        rastq_gpu_finish();
+    }
 
     if(should_opengl_swap()) {
         opengl_end_frame();
@@ -869,9 +939,11 @@ int fr_send_view(void) {
 
     // Draw the overlays
     if (_fr->draw_call)
-        snd_frm = _fr->draw_call(grd_screen_canvas, (ok_to_double) ? &gDoubleSizeOffCanvas.bm : &_fr->draw_canvas.bm,
-                                 _fr->xtop, _fr->ytop, _fr_curflags);
+        VPROF_RUN(VPROF_HUD, snd_frm = _fr->draw_call(grd_screen_canvas,
+                                                      (ok_to_double) ? &gDoubleSizeOffCanvas.bm : &_fr->draw_canvas.bm,
+                                                      _fr->xtop, _fr->ytop, _fr_curflags));
 
+    VPROF_MARK_BEGIN(VPROF_VIEWOUT);
     if (snd_frm) {
         (*fr_mouse_hide)();               // This actually draws the mouse into the rendered canvas.
         gr_set_canvas(grd_screen_canvas); // Now set us to the screen canvas.
@@ -891,16 +963,27 @@ int fr_send_view(void) {
                         Fast_Slot_Copy(&gDoubleSizeOffCanvas.bm);
                 } else // For high-res, just copy from the draw canvas.
                 {
-                    if (full_game_3d)
-                        Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
-                    else
-                        Fast_Slot_Copy(&_fr->draw_canvas.bm);
+                    if (full_game_3d) {
+                        // a view in the GPU's canvas can be shown from there
+                        if (!VitaShowView(_fr->draw_canvas.bm.bits, 0, 0, _fr->draw_canvas.bm.w,
+                                          _fr->draw_canvas.bm.h))
+                            Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
+                    } else {
+                        // the paneled view too, laid over the panels when
+                        // the frame is shown (see VitaShowView for when not)
+                        int slot_x, slot_y;
+                        Fast_Slot_Place(&slot_x, &slot_y);
+                        if (!VitaShowView(_fr->draw_canvas.bm.bits, slot_x, slot_y, _fr->draw_canvas.bm.w,
+                                          _fr->draw_canvas.bm.h))
+                            Fast_Slot_Copy(&_fr->draw_canvas.bm);
+                    }
                 }
             }
         }
         (*fr_mouse_show)();
     } else
         gr_set_canvas(grd_screen_canvas);
+    VPROF_MARK_END(VPROF_VIEWOUT);
 
     _fr_ret;
 }

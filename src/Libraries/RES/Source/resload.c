@@ -44,6 +44,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "lzw.h"
 #include "res.h"
 #include "res_.h"
+#include "vprof.h"
 
 //-------------------------------
 //  Private Prototypes
@@ -94,7 +95,7 @@ void *ResLoadResource(Id id, const ResourceFormat *format) {
 	if (prd->ptr == NULL)
 	    return (NULL);
 	// Load from disk
-	ResRetrieve(id, prd->ptr);
+	VPROF_RUN(VPROF_RESLOAD, ResRetrieve(id, prd->ptr));
     } else {
 	assert(format->decoder != NULL);
     }

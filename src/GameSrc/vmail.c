@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include "Shock.h"
+#include "VitaGpu.h"
 
 #include "anim.h"
 #include "email.h"
@@ -252,8 +253,10 @@ errtype play_vmail(byte vmail_no)
    if ((current_vmail != -1) || (vmail_no < 0) || (vmail_no >= NUM_VMAIL))
       return(ERR_NOEFFECT);
 
-   if (full_game_3d)
+   if (full_game_3d) {
       render_run();
+      VitaSyncView(); // the mail plays on the screen buffer, over that view
+   }
 
    // spew the appropriate text for vmail - full screen needs a draw!
    suspend_game_time();

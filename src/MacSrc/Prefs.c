@@ -93,7 +93,8 @@ static const char *VITA_GYRO = "vita-gyro";
 static const char *VITA_GYRO_SPEED = "vita-gyro-speed";
 static const char *VITA_CONTROLLER_SPEED = "vita-controller-speed";
 static const char *VITA_CURSOR = "vita-cursor";
-static const char *VITA_MULTICORE = "vita-multicore";
+static const char *VITA_MULTICORE = "vita-multicore"; // before there was a choice of three
+static const char *VITA_RENDERER = "vita-renderer";
 #endif
 
 static void SetShockGlobals(void);
@@ -130,7 +131,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;
     gShockPrefs.showCursor = false;
-    gShockPrefs.multicore = true;
+    gShockPrefs.renderer = VITA_RENDERER_GPU;
 #else
     gShockPrefs.doVideoMode = 3;
 #endif
@@ -279,7 +280,13 @@ int16_t LoadPrefs(void) {
         } else if (strcasecmp(key, VITA_CURSOR) == 0) {
             gShockPrefs.showCursor = is_true(value);
         } else if (strcasecmp(key, VITA_MULTICORE) == 0) {
-            gShockPrefs.multicore = is_true(value);
+            // an older file: "off" was the choice of one core
+            if (!is_true(value))
+                gShockPrefs.renderer = VITA_RENDERER_1_CORE;
+        } else if (strcasecmp(key, VITA_RENDERER) == 0) {
+            int renderer = atoi(value);
+            if (renderer >= 0 && renderer < VITA_RENDERERS)
+                gShockPrefs.renderer = (unsigned char)renderer;
         }
 #endif
     }
@@ -323,7 +330,7 @@ int16_t SavePrefs(void) {
     fprintf(f, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
-    fprintf(f, "%s = %d\n", VITA_MULTICORE, gShockPrefs.multicore);
+    fprintf(f, "%s = %d\n", VITA_RENDERER, gShockPrefs.renderer);
 #endif
     fclose(f);
     return 0;
@@ -347,17 +354,18 @@ static void SetShockGlobals(void) {
     SkipLines = gShockPrefs.doUseQD;
     _fr_global_detail = gShockPrefs.doDetail;
 #ifdef VITA
-    VitaApplyMulticore();
+    VitaApplyRenderer();
 #endif
 }
 
 #ifdef VITA
-// On: the 3D passes are recorded and their pixels filled on three cores (see
-// docs/PERFORMANCE.md). Off: the original drawing, call by call on one core.
-void VitaApplyMulticore(void) {
-    rastq_set_mode(gShockPrefs.multicore ? RASTQ_TRUST_STABLE : RASTQ_OFF);
-    rastq_set_threads(gShockPrefs.multicore ? RASTQ_THREADS : 1);
+void VitaApplyRenderer(void) {
+    int recorded = gShockPrefs.renderer != VITA_RENDERER_1_CORE;
+
+    rastq_set_mode(recorded ? RASTQ_TRUST_STABLE : RASTQ_OFF);
+    rastq_set_threads(recorded ? RASTQ_THREADS : 1);
     rastq_set_min_rows(RASTQ_SMALL_VIEW_ROWS);
+    rastq_use_gpu(gShockPrefs.renderer == VITA_RENDERER_GPU);
 }
 #endif
 

@@ -66,6 +66,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #ifdef AUDIOLOGS
 #include "audiolog.h"
+#include "vprof.h"
 #endif
 
 extern uchar tmap_big_buffer[];
@@ -346,6 +347,7 @@ void gamesys_render_effects(void) {
 
     TRACE("%s: gamerend", __FUNCTION__);
 
+    VPROF_MARK_BEGIN(VPROF_HUD_HAND);
     if ((!global_fullmap->cyber) && (!secret_render_fx)) {
         ubyte active = player_struct.actives[ACTIVE_WEAPON];
         extern uchar hack_takeover;
@@ -427,6 +429,7 @@ void gamesys_render_effects(void) {
             }
         }
     }
+    VPROF_MARK_END(VPROF_HUD_HAND);
 
     // Redraw hud displays as appropriate
     // HOW ABOUT A FLAG HERE, NOT HARDCODED LOOP NUMBERS

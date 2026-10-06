@@ -6,7 +6,7 @@
 // steps) is unchanged, so several threads drawing the same call with adjacent
 // bands produce exactly the pixels of one full pass. The band covers every
 // row unless the rasterizer queue (3D/Source/rastq.c) is replaying on several
-// threads. See docs/PERFORMANCE.md, "Row bands, bit-exact".
+// threads. See docs/PERFORMANCE-CPU.md, "Row bands, bit-exact".
 //
 // Threads that draw different calls of a list at the same time can't share
 // the canvas's fill state and clip, so a band can carry those for its thread.

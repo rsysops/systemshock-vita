@@ -58,6 +58,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "game_screen.h" // was screen.h?
 #include "Shock.h"
+#include "vprof.h"
 
 #ifdef NOT_YET // KLC stereo
 
@@ -145,23 +146,29 @@ errtype fullscreen_overlay() {
     extern char last_message[128];
     extern uchar game_paused;
 
+    VPROF_MARK_BEGIN(VPROF_HUD_BUTTONS);
     if (!global_fullmap->cyber) {
         mfd_draw_button_panel(MFD_RIGHT);
         mfd_draw_button_panel(MFD_LEFT);
     }
+    VPROF_MARK_END(VPROF_HUD_BUTTONS);
+    VPROF_MARK_BEGIN(VPROF_HUD_MFD);
     fullscreen_refresh_mfd(MFD_RIGHT);
     if (global_fullmap->cyber)
         full_visible &= ~FULL_MFD_MASK(MFD_LEFT);
     fullscreen_refresh_mfd(MFD_LEFT);
+    VPROF_MARK_END(VPROF_HUD_MFD);
     if (!game_paused)
-        inv_update_fullscreen((full_visible & FULL_INVENT_MASK) != 0);
+        VPROF_RUN(VPROF_HUD_INV, inv_update_fullscreen((full_visible & FULL_INVENT_MASK) != 0));
+    VPROF_MARK_BEGIN(VPROF_HUD_VITALS);
     if (fullscrn_vitals) {
         status_vitals_update(TRUE);
         if (!global_fullmap->cyber)
             update_meters(TRUE);
     }
+    VPROF_MARK_END(VPROF_HUD_VITALS);
     if ((!global_fullmap->cyber) && (fullscrn_icons))
-        side_icon_expose_all();
+        VPROF_RUN(VPROF_HUD_ICONS, side_icon_expose_all());
 
     // KLC   uiSetCursor();
 

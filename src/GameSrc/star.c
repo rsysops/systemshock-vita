@@ -249,6 +249,10 @@ void star_init_alias_table(void) {
 
 #endif
 
+// Has the frame under way drawn a star field somewhere visible? Then
+// star_render has stars to put into the pixels the field left.
+uchar star_field_seen(void) { return std_min_z != 0x7fffffff; }
+
 void star_render(void) {
     int i;
     g3s_phandle s;

@@ -6,6 +6,8 @@ Data files from System Shock are required. This port was only tested with `Syste
 
 To install the data files, you'll have to create the `ux0:data/systemshock/res/` folder on your PS Vita and copy `DATA` and `SOUND` folders from the installed System Shock folder there.
 
+The GPU renderer, which is the default, needs the shader compiler module `libshacccg.suprx` in `ur0:data/` (the same file many Vita ports ask for). Without it the game runs on its CPU renderers.
+
 ## Building
 
 ### Prerequisites
@@ -43,6 +45,8 @@ make
 Gyro aiming is active by default. You can turn it off or adjust analog/gyro look speed by selecting `Vita Options` in the game menu.
 
 The cursor is hidden in menus by default (they're navigated with the D-pad; touch still works). Enable `Cursor` in `Vita Options` to show it there again.
+
+`Renderer` in `Vita Options` chooses what draws the 3D view: `GPU` (the default; offered when `libshacccg.suprx` is installed), `3 cores` (the software renderer on three CPU cores) or `1 core` (the original software renderer).
 
 In the main menu and the in-game menu, move with the D-Pad or left stick, select with ×, go back with ○ and switch the in-game menu page with L1/R1. In the in-game menu, △ shows the help / controls screen and □ toggles the music. START starts the game from the New Game screen and closes the in-game menu. See [docs/KEYMAPS.md](docs/KEYMAPS.md) for details.
 

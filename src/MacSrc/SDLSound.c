@@ -1,5 +1,6 @@
 #include "Xmi.h"
 #include "MusicDevice.h"
+#include "vprof.h"
 
 static snd_digi_parms digi_parms_by_channel[SND_MAX_SAMPLES];
 
@@ -98,7 +99,8 @@ int snd_sample_play(int snd_ref, int len, uchar *smp, struct snd_digi_parms *dpr
     Mix_Chunk *sample = get_mix_chunk(snd_ref);
 
     if (sample == NULL) {
-        sample = Mix_LoadWAV_RW(SDL_RWFromConstMem(smp, len), 1);
+        // decoded and converted once, the first time the sound is played
+        VPROF_RUN(VPROF_SNDLOAD, sample = Mix_LoadWAV_RW(SDL_RWFromConstMem(smp, len), 1));
         if (sample) {
             add_mix_chunk(snd_ref, sample);
         }

@@ -1,0 +1,23 @@
+---- start
+loading the shader compiler
+compiling the flat shaders
+flat vertex shader compiled: 284 bytes
+flat fragment shader compiled: 228 bytes
+drawing the index check
+index check drawn: 0 wrong
+compiling the textured shaders
+textured vertex shader compiled: 368 bytes
+textured fragment shader compiled: 452 bytes
+transparent fragment shader compiled: 544 bytes
+texture units: bitmap 0, tables 1; transparent: bitmap 0, tables 1
+compiling the shaded shaders
+shaded vertex shader compiled: 360 bytes
+shaded fragment shader compiled: 512 bytes
+texture unit: colours 0
+drawing the texture check
+texture check drawn: 0 0 0 0 wrong
+drawing the colour check
+colour check drawn: 0 0 0 wrong
+timing memory
+gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 colour_check red=0 green=0 blue=0 (wrong columns of 256) | 512KB us: gpu_write=704 gpu_read=4857 ram_write=297 ram_read=1202
+3 canvases 960x544, 960 bytes a row, the first at 0x62c40000

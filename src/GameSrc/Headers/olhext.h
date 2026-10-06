@@ -34,6 +34,15 @@ extern uchar olh_overlay_on;
 void olh_do_hudobjs(short xl, short yl);
 void olh_overlay(void);
 void olh_scan_objects(void);
+// The game loop's scan can run inside its render instead, while the GPU
+// draws the view (see fr_send_view). The loop brackets that render with
+// begin and end; olh_scan_in_render runs the scan if this is that render
+// and the loop would run it, and says whether it did; olh_scan_ran_in_render
+// tells the loop, once, that its own scan is done.
+void olh_scan_render_begin(void);
+void olh_scan_render_end(void);
+uchar olh_scan_in_render(void);
+uchar olh_scan_ran_in_render(void);
 void olh_init(void);
 void olh_closedown(void);
 void olh_shutdown(void);

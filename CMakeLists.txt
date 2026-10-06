@@ -141,7 +141,7 @@ if(VITA)
 	add_definitions(-DVITA)
 	add_definitions(-DVITA2D)
 	# Keep the music mix the Vita port has always had: both OPL3 emulators
-	# play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE.md).
+	# play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE-CPU.md).
 	add_definitions(-DOPL3_HALF_SQUARE_WAVES)
 	include_directories(src/vita)
 	set(stratagus_SRCS ${stratagus_SRCS} ${vita_SRCS})
@@ -156,6 +156,8 @@ if(VITA)
 		set(VITA_LIBS "${VITA_LIBS} -lScePgf_stub")
 	endif()
 	SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
+	# room after the code segment for what vita-elf-create adds there
+	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-T,${CMAKE_SOURCE_DIR}/vita/segment-gap.ld")
 	include("${CMAKE_SOURCE_DIR}/vita/vita.cmake")
 endif()
 
@@ -171,6 +173,7 @@ set(MAC_SRC
 	src/MacSrc/InitMac.c
 	src/MacSrc/Shock.c
 	src/MacSrc/Prefs.c
+	src/MacSrc/VitaGpu.c
 	src/MacSrc/MacTune.c
 	src/MacSrc/SDLSound.c
 	src/MacSrc/Modding.c
@@ -237,6 +240,7 @@ set(GAME_SRC
 	src/GameSrc/hflip.c
 	src/GameSrc/hkeyfunc.c
 	src/GameSrc/hud.c
+	src/GameSrc/hudkeep.c
 	src/GameSrc/hudobj.c
 	src/GameSrc/init.c
 	src/GameSrc/input.c

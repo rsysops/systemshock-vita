@@ -60,6 +60,28 @@ int per_map (grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
    return ((m>2) ? CLIP_NONE : CLIP_ALL);
 }
 
+// Which mapper per_umap draws a polygon with: GRC_PER for its own two, or
+// GRC_BILIN, GRC_FLOOR or GRC_WALL2D when it hands a polygon that is flat
+// enough, or lies like a floor or a wall, to the mapper for that. -1 if it
+// draws nothing. For the current canvas.
+int gr_per_umap_family (int n, grs_vertex **vpl)
+{
+   grs_per_setup ps;
+
+   switch (gri_per_umap_setup(n, vpl, &ps)) {
+   case GR_PER_CODE_BIGSLOPE:
+   case GR_PER_CODE_SMALLSLOPE:
+      return GRC_PER;
+   case GR_PER_CODE_LIN:
+      return GRC_BILIN;
+   case GR_PER_CODE_FLOOR:
+      return GRC_FLOOR;
+   case GR_PER_CODE_WALL:
+      return GRC_WALL2D;
+   }
+   return -1;
+}
+
 void per_umap (grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
 {
    short percode;

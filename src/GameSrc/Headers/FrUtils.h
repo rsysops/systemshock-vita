@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // externs for functions in FrUtils.C
 
 extern void Fast_Slot_Copy(grs_bitmap *bm);
+extern void Fast_Slot_Place(int *x, int *y);
 extern void Fast_FullScreen_Copy(grs_bitmap *bm);
 // extern void Fast_Slot_Double(grs_bitmap *bm, long w, long h);
 // extern void Fast_FullScreen_Double(grs_bitmap *bm, long w, long h);

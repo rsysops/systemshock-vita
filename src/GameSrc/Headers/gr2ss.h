@@ -22,6 +22,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 extern void ss_string(char *s, short x, short y);
 void ss_scale_string(char *s, short x, short y);
 extern void ss_bitmap(grs_bitmap *bmp, short x, short y);
+// ss_bitmap for a small bitmap drawn again and again (see hudkeep.h): the same pixels
+extern void ss_kept_bitmap(grs_bitmap *bmp, short x, short y);
 extern void ss_ubitmap(grs_bitmap *bmp, short x, short y);
 extern void ss_scale_bitmap(grs_bitmap *bmp, short x, short y, short w, short h);
 extern void ss_noscale_bitmap(grs_bitmap *bmp, short x, short y);
@@ -99,6 +101,7 @@ extern uchar gr2ss_override;
 
 #define ss_string(s, x, y)                      gr_string(s, x, y)
 #define ss_bitmap(bmp, x, y)                    gr_bitmap(bmp, x, y)
+#define ss_kept_bitmap(bmp, x, y)               gr_bitmap(bmp, x, y)
 #define ss_ubitmap(bmp, x, y)                   gr_ubitmap(bmp, x, y)
 #define ss_noscale_bitmap(bmp, x, y)            gr_bitmap(bmp, x, y)
 #define ss_scale_bitmap(bmp, x, y, w, h)        gr_scale_bitmap(bmp, x, y, w, h)

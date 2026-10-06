@@ -42,5 +42,7 @@ extern int per_map(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern int h_map(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern int v_map(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern int gr_blend_prepare(grs_bitmap *bm, grs_tmap_info *ti);
+// permap.c: the mapper family per_umap draws a polygon with (see there).
+int gr_per_umap_family(int n, grs_vertex **vpl);
 
 #endif /* __TMAPFCN_H */

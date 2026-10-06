@@ -185,6 +185,10 @@ syntax/entry-points for GLES compatibility) — an alternative to
 parallelizing the software rasterizer, since the GPU-rendering abstraction
 already exists in the codebase.
 
+The GPU work that followed the multicore retry took another route, a
+palette-indexed renderer fed by the recorder's draw list: see
+`docs/PERFORMANCE-GPU.md`.
+
 ## AI frame-coupling — do not touch
 
 `wait_frames`/`DEFAULT_FRAMES`/`COMBAT_FRAMES` in `src/GameSrc/newai.c`
@@ -286,7 +290,7 @@ retry:
 
 ## Baseline
 
-From `docs/profile-step-1.txt`, the retry's own profiler (see "How to measure"
+From `docs/profiles-cpu/profile-step-1.txt`, the retry's own profiler (see "How to measure"
 below), original single-threaded game, 960×544, detail Max, stock clocks,
 standing still in the first area for about 3 minutes. Two long steady
 segments appear, at two different in-game loop modes with different 3D
@@ -382,7 +386,7 @@ Each of these can be done and measured on its own, before any threading.
   - The first attempt measured it together with the overhead cuts below:
     the recorded frames replayed on one core ran at 18.8 fps vs 17.0–19.9
     for the other variants in that session.
-  - **Retry, measured alone** (`docs/profile-step-2.txt`): full 3D view
+  - **Retry, measured alone** (`docs/profiles-cpu/profile-step-2.txt`): full 3D view
     (`FULLSCREEN_LOOP`), 960×544, standing still in the first area for
     3 min 17 s, the two variants alternating every 5 s. Medians of 95 and
     98 windows:
@@ -422,7 +426,7 @@ Each of these can be done and measured on its own, before any threading.
   - Nuked occupied ~45% of a core: a worker on that core started ~10 ms
     into every ~22 ms frame at 480×272.
   - With DOSBox, no worker start was delayed in any window (0 of 90).
-- **Retry, measured alone** (`docs/profile-step-3b.txt`): full 3D view
+- **Retry, measured alone** (`docs/profiles-cpu/profile-step-3b.txt`): full 3D view
   (`FULLSCREEN_LOOP`), 960×544, standing still in the first area for
   3 min 41 s, the two emulators alternating every 5 s. Medians of 109 and
   106 windows:
@@ -438,7 +442,7 @@ Each of these can be done and measured on its own, before any threading.
     +1.1), as expected while the game is single-threaded: the audio thread
     was seen on all three cores, the main thread on cores 1 and 2, and
     never both on the same core in any window.
-  - An earlier capture (`docs/profile-step-3.txt`, 5 min 47 s) read 53.7%
+  - An earlier capture (`docs/profiles-cpu/profile-step-3.txt`, 5 min 47 s) read 53.7%
     vs 9.2%, with DOSBox still run at the PCM rate. Running it at the
     chip's native rate (see below) costs about 2.4 points of a core.
 - **Pitfalls found, and their fixes.**
@@ -638,7 +642,7 @@ The notes below say what the code does.
   time, which leaves the buffer as direct drawing does, and a replay no
   longer writes to it. The harness draws such walls again, without a
   difference.
-- **Measured cost** (`docs/profile-step-4.txt`): full 3D view, 960×544,
+- **Measured cost** (`docs/profiles-cpu/profile-step-4.txt`): full 3D view, 960×544,
   standing still in the first area, three variants alternating every 5 s,
   self-checked frames left out. Medians:
 
@@ -939,7 +943,7 @@ same hand-out code runs on the PC with pthreads, for the harness.
     canvas is rewound to its state at the start of the batch, the batch is
     replayed, and the two are compared row by row. That frame is left out
     of the timings (`vprof_frame_discard`).
-  - Result (`docs/profile-step-4.txt`): `check=0/400`, 200 checks standing
+  - Result (`docs/profiles-cpu/profile-step-4.txt`): `check=0/400`, 200 checks standing
     still and 200 walking from the medical room to the main hallway.
   - Retry, step 5: the same check, every 63rd view, with the replay now
     split across the three cores. 63 is odd so that, with two views per
@@ -947,10 +951,10 @@ same hand-out code runs on the PC with pthreads, for the harness.
     comparison the canvas is rewound once more and a single band is
     replayed alone; the rows of the other bands must not change
     (`leaks=`). The bands take turns.
-  - Result (`docs/profile-step-5.txt`): `check=0/311` and `leaks=0`, about
+  - Result (`docs/profiles-cpu/profile-step-5.txt`): `check=0/311` and `leaks=0`, about
     200 checks standing still and 110 walking. A second session
-    (`docs/profile-step-5b.txt`) gave `check=0/310` and `leaks=0`.
-  - Retry, step 6 (`docs/profile-step-6.txt`): `check=0/588` and
+    (`docs/profiles-cpu/profile-step-5b.txt`) gave `check=0/310` and `leaks=0`.
+  - Retry, step 6 (`docs/profiles-cpu/profile-step-6.txt`): `check=0/588` and
     `leaks=0`, spread over the four ways of splitting it compared.
 
 ## Pitfalls found, in the order they were hit
@@ -1043,7 +1047,7 @@ Step 5 in detail (medians; t=32–324; music 11% of a core):
   (7.6 to 8.5) with every view split. From the step 1 baseline of
   24.7 fps that is +43%.
 - **Identical frames:** `check=0/311`, `leaks=0`.
-- **A second session the next day repeated it** (`docs/profile-step-5b.txt`,
+- **A second session the next day repeated it** (`docs/profiles-cpu/profile-step-5b.txt`,
   t=31–311): 27.1, 35.0 and 35.3 fps for the three variants, +8.2 fps
   (7.9 to 8.8 in 18 comparisons) with the help scan on the main thread,
   the same 6.2 ms of waiting, and `check=0/310`, `leaks=0`.
@@ -1116,28 +1120,28 @@ variants draw on three cores; the first is step 5 as it was committed:
 ## Recommended order for the retry
 
 1. ~~**Profiler and baseline.** 960×544, standing still in the first
-   area.~~ **Done** — see "Baseline" above and `docs/profile-step-1.txt`.
+   area.~~ **Done** — see "Baseline" above and `docs/profiles-cpu/profile-step-1.txt`.
 2. ~~**FPU `fix_div`**, measured alone (bit-exactness test first).~~
    **Done**: +11.6% fps — see "FPU `fix_div`" above and
-   `docs/profile-step-2.txt`.
+   `docs/profiles-cpu/profile-step-2.txt`.
 3. ~~**DOSBox music** on Vita, measured alone.~~ **Done**: about 40% of
    a core freed, fps unchanged — see "Music: DOSBox OPL3 instead of
-   Nuked" above, `docs/profile-step-3.txt` and
-   `docs/profile-step-3b.txt`.
+   Nuked" above, `docs/profiles-cpu/profile-step-3.txt` and
+   `docs/profiles-cpu/profile-step-3b.txt`.
 4. ~~**Recording and single-thread replay only.**~~ **Done**: identical
    frames (`check=0/400` on device) at +0.3 ms per frame with terrain
    textures used in place — see "Record, then replay" above and
-   `docs/profile-step-4.txt`.
+   `docs/profiles-cpu/profile-step-4.txt`.
 5. ~~**Bands and workers, straight in the final form.**~~ **Done**:
    +31% fps (27.0 to 35.3) with identical frames (`check=0/311`,
    `leaks=0` on device) — see "Row bands, bit-exact", "Threads",
-   "Results of the retry", `docs/profile-step-5.txt` and
-   `docs/profile-step-5b.txt`.
+   "Results of the retry", `docs/profiles-cpu/profile-step-5.txt` and
+   `docs/profiles-cpu/profile-step-5b.txt`.
 6. ~~**Then look at the remaining main-thread wait.**~~ **Done**: +27%
    fps over step 5 (35.4 to 44.8) with identical frames (`check=0/588`
    on device), by handing a view out once instead of in a batch per
    drawing state — see "Results of the retry" and
-   `docs/profile-step-6.txt`. Row strips taken from a queue were tried
+   `docs/profiles-cpu/profile-step-6.txt`. Row strips taken from a queue were tried
    and were slower.
 
 The retry's order ends here. Ideas it leaves open, none of them planned:
@@ -1165,8 +1169,8 @@ The retry's order ends here. Ideas it leaves open, none of them planned:
    plus explicit pacing, or with `sceDisplayWaitVblankStartMulti()`. It
    is small and safe, and removes judder within whatever throughput the
    above reaches.
-4. **vitaGL/GPU offload.** Wire the existing `OpenGL.cc` renderer to
-   vitaGL. It is the larger alternative if the CPU route plateaus.
+4. **GPU offload.** Under way as its own feature, on a different route
+   than wiring `OpenGL.cc` to vitaGL: see `docs/PERFORMANCE-GPU.md`.
 5. **Do not touch AI frame-coupling** (`newai.c`). It is
    original/upstream behaviour, and changing it would diverge from the
    original game's feel.

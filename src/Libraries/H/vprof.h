@@ -16,6 +16,21 @@ typedef enum {
     VPROF_RASTER,
     VPROF_RECORD,
     VPROF_HELPSCAN,
+    VPROF_HELPREND, // of the help scan: its render (the rest is its look at the pixels)
+    VPROF_STARS,    // of sendview
+    VPROF_HUD,      // of sendview: the overlays drawn into the view
+    VPROF_VIEWOUT,  // of sendview: the cursor and the view's way to the screen
+    VPROF_SNDLOAD,  // a sound effect decoded for its first use
+    VPROF_RESLOAD,  // a resource read from the card
+    // of hud:
+    VPROF_HUD_HAND,    // the weapon in hand
+    VPROF_HUD_LABEL,   // the help label
+    VPROF_HUD_TEXT,    // compass and messages
+    VPROF_HUD_BUTTONS, // full screen: the two button panels
+    VPROF_HUD_MFD,     // full screen: the two side panels
+    VPROF_HUD_INV,     // full screen: the inventory
+    VPROF_HUD_VITALS,  // full screen: vitals and meters
+    VPROF_HUD_ICONS,   // full screen: the side icons
     VPROF_PHASE_COUNT
 } vprof_phase_t;
 
@@ -26,7 +41,8 @@ typedef enum {
 
 // Variants of the code under test, alternated every few 1 s windows so they
 // can be compared within one session. Currently the rasterizer queue
-// (rastq.h): 0 = draw directly on one core, 1 = record and replay on three.
+// (rastq.h): 0 = record and replay on three cores, 1 = record and have the
+// GPU draw what it can (see docs/PERFORMANCE-GPU.md).
 #define VPROF_VARIANT_COUNT 2
 extern int vprof_variant;
 

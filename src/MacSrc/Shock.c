@@ -51,6 +51,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <psp2/kernel/clib.h>
 #include <psp2/power.h>
 #include <vita2d.h>
+#include "VitaGpu.h"
+#ifdef VITA_PROFILE
+#include <psp2/kernel/processmgr.h>
+#endif
 #include <unistd.h>
 
 int _newlib_heap_size_user = 256 * 1024 * 1024;
@@ -277,6 +281,111 @@ bool CheckArgument(char *arg) {
 }
 
 #ifdef VITA2D
+// The canvases the GPU draws views into (see docs/PERFORMANCE-GPU.md):
+// paletted textures like the screen's, used in turn (see vgpu_canvas). A view
+// drawn there is shown from there, without copying it to the screen buffer:
+// alone if it fills the screen, over the screen buffer's picture if it is
+// the paneled view's window.
+static vita2d_texture *viewTextures[VGPU_CANVASES];
+// The view the next SDLDraw shows from its canvas, and the one the last
+// SDLDraw showed, for as long as the screen buffer doesn't hold it; and the
+// part of the screen each covers.
+typedef struct {
+    int x, y, w, h;
+} ViewPlace;
+static vita2d_texture *shownView, *lastView;
+static ViewPlace shownPlace, lastPlace;
+
+static int FillsScreen(const ViewPlace *place)
+{
+    return place->x == 0 && place->y == 0 && place->w == gScreenWide && place->h == gScreenHigh;
+}
+
+static void MakeViewTextures(int width, int height)
+{
+    void *pixels[VGPU_CANVASES];
+    int i, made = 0;
+
+    vgpu_set_canvases(NULL, 0, 0, 0);
+    vita2d_wait_rendering_done();
+    shownView = lastView = NULL;
+    for (i = 0; i < VGPU_CANVASES; i++) {
+        if (viewTextures[i] != NULL)
+            vita2d_free_texture(viewTextures[i]);
+        viewTextures[i] = NULL;
+    }
+    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
+    for (i = 0; i < VGPU_CANVASES; i++) {
+        viewTextures[i] = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
+        if (viewTextures[i] == NULL)
+            break;
+        pixels[i] = vita2d_texture_get_datap(viewTextures[i]);
+        memset(pixels[i], 0, vita2d_texture_get_stride(viewTextures[i]) * height);
+        memcpy(vita2d_texture_get_palette(viewTextures[i]), vita2d_texture_get_palette(texBuffer), sizeof(uint32_t) * 256);
+        made++;
+    }
+    if (made == VGPU_CANVASES)
+        vgpu_set_canvases(pixels, width, height, vita2d_texture_get_stride(viewTextures[0]));
+}
+
+// A view that the GPU drew into one of its canvases, to go at (x, y) on the
+// screen, can be shown from there. Returns whether the next SDLDraw will do
+// that, in which case the view needn't be copied to the screen buffer.
+//
+// Not when something the game has on the screen buffer goes over the view,
+// which the canvas would hide: the caller then copies the view there, as it
+// always did. That is while the game is paused (the options panel, a video
+// mail), and for the paneled view while a zoom rectangle is on its way from
+// an object to a panel (tools.c draws it on the screen buffer around every
+// SDLDraw).
+int VitaShowView(const unsigned char *bits, int x, int y, int width, int height)
+{
+    extern unsigned char game_paused;
+    extern bool ZoomEnable;
+    ViewPlace place = {x, y, width, height};
+    int i;
+
+    shownView = lastView = NULL;
+    if (game_paused)
+        return 0;
+    if (!FillsScreen(&place) && ZoomEnable)
+        return 0;
+    if (x < 0 || y < 0 || x + width > gScreenWide || y + height > gScreenHigh)
+        return 0;
+    for (i = 0; i < VGPU_CANVASES; i++) {
+        vita2d_texture *t = viewTextures[i];
+        // a view is drawn into the top left of its canvas
+        if (t != NULL && bits == vita2d_texture_get_datap(t) && width <= (int)vita2d_texture_get_width(t) &&
+            height <= (int)vita2d_texture_get_height(t)) {
+            shownView = t;
+            shownPlace = place;
+            return 1;
+        }
+    }
+    return 0;
+}
+
+// The game is about to draw on the screen without drawing the view first
+// (pause, a panel, a video mail, another screen): if the view is shown from a
+// GPU canvas, the screen buffer doesn't hold it. This copies it there, once.
+void VitaSyncView(void)
+{
+    vita2d_texture *view = shownView != NULL ? shownView : lastView;
+    ViewPlace place = shownView != NULL ? shownPlace : lastPlace;
+    const uint8_t *from;
+    uint8_t *to;
+    int y, stride;
+
+    shownView = lastView = NULL;
+    if (view == NULL || drawSurface == NULL)
+        return;
+    from = vita2d_texture_get_datap(view);
+    stride = vita2d_texture_get_stride(view);
+    to = (uint8_t *)drawSurface->pixels + place.y * drawSurface->pitch + place.x;
+    for (y = 0; y < place.h; y++)
+        memcpy(to + y * drawSurface->pitch, from + y * stride, place.w);
+}
+
 void InitVita2D(int width, int height)
 {
     vita2d_init();
@@ -287,6 +396,9 @@ void InitVita2D(int width, int height)
     texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
     palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
     memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+
+    vgpu_init();
+    MakeViewTextures(width, height);
 
     SetRenderRect(width, height);
 }
@@ -302,6 +414,7 @@ void ResizeVita2D(int width, int height)
     texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
     palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
     memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+    MakeViewTextures(width, height);
 
     if (window != NULL) {
         SDL_SetWindowSize(window, width, height);
@@ -485,24 +598,57 @@ void SetSDLPalette(int index, int count, uchar *pal) {
     }
 
     memcpy(vita2d_texture_get_palette(texBuffer), palette32Bit, sizeof(uint32_t) * 256);
+    for (int i = 0; i < VGPU_CANVASES; i++)
+        if (viewTextures[i] != NULL)
+            memcpy(vita2d_texture_get_palette(viewTextures[i]), palette32Bit, sizeof(uint32_t) * 256);
 #endif
 }
 
 void SDLDraw() {
 #ifdef VITA2D
-    SDL_memcpy(palettedTexturePointer, drawSurface->pixels, gScreenWide * gScreenHigh * sizeof(uint8_t));
+    vita2d_texture *view = NULL;
+    float scaleX = (float)(destRect.w) / gScreenWide, scaleY = (float)(destRect.h) / gScreenHigh;
+
+    if (shownView != NULL) {
+        // this frame has the 3D view as the GPU left it in one of its canvases
+        view = lastView = shownView;
+        lastPlace = shownPlace;
+        shownView = NULL;
+    } else if (lastView != NULL) {
+        // No view drawn since, and nothing has said that the screen buffer
+        // holds it (VitaSyncView): the last view stays on.
+        view = lastView;
+    }
+    // The screen buffer is what is shown, unless a view covers all of it.
+    if (view == NULL || !FillsScreen(&lastPlace))
+        SDL_memcpy(palettedTexturePointer, drawSurface->pixels, gScreenWide * gScreenHigh * sizeof(uint8_t));
 
     vita2d_start_drawing();
 
     vita2d_draw_rectangle(0, 0, VITA_FULLSCREEN_WIDTH, VITA_FULLSCREEN_HEIGHT, 0xff000000);
-    vita2d_draw_texture_scale(texBuffer, destRect.x, destRect.y, (float)(destRect.w) / gScreenWide,
-                                (float)(destRect.h) / gScreenHigh);
+    if (view == NULL || !FillsScreen(&lastPlace))
+        vita2d_draw_texture_scale(texBuffer, destRect.x, destRect.y, scaleX, scaleY);
+    if (view != NULL && FillsScreen(&lastPlace))
+        vita2d_draw_texture_scale(view, destRect.x, destRect.y, scaleX, scaleY);
+    else if (view != NULL) // the paneled view's window, over the panels
+        vita2d_draw_texture_part_scale(view, destRect.x + lastPlace.x * scaleX, destRect.y + lastPlace.y * scaleY, 0, 0,
+                                       lastPlace.w, lastPlace.h, scaleX, scaleY);
 #ifdef VITA_PROFILE
     vprof_overlay_draw();
 #endif
     vita2d_end_drawing();
     vita2d_common_dialog_update();
+#ifdef VITA_PROFILE
+    {
+        // handing a frame over waits when two are already waiting for the
+        // screen: time that isn't work
+        long long before = sceKernelGetProcessTimeWide();
+        vita2d_swap_buffers();
+        vgpu_counters.swap_wait_us += sceKernelGetProcessTimeWide() - before;
+    }
+#else
     vita2d_swap_buffers();
+#endif
 #else
     if (should_opengl_swap()) {
         sdlPalette->colors[255].a = 0x00;
