@@ -340,8 +340,7 @@ int g3_draw_point(g3s_phandle p) {
 
     sx = (p->sx + 0x08000) >> 16; // round & get int part
     sy = (p->sy + 0x08000) >> 16; // round & get int part
-    rastq_flush();
-    return (((int (*)(short x, short y))grd_canvas_table[DRAW_POINT])(sx, sy));
+    return rastq_point(sx, sy);
 }
 
 // draws a line in 3-space. takes esi,edi=points
@@ -399,7 +398,9 @@ int draw_line_common(g3s_phandle p0, g3s_phandle p1) {
     if (draw_color == 255)
         draw_color = 0;
 
-    rastq_flush();
+    // (the queue draws the line, at once or with the view's other calls)
+    memset(&v0, 0, sizeof(v0));
+    memset(&v1, 0, sizeof(v1));
     if (gour_flag == 0) // normal line
     {
         // use wire poly lines.  Always clip.
@@ -409,8 +410,7 @@ int draw_line_common(g3s_phandle p0, g3s_phandle p1) {
         v0.y = p0->sy;
         v1.x = p1->sx;
         v1.y = p1->sy;
-        ((int (*)(long c, long parm, grs_vertex *v0, grs_vertex *v1))grd_line_clip_fill_vector[GR_WIRE_POLY_LINE])(
-            draw_color, gr_get_fill_parm(), &v0, &v1);
+        rastq_line(0, draw_color, &v0, &v1);
 
         result = CLIP_NONE;
     } else if (gour_flag > 0) // cline
@@ -430,8 +430,7 @@ int draw_line_common(g3s_phandle p0, g3s_phandle p1) {
         v1.u = a;
         v1.v = b;
         v1.w = c;
-        ((int (*)(long c, long parm, grs_vertex *v0, grs_vertex *v1))grd_line_clip_fill_vector[GR_WIRE_POLY_CLINE])(
-            gr_get_fcolor(), gr_get_fill_parm(), &v0, &v1);
+        rastq_line(1, gr_get_fcolor(), &v0, &v1);
 
         result = CLIP_NONE;
         //	  	DebugString("implement me?");

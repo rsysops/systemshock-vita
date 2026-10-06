@@ -52,7 +52,7 @@ extern void gr_not_imp(void);
 #define TEMP_BYTES 65536
 #define SCRATCH_BYTES 131072
 
-enum { OP_TMAP, OP_SPRITE, OP_POLY, OP_RECT };
+enum { OP_TMAP, OP_SPRITE, OP_POLY, OP_RECT, OP_LINE, OP_CLINE, OP_POINT };
 // Where a bitmap's pixels are when the call is made
 enum {
     SRC_POOL,     // texture memory that never changes: registered as stable
@@ -115,7 +115,7 @@ static uchar *canvas_bits, *background, *result[RESULTS];
 // canvas, for the CPU to draw while the GPU has the first
 static uchar *shadow_bits, *other_bits;
 static grs_canvas other_canvas;
-static uchar *ltab, *ipal, *stab, *unpack, *scratch;
+static uchar *ltab, *ipal, *smooth_ipal, *stab, *unpack, *scratch;
 static uchar tluc_tables[32][256];
 static MemStack temp_stack;
 static uchar *temp_mem;
@@ -220,6 +220,12 @@ static void setup(void) {
     fill_random(ltab, 65536 + 256);
     ipal = malloc(65536);
     fill_random(ipal, 65536);
+    // For comparing a GPU with the mappers: neighbouring colours have
+    // neighbouring palette indices, so that a shade a pixel further on is
+    // a small difference and not any colour at all.
+    smooth_ipal = malloc(32768);
+    for (i = 0; i < 32768; i++)
+        smooth_ipal[i] = (uchar)(1 + ((i & 31) * 3 + ((i >> 5) & 31) * 2 + ((i >> 10) & 31)) % 255);
     stab = malloc(65536 + 256);
     fill_random(stab, 65536 + 256);
     for (i = 0; i < 32; i++)
@@ -567,12 +573,42 @@ static int make_poly(op_t *o) {
     return usable(GRC_POLY + GRD_FUNCS * type_of[k]);
 }
 
+// A line of the 3D library, in one colour or shaded between two, or a point.
+// Ends may lie off the canvas: the lines are clipped.
+static int make_mark(op_t *o) {
+    int kind = rnd_in(0, 9), i;
+
+    if (kind == 0) {
+        o->op = OP_POINT;
+        o->rx = rnd_in(-3, cw + 2);
+        o->ry = rnd_in(-3, ch + 2);
+        o->color = rnd_in(1, 255);
+        return 1;
+    }
+    o->op = kind < 5 ? OP_LINE : OP_CLINE;
+    o->color = rnd_in(1, 255);
+    o->n = 2;
+    for (i = 0; i < 2; i++) {
+        o->v[i].x = (fix)(rnd_f(-cw * 0.1, cw * 1.1) * 65536.0);
+        o->v[i].y = (fix)(rnd_f(-ch * 0.1, ch * 1.1) * 65536.0);
+        // the colours of a shaded line are whole numbers
+        o->v[i].u = rnd_in(0, 255);
+        o->v[i].v = rnd_in(0, 255);
+        o->v[i].w = rnd_in(0, 255);
+    }
+    if (rnd_in(0, 5) == 0) // on one row, or nearly
+        o->v[1].y = o->v[0].y + (fix)(rnd_f(-1.5, 1.5) * 65536.0);
+    if (rnd_in(0, 7) == 0) // straight down
+        o->v[1].x = o->v[0].x;
+    return 1;
+}
+
 static int make_scene(op_t *ops) {
     int n = rnd_in(20, MAX_OPS), count = 0, guard = 0;
 
     while (count < n && guard++ < 4000) {
         op_t *o = &ops[count];
-        int what = rnd_in(0, 19), ok;
+        int what = rnd_in(0, 21), ok;
 
         memset(o, 0, sizeof(*o));
         o->fill_type = FILL_NORM;
@@ -592,7 +628,9 @@ static int make_scene(op_t *ops) {
             ok = make_sprite(o);
         else if (what < 19)
             ok = make_poly(o);
-        else { // something drawn outside the recorded calls, like a 3D line
+        else if (what >= 20)
+            ok = make_mark(o);
+        else { // something drawn outside the recorded calls
             o->op = OP_RECT;
             o->rw = rnd_in(4, cw / 3);
             o->rh = rnd_in(4, ch / 3);
@@ -604,7 +642,7 @@ static int make_scene(op_t *ops) {
         // Now and then a polygon wound the other way round, as the 3D
         // library emits for a face seen from behind: the mappers draw
         // nothing for those.
-        if (ok && o->op != OP_RECT && aux_in(0, 9) == 0) {
+        if (ok && (o->op == OP_TMAP || o->op == OP_SPRITE || o->op == OP_POLY) && aux_in(0, 9) == 0) {
             int i;
             for (i = 0; i < o->n / 2; i++) {
                 grs_vertex t = o->v[i];
@@ -668,6 +706,24 @@ static void record_view(const op_t *ops, int count) {
                 rastq_hmap(&work_bm, o->n, work_vpl, &work_ti);
         } else if (o->op == OP_POLY) {
             rastq_poly(o->index, o->color, o->n, work_vpl);
+        } else if (o->op == OP_LINE || o->op == OP_CLINE) {
+#ifndef RASTQ_REFERENCE
+            rastq_line(o->op == OP_CLINE, o->color, &work_v[0], &work_v[1]);
+#else
+            // the libraries of then, where the 3D library drew its lines itself
+            rastq_flush();
+            ((int (*)(long, long, grs_vertex *, grs_vertex *))
+                 grd_line_clip_fill_vector[o->op == OP_CLINE ? GR_WIRE_POLY_CLINE : GR_WIRE_POLY_LINE])(
+                o->color, gr_get_fill_parm(), &work_v[0], &work_v[1]);
+#endif
+        } else if (o->op == OP_POINT) {
+            gr_set_fcolor(o->color);
+#ifndef RASTQ_REFERENCE
+            rastq_point((short)o->rx, (short)o->ry);
+#else
+            rastq_flush();
+            ((int (*)(short, short))grd_canvas_table[DRAW_POINT])((short)o->rx, (short)o->ry);
+#endif
         } else {
             rastq_flush();
             for (y = 0; y < o->rh; y++)
@@ -788,7 +844,9 @@ static struct {
     int w, h, row;
     const uchar *tables;
     int rows;
+    const uchar *ipal;
 } ref;
+static unsigned ref_no_ipal; // shaded calls in a scene begun without the colours' table
 static unsigned ref_compared;
 // A scene handed over and not waited for: its pixels aren't on the canvas
 static int ref_out;
@@ -797,7 +855,7 @@ static unsigned ref_unfinished;
 // scene is drawn in one go, and whether the last comparison did
 static const uchar *ref_expected_cpu, *ref_expected_gpu;
 static int ref_cpu_matched, ref_gpu_matched;
-static int ref_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows) {
+static int ref_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows, const uchar *ipal_table) {
     if (bits != canvas_bits || w != cw || h != ch)
         return 0;
     // It draws aside and the canvas gets the result at the wait, so that a
@@ -810,6 +868,7 @@ static int ref_begin(uchar *bits, int w, int h, int row, const uchar *tables, in
     ref.row = row;
     ref.tables = tables;
     ref.rows = rows;
+    ref.ipal = ipal_table;
     return 1;
 }
 
@@ -848,6 +907,20 @@ static int ref_owns(const rastq_gpu_vertex *a, const rastq_gpu_vertex *b) {
     return b->y < a->y || (b->y == a->y && b->x > a->x);
 }
 
+// The shaded calls' fragment shader: three colours, each as the light is,
+// then the palette index of their eighths.
+static void ref_shade(uchar *dest, float part, float r, float r_span, float g, float g_span, float b, float b_span) {
+    int r5 = (int)floorf((r + r_span * part) / 8.0f), g5 = (int)floorf((g + g_span * part) / 8.0f);
+    int b5 = (int)floorf((b + b_span * part) / 8.0f);
+
+    r5 = r5 < 0 ? 0 : r5 > 31 ? 31 : r5;
+    g5 = g5 < 0 ? 0 : g5 > 31 ? 31 : g5;
+    b5 = b5 < 0 ? 0 : b5 > 31 ? 31 : b5;
+    *dest = ref.ipal[r5 | (g5 << 5) | (b5 << 10)];
+}
+
+#define REF_SHADED 0x100 // with bm NULL: shaded between colours, not one colour
+
 // A fan of triangles, both windings drawn, as the GPU is set up.
 static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, int color) {
     int k;
@@ -882,13 +955,20 @@ static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_
                 if (ea < 0 || eb < 0 || ec < 0 || (ea == 0 && !ref_owns(b, c)) || (eb == 0 && !ref_owns(c, a)) ||
                     (ec == 0 && !ref_owns(a, b)))
                     continue;
-                if (bm == NULL) {
+                if (bm == NULL && !(flags & REF_SHADED)) {
                     *dest = (uchar)color;
                     continue;
                 }
                 la = (float)(ea / area);
                 lb = (float)(eb / area);
                 lc = (float)(ec / area);
+                if (bm == NULL) {
+#define REF_AT(field) (la * a->field + lb * b->field + lc * c->field)
+                    ref_shade(dest, REF_AT(along) / fmaxf(REF_AT(width), 0.0001f), REF_AT(left), REF_AT(span),
+                              REF_AT(g_left), REF_AT(g_span), REF_AT(b_left), REF_AT(b_span));
+#undef REF_AT
+                    continue;
+                }
                 {
                     // u and v with the perspective, the rest without
                     float q = la * a->q + lb * b->q + lc * c->q;
@@ -912,6 +992,15 @@ static int ref_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vert
     return 1;
 }
 
+static int ref_shaded(int n, const rastq_gpu_vertex *v) {
+    if (ref.ipal == NULL) {
+        ref_no_ipal++;
+        return 1;
+    }
+    ref_polygon(NULL, REF_SHADED, n, v, 0);
+    return 1;
+}
+
 static void ref_end(void) { ref_out = 1; }
 
 static void ref_finish(void) {
@@ -929,7 +1018,7 @@ static void ref_compared_cb(const uchar *gpu, const uchar *cpu, int w, int h, in
     ref_gpu_matched = ref_expected_gpu != NULL && memcmp(gpu, ref_expected_gpu, (size_t)row * h) == 0;
 }
 
-static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_end, ref_finish, ref_compared_cb};
+static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_shaded, ref_end, ref_finish, ref_compared_cb};
 
 // The share of a frame's pixels that may differ between the stand-in and the
 // mappers, and the share over a whole run.
@@ -939,7 +1028,7 @@ static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_end, ref_fi
 
 // Finds the first call of a failing scene whose presence makes replay differ.
 static void explain(const op_t *ops, int count, int split) {
-    static const char *op_names[] = {"tmap", "sprite", "poly", "rect"};
+    static const char *op_names[] = {"tmap", "sprite", "poly", "rect", "line", "shaded line", "point"};
     static const char *src_names[] = {"pool", "scratch", "unpacked", "rsd"};
     int k;
 
@@ -968,7 +1057,7 @@ static void explain(const op_t *ops, int count, int split) {
 // For a scene the stand-in draws too differently: each call drawn alone by
 // both, with the pixels it covers and how many of them differ.
 static void explain_gpu(const op_t *ops, int count) {
-    static const char *op_names[] = {"tmap", "sprite", "poly", "rect"};
+    static const char *op_names[] = {"tmap", "sprite", "poly", "rect", "line", "shaded line", "point"};
     int k;
 
     rastq_set_check_interval(0);
@@ -1096,6 +1185,91 @@ static int test_overlays(void) {
 }
 #endif
 
+#ifndef RASTQ_REFERENCE
+// Lines and points alone, drawn by the stand-in GPU from what the queue
+// hands it and by the 2D library: the queue builds a line's strips from the
+// library's own stepping, so the two must cover the same pixels but for a
+// row here and there where an edge passes within a hundredth of a pixel of
+// one. Returns the number of failures.
+static int test_marks(void) {
+    static op_t ops[MAX_OPS];
+    uint64_t main_state = rng_state;
+    long diff[2] = {0, 0}, far[2] = {0, 0}, drawn[2] = {0, 0}, on_cpu = 0;
+    int pass, n, k, bad = 0;
+    size_t i;
+
+    rng_state = 0xD1B54A32D192ED03ULL;
+    set_canvas(960, 544, 960);
+    consistent_background = 1;
+    grd_ipal = smooth_ipal;
+    rastq_set_check_interval(0);
+    for (pass = 0; pass < 2; pass++) { // in one colour and points, then shaded
+        for (n = 0; n < 150; n++) {
+            int count = 0;
+            while (count < 40) {
+                op_t *o = &ops[count];
+                memset(o, 0, sizeof(*o));
+                o->fill_type = FILL_NORM;
+                o->clip[2] = (short)cw;
+                o->clip[3] = (short)ch;
+                if (rnd_in(0, 3) == 0) { // under a smaller clip rectangle
+                    o->clip[0] = (short)rnd_in(0, cw / 3);
+                    o->clip[1] = (short)rnd_in(0, ch / 3);
+                    o->clip[2] = (short)rnd_in(cw * 2 / 3, cw);
+                    o->clip[3] = (short)rnd_in(ch * 2 / 3, ch);
+                }
+                make_mark(o);
+                if ((o->op == OP_CLINE) == pass)
+                    count++;
+            }
+            draw_scene(ops, count, RASTQ_OFF, result[1]);
+            rastq_set_gpu(&ref_gpu);
+            rastq_use_gpu(1);
+            memset(&rastq_stats, 0, sizeof(rastq_stats));
+            draw_scene(ops, count, RASTQ_TRUST_STABLE, result[2]);
+            rastq_use_gpu(0);
+            rastq_set_gpu(NULL);
+            on_cpu += rastq_stats.gpu_cpu_calls + rastq_stats.gpu_fallbacks + rastq_stats.solo[RASTQ_SOLO_DIRECT];
+            diff[pass] += differing(result[1], result[2]);
+            far[pass] += differing_nearby(result[1], result[2]);
+            for (i = 0; i < (size_t)crow * ch; i++)
+                drawn[pass] += result[1][i] != 0x4d;
+            if (getenv("RASTQ_MARKS_EXPLAIN") != NULL && differing(result[1], result[2]) != 0) {
+                for (k = 0; k < count; k++) {
+                    draw_scene(&ops[k], 1, RASTQ_OFF, result[1]);
+                    rastq_set_gpu(&ref_gpu);
+                    rastq_use_gpu(1);
+                    draw_scene(&ops[k], 1, RASTQ_TRUST_STABLE, result[2]);
+                    rastq_use_gpu(0);
+                    rastq_set_gpu(NULL);
+                    if (differing(result[1], result[2]) != 0)
+                        printf("    %s (%.2f,%.2f)-(%.2f,%.2f) clip %d,%d,%d,%d: %ld pixels differ\n",
+                               ops[k].op == OP_POINT ? "point" : ops[k].op == OP_LINE ? "line" : "shaded line",
+                               ops[k].v[0].x / 65536.0, ops[k].v[0].y / 65536.0, ops[k].v[1].x / 65536.0,
+                               ops[k].v[1].y / 65536.0, ops[k].clip[0], ops[k].clip[1], ops[k].clip[2], ops[k].clip[3],
+                               differing(result[1], result[2]));
+                }
+            }
+        }
+    }
+    consistent_background = 0;
+    grd_ipal = ipal;
+    rng_state = main_state;
+    printf("lines and points: in one colour %ld of %ld pixels differ from the 2D library's; shaded %ld of %ld, %ld "
+           "not near one that matches\n",
+           diff[0], drawn[0], diff[1], drawn[1], far[1]);
+    // one colour: only the rows an edge all but touches a pixel; shaded: a
+    // shade a pixel early or late besides
+    if (on_cpu != 0) {
+        printf("  %ld were left to the CPU\n", on_cpu);
+        bad++;
+    }
+    if (drawn[0] == 0 || drawn[1] == 0 || diff[0] > drawn[0] / 100 || far[0] != 0 || far[1] > drawn[1] / 200)
+        bad++;
+    return bad;
+}
+#endif
+
 int main(int argc, char **argv) {
     // width, height, bytes a row: the last is the paneled view as the GPU has
     // it on the Vita, in a canvas made for the full screen
@@ -1119,8 +1293,10 @@ int main(int argc, char **argv) {
     setup();
 
 #ifndef RASTQ_REFERENCE
-    if (!hash_only)
+    if (!hash_only) {
         bad += test_overlays();
+        bad += test_marks();
+    }
 #endif
 
     for (s = 0; s < 4; s++) {
@@ -1233,6 +1409,7 @@ int main(int argc, char **argv) {
                     rng_state = main_state;
 
                     consistent_background = 1;
+                    grd_ipal = smooth_ipal;
                     rastq_set_check_interval(0);
                     draw_scene(gpu_ops, gpu_count, RASTQ_OFF, result[1]);
                     {
@@ -1299,6 +1476,7 @@ int main(int argc, char **argv) {
                         }
                     }
                     consistent_background = 0;
+                    grd_ipal = ipal;
                 }
 
                 // Now and then, each call drawn alone must stay inside the

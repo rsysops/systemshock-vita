@@ -44,9 +44,10 @@
 //   of rastq.h, which are linear on screen, are multiplied by w too: the
 //   hardware's interpolation then gives each of them times the pixel's w,
 //   and the quotients the shader takes are the same.
-// - The flat-colour shaders, used at start-up and when the textured ones
-//   didn't compile, read the position and, where the other has u, the
-//   palette index as the 0..1 value the 8-bit target stores.
+// - The flat-colour shaders read the position and, where the other has u,
+//   the palette index as the 0..1 value the 8-bit target stores.
+// - The shaded shaders read the position, red where the light values are,
+//   and green and blue where u, v, w and the depth are.
 typedef struct {
     float x, y;
     float u, v, w;
@@ -68,10 +69,18 @@ typedef struct {
     void *depth;
 } gpu_target;
 
-// Consecutive polygons with the same bitmap and shader
+// Which shaders draw a polygon
+enum {
+    DRAW_TMAP,   // a bitmap through the tables
+    DRAW_TRANS,  // the same, texel 0 leaving the pixel alone
+    DRAW_FLAT,   // one palette index
+    DRAW_SHADED, // between colours, through the colours' table
+};
+
+// Consecutive polygons with the same bitmap and shaders
 typedef struct {
     const SceGxmTexture *texture;
-    int trans;
+    int kind;
     unsigned first, count; // indices
 } gpu_draw;
 
@@ -81,7 +90,11 @@ static SceGxmFragmentProgram *flat_fragment_program;
 static SceGxmVertexProgram *tmap_vertex_program;
 static SceGxmFragmentProgram *tmap_fragment_program, *trans_fragment_program; // trans: texel 0 leaves the pixel alone
 static unsigned bitmap_unit, tables_unit, trans_bitmap_unit, trans_tables_unit;
+static SceGxmVertexProgram *shaded_vertex_program;
+static SceGxmFragmentProgram *shaded_fragment_program;
+static unsigned colours_unit;
 static int textured; // the textured shaders are there: without them, flat colours
+static int shades;   // and the shaded ones
 
 // The views' canvases: see vgpu_set_canvases
 static uchar *canvas_pixels[VGPU_CANVASES];
@@ -102,6 +115,13 @@ static float to_clip_x, to_clip_y;
 
 static uchar *tables_pixels; // RASTQ_GPU_TABLE_ROWS rows of 256
 static SceGxmTexture tables_texture;
+// The palette index of each colour of five bits a channel: 32 rows (blue)
+// of 1024 (green times 32, plus red)
+#define COLOURS_W 1024
+#define COLOURS_H 32
+static uchar *colours_pixels;
+static SceGxmTexture colours_texture;
+static const uchar *scene_colours; // the scene's, not copied yet; NULL: copied, or none
 static uchar *texture_heap;
 static size_t texture_heap_used;
 static SceGxmTexture scene_textures[MAX_SCENE_TEXTURES];
@@ -183,6 +203,38 @@ static const char tmap_fragment_source[] =
     "    return float4(shade, shade, shade, 1.0f);\n"
     "}\n";
 static const char trans_fragment_lines[] = "    if (pal < 0.5f / 255.0f) discard;\n";
+
+// A polygon shaded between colours: red, green and blue from 0 to 256, each
+// left + span * along / width as the light is (see rastq.h), and the pixel
+// takes the palette index the game has for their eighths, rounded down.
+static const char shaded_vertex_source[] =
+    "void main(\n"
+    "    float2 aPosition,\n"
+    "    float3 aTex,\n"
+    "    float4 aLight,\n"
+    "    float aDepth,\n"
+    "    out float4 vPosition : POSITION,\n"
+    "    out float4 vRed : TEXCOORD0,\n"
+    "    out float4 vRest : TEXCOORD1)\n"
+    "{\n"
+    "    vPosition = float4(aPosition, 0.5f, 1.0f);\n"
+    "    vRed = aLight;\n"
+    "    vRest = float4(aTex, aDepth);\n"
+    "}\n";
+
+static const char shaded_fragment_source[] =
+    "float4 main(\n"
+    "    float4 vRed : TEXCOORD0,\n"
+    "    float4 vRest : TEXCOORD1,\n"
+    "    uniform sampler2D uColours : TEXUNIT0)\n"
+    "{\n"
+    "    float part = vRed.z / max(vRed.w, 0.0001f);\n"
+    "    float3 tint = float3(vRed.x + vRed.y * part, vRest.x + vRest.y * part, vRest.z + vRest.w * part);\n"
+    "    float3 fifth = clamp(floor(tint / 8.0f), 0.0f, 31.0f);\n"
+    "    float2 spot = float2((fifth.x + fifth.y * 32.0f + 0.5f) / 1024.0f, (fifth.z + 0.5f) / 32.0f);\n"
+    "    float shade = tex2D(uColours, spot).x + 0.25f / 255.0f;\n"
+    "    return float4(shade, shade, shade, 1.0f);\n"
+    "}\n";
 
 static int log_started;
 
@@ -377,7 +429,7 @@ static void vgpu_finish(void) {
     scene_out = 0;
 }
 
-static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows) {
+static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows, const uchar *ipal) {
     gpu_target *t;
     int target_w = w, target_h = h, err;
 
@@ -429,6 +481,7 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     sceGxmSetBackDepthWriteEnable(context, SCE_GXM_DEPTH_WRITE_DISABLED);
 
     in_scene = 1;
+    scene_colours = ipal;
     vertex_count = index_count = draw_count = 0;
     scene_texture_count = 0;
     texture_heap_used = 0;
@@ -475,7 +528,7 @@ static const SceGxmTexture *texture_for(const grs_bitmap *bm, int wrap) {
 }
 
 // A convex polygon as a fan of triangles. 0 if the scene has no room for it.
-static int add_polygon(const SceGxmTexture *texture, int trans, int n, const vgpu_vertex *verts) {
+static int add_polygon(const SceGxmTexture *texture, int kind, int n, const vgpu_vertex *verts) {
     unsigned first = vertex_count;
     gpu_draw *d = draw_count ? &draws[draw_count - 1] : NULL;
     int i;
@@ -484,12 +537,12 @@ static int add_polygon(const SceGxmTexture *texture, int trans, int n, const vgp
         return 1;
     if (vertex_count + n > MAX_VERTICES || index_count + 3 * (n - 2) > MAX_INDICES)
         return 0;
-    if (d == NULL || d->texture != texture || d->trans != trans) {
+    if (d == NULL || d->texture != texture || d->kind != kind) {
         if (draw_count == MAX_DRAWS)
             return 0;
         d = &draws[draw_count++];
         d->texture = texture;
-        d->trans = trans;
+        d->kind = kind;
         d->first = index_count;
         d->count = 0;
     }
@@ -538,18 +591,37 @@ static int vgpu_flat(int n, const rastq_gpu_vertex *v, int color) {
     if (n > RASTQ_GPU_VERTS)
         return 1;
     for (i = 0; i < n; i++) {
-        if (!textured) {
-            // The 8-bit target stores round or floor of 255 times the output:
-            // a quarter above the index gives the index either way.
-            place(&out[i], &v[i]);
-            out[i].u = ((float)color + 0.25f) / 255.0f;
-        } else {
-            // the texel of that value in the tables' unchanged row
-            fill(&out[i], &v[i], ((float)color + 0.5f) * v[i].q, (RASTQ_GPU_PLAIN_ROW + 0.5f) * v[i].q, 256,
-                 RASTQ_GPU_TABLE_ROWS);
-        }
+        // The 8-bit target stores round or floor of 255 times the output:
+        // a quarter above the index gives the index either way.
+        place(&out[i], &v[i]);
+        out[i].u = ((float)color + 0.25f) / 255.0f;
     }
-    return add_polygon(&tables_texture, 0, n, out);
+    return add_polygon(NULL, DRAW_FLAT, n, out);
+}
+
+static int vgpu_shaded(int n, const rastq_gpu_vertex *v) {
+    vgpu_vertex out[RASTQ_GPU_VERTS];
+    int i;
+
+    if (n > RASTQ_GPU_VERTS)
+        return 1;
+    if (scene_colours != NULL) {
+        // the scene's first shaded polygon: the last scene has finished
+        memcpy(colours_pixels, scene_colours, COLOURS_W * COLOURS_H);
+        scene_colours = NULL;
+    }
+    for (i = 0; i < n; i++) {
+        place(&out[i], &v[i]);
+        out[i].left = v[i].left;
+        out[i].span = v[i].span;
+        out[i].along = v[i].along;
+        out[i].width = v[i].width;
+        out[i].u = v[i].g_left;
+        out[i].v = v[i].g_span;
+        out[i].w = v[i].b_left;
+        out[i].depth = v[i].b_span;
+    }
+    return add_polygon(&colours_texture, DRAW_SHADED, n, out);
 }
 
 static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v) {
@@ -566,7 +638,7 @@ static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_ver
         return 0;
     for (i = 0; i < n; i++)
         fill(&out[i], &v[i], v[i].u, v[i].v, bm->w, bm->h);
-    return add_polygon(texture, (flags & RASTQ_GPU_TRANS) != 0, n, out);
+    return add_polygon(texture, (flags & RASTQ_GPU_TRANS) ? DRAW_TRANS : DRAW_TMAP, n, out);
 }
 
 static void vgpu_end(void) {
@@ -576,24 +648,36 @@ static void vgpu_end(void) {
     if (!in_scene)
         return;
     if (index_count != 0) {
+        int last = -1;
+
         sceGxmSetVertexStream(context, 0, vertices);
-        if (!textured) {
-            sceGxmSetVertexProgram(context, flat_vertex_program);
-            sceGxmSetFragmentProgram(context, flat_fragment_program);
-            sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices, index_count);
-        } else {
-            sceGxmSetVertexProgram(context, tmap_vertex_program);
-            for (k = 0; k < draw_count; k++) {
-                const gpu_draw *d = &draws[k];
-                sceGxmSetFragmentProgram(context, d->trans ? trans_fragment_program : tmap_fragment_program);
-                sceGxmSetFragmentTexture(context, d->trans ? trans_bitmap_unit : bitmap_unit, d->texture);
-                sceGxmSetFragmentTexture(context, d->trans ? trans_tables_unit : tables_unit, &tables_texture);
-                sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices + d->first,
-                           d->count);
+        for (k = 0; k < draw_count; k++) {
+            const gpu_draw *d = &draws[k];
+
+            if (d->kind == DRAW_FLAT) {
+                if (last != DRAW_FLAT) {
+                    sceGxmSetVertexProgram(context, flat_vertex_program);
+                    sceGxmSetFragmentProgram(context, flat_fragment_program);
+                }
+            } else if (d->kind == DRAW_SHADED) {
+                if (last != DRAW_SHADED) {
+                    sceGxmSetVertexProgram(context, shaded_vertex_program);
+                    sceGxmSetFragmentProgram(context, shaded_fragment_program);
+                    sceGxmSetFragmentTexture(context, colours_unit, &colours_texture);
+                }
+            } else {
+                int trans = d->kind == DRAW_TRANS;
+                if (last != DRAW_TMAP && last != DRAW_TRANS)
+                    sceGxmSetVertexProgram(context, tmap_vertex_program);
+                sceGxmSetFragmentProgram(context, trans ? trans_fragment_program : tmap_fragment_program);
+                sceGxmSetFragmentTexture(context, trans ? trans_bitmap_unit : bitmap_unit, d->texture);
+                sceGxmSetFragmentTexture(context, trans ? trans_tables_unit : tables_unit, &tables_texture);
             }
+            last = d->kind;
+            sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices + d->first, d->count);
         }
     }
-    vgpu_counters.draws += textured ? draw_count : 1;
+    vgpu_counters.draws += draw_count;
     vgpu_counters.draw_us += (unsigned long long)(sceKernelGetProcessTimeWide() - start);
     sceGxmEndScene(context, NULL, NULL);
     // The GPU has the scene. Whoever touches the canvas next waits for it
@@ -661,7 +745,11 @@ static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int 
 #define vgpu_compared NULL
 #endif
 
-static const rastq_gpu queue_hooks = {vgpu_begin, vgpu_flat, vgpu_tmap, vgpu_end, vgpu_finish, vgpu_compared};
+static const rastq_gpu queue_hooks = {vgpu_begin, vgpu_flat,   vgpu_tmap,    vgpu_shaded,
+                                      vgpu_end,   vgpu_finish, vgpu_compared};
+// without the shaded shaders
+static const rastq_gpu plain_hooks = {vgpu_begin, vgpu_flat,   vgpu_tmap,    NULL,
+                                      vgpu_end,   vgpu_finish, vgpu_compared};
 
 // ---- set-up ----------------------------------------------------------------
 
@@ -806,14 +894,43 @@ static int make_tmap_programs(void) {
     return 1;
 }
 
-// The memory the textured shaders draw from: the tables and the bitmaps.
+static int make_shaded_programs(void) {
+    static const char *const names[] = {"aPosition", "aTex", "aLight", "aDepth"};
+    static const size_t offsets[] = {offsetof(vgpu_vertex, x), offsetof(vgpu_vertex, u), offsetof(vgpu_vertex, left),
+                                     offsetof(vgpu_vertex, depth)};
+    static const int sizes[] = {2, 3, 4, 1};
+    const SceGxmProgram *fragment = NULL;
+    int unit;
+
+    if (!make_programs("shaded", shaded_vertex_source, shaded_fragment_source, names, offsets, sizes, 4,
+                       &shaded_vertex_program, &shaded_fragment_program, &fragment))
+        return 0;
+    unit = sampler_unit(fragment, "uColours");
+    gpu_log("texture unit: colours %d", unit);
+    if (unit < 0)
+        return 0;
+    colours_unit = (unsigned)unit;
+    return 1;
+}
+
+// The memory the textured and shaded shaders draw from: the tables, the
+// colours' table and the bitmaps.
 static int make_textures(void) {
     tables_pixels = vgpu_alloc(RASTQ_GPU_TABLE_ROWS * 256);
+    colours_pixels = vgpu_alloc(COLOURS_W * COLOURS_H);
     texture_heap = vgpu_alloc(TEXTURE_HEAP_BYTES);
-    if (tables_pixels == NULL || texture_heap == NULL) {
+    if (tables_pixels == NULL || colours_pixels == NULL || texture_heap == NULL) {
         gpu_log("no memory for the tables and the bitmaps");
         return 0;
     }
+    memset(colours_pixels, 0, COLOURS_W * COLOURS_H);
+    if (sceGxmTextureInitLinear(&colours_texture, colours_pixels, SCE_GXM_TEXTURE_FORMAT_U8_RRRR, COLOURS_W,
+                                COLOURS_H, 0) < 0)
+        return 0;
+    sceGxmTextureSetMinFilter(&colours_texture, SCE_GXM_TEXTURE_FILTER_POINT);
+    sceGxmTextureSetMagFilter(&colours_texture, SCE_GXM_TEXTURE_FILTER_POINT);
+    sceGxmTextureSetUAddrMode(&colours_texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
+    sceGxmTextureSetVAddrMode(&colours_texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
     memset(tables_pixels, 0, RASTQ_GPU_TABLE_ROWS * 256);
     if (sceGxmTextureInitLinear(&tables_texture, tables_pixels, SCE_GXM_TEXTURE_FORMAT_U8_RRRR, 256,
                                 RASTQ_GPU_TABLE_ROWS, 0) < 0)
@@ -858,7 +975,7 @@ static int index_check(int *first_bad, int *got, int *kept) {
     if (canvas == NULL)
         return -1;
     memset(canvas, 0xEE, CHECK_W * CHECK_H);
-    if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, NULL, 0)) {
+    if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, NULL, 0, NULL)) {
         vgpu_free(canvas);
         return -1;
     }
@@ -879,7 +996,7 @@ static int index_check(int *first_bad, int *got, int *kept) {
     // Does a scene keep the pixels it doesn't draw? A view is drawn in
     // several scenes when something in it has to be drawn by the CPU.
     memset(canvas, 0x55, CHECK_W * CHECK_H);
-    if (vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, NULL, 0)) {
+    if (vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, NULL, 0, NULL)) {
         quad(0, CHECK_W / 2, 0x11);
         vgpu_end();
         vgpu_finish();
@@ -932,7 +1049,7 @@ static int texture_check(int bad[CHECK_BANDS]) {
     tiles_bm.w = tiles_bm.row = tiles_bm.h = 16;
 
     memset(canvas, 0xEE, CHECK_W * CHECK_H);
-    if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS)) {
+    if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS, NULL)) {
         vgpu_free(canvas);
         return 0;
     }
@@ -986,6 +1103,67 @@ static int texture_check(int bad[CHECK_BANDS]) {
     return 1;
 }
 
+// Draws with the shaded shaders, in three bands, each with one of red, green
+// and blue going from 0 to 256 across the 256 columns while the other two
+// stay put, and compares each column with the colours' table. The value
+// that moves is given as the queue gives a cut polygon's: a left value, a
+// span, and how far along the pixel is. Sets the number of wrong columns of
+// each band. Returns 0 if nothing could be drawn.
+#define COLOUR_BANDS 3
+static int colour_check(int bad[COLOUR_BANDS]) {
+    enum { BAND_H = CHECK_H / 4 };
+    static const float still[3] = {100.5f, 44.5f, 201.5f};
+    static uchar table[COLOURS_W * COLOURS_H];
+    uchar *canvas = vgpu_alloc(CHECK_W * CHECK_H);
+    rastq_gpu_vertex v[4];
+    int band, x, i;
+
+    for (band = 0; band < COLOUR_BANDS; band++)
+        bad[band] = -1;
+    if (canvas == NULL)
+        return 0;
+    for (i = 0; i < COLOURS_W * COLOURS_H; i++)
+        table[i] = (uchar)(1 + ((i & 31) * 7 + ((i >> 5) & 31) * 13 + ((i >> 10) & 31) * 29) % 255);
+    memset(canvas, 0, CHECK_W * CHECK_H);
+    if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, NULL, 0, table)) {
+        vgpu_free(canvas);
+        return 0;
+    }
+    for (band = 0; band < COLOUR_BANDS; band++) {
+        corners(v, 0, CHECK_W, band * BAND_H, (band + 1) * BAND_H);
+        for (i = 0; i < 4; i++) {
+            v[i].left = band == 0 ? 0.5f : still[0]; // the one that moves: x + 0.5 in column x
+            v[i].span = band == 0 ? 256.0f : 0;
+            v[i].g_left = band == 1 ? 0.5f : still[1];
+            v[i].g_span = band == 1 ? 256.0f : 0;
+            v[i].b_left = band == 2 ? 0.5f : still[2];
+            v[i].b_span = band == 2 ? 256.0f : 0;
+            v[i].along = v[i].x;
+            v[i].width = (float)CHECK_W;
+        }
+        vgpu_shaded(4, v);
+    }
+    vgpu_end();
+    vgpu_finish();
+
+    for (band = 0; band < COLOUR_BANDS; band++) {
+        const uchar *row = canvas + (band * BAND_H + BAND_H / 2) * CHECK_W;
+
+        bad[band] = 0;
+        for (x = 0; x < 256; x++) {
+            int fifth[3] = {(int)still[0] / 8, (int)still[1] / 8, (int)still[2] / 8}, want;
+            fifth[band] = x / 8;
+            want = table[fifth[0] | (fifth[1] << 5) | (fifth[2] << 10)];
+            if (row[x] != want) {
+                if (bad[band]++ == 0)
+                    gpu_log("colour check, band %d: column %d holds %d, not %d", band, x, row[x], want);
+            }
+        }
+    }
+    vgpu_free(canvas);
+    return 1;
+}
+
 // How long the CPU takes to write and to read half a megabyte, in
 // microseconds: a view's canvas is about that size.
 static void time_memory(uchar *p, size_t size, int *write_us, int *read_us) {
@@ -1008,6 +1186,7 @@ static void time_memory(uchar *p, size_t size, int *write_us, int *read_us) {
 void vgpu_init(void) {
     size_t test_bytes = 2 * GPU_BLOCK_ALIGN;
     int bad, first_bad, got, kept, tex_bad[CHECK_BANDS] = {-1, -1, -1, -1};
+    int colour_bad[COLOUR_BANDS] = {-1, -1, -1};
     int gpu_write = -1, gpu_read = -1, ram_write = -1, ram_read = -1;
     uchar *gpu_mem, *ram_mem;
     int err;
@@ -1049,12 +1228,24 @@ void vgpu_init(void) {
     // in the first GPU builds.
     gpu_log("compiling the textured shaders");
     textured = bad >= 0 && make_textures() && make_tmap_programs();
+    // Without the shaded shaders the GPU still draws the station; what is
+    // shaded between colours is then the CPU's, and so is cyberspace.
+    if (textured) {
+        gpu_log("compiling the shaded shaders");
+        shades = make_shaded_programs();
+    }
     shark_end();
     if (textured) {
         gpu_log("drawing the texture check");
         if (!texture_check(tex_bad))
             textured = 0;
         gpu_log("texture check drawn: %d %d %d %d wrong", tex_bad[0], tex_bad[1], tex_bad[2], tex_bad[3]);
+    }
+    if (textured && shades) {
+        gpu_log("drawing the colour check");
+        if (!colour_check(colour_bad))
+            shades = 0;
+        gpu_log("colour check drawn: %d %d %d wrong", colour_bad[0], colour_bad[1], colour_bad[2]);
     }
 
     gpu_log("timing memory");
@@ -1070,10 +1261,11 @@ void vgpu_init(void) {
 
     snprintf(report, sizeof(report),
              "gpu: ready index_check mismatches=%d/256 first_bad=%d got=%d undrawn_kept=%d | textures=%s "
-             "texture_check plain=%d table=%d light=%d wrap=%d (wrong columns of 256) | 512KB us: "
-             "gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d",
-             bad, first_bad, got, kept, textured ? "on" : "off (GPU not used)", tex_bad[0], tex_bad[1], tex_bad[2],
-             tex_bad[3], gpu_write, gpu_read, ram_write, ram_read);
+             "texture_check plain=%d table=%d light=%d wrap=%d colour_check red=%d green=%d blue=%d (wrong columns "
+             "of 256) | 512KB us: gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d",
+             bad, first_bad, got, kept, !textured ? "off (GPU not used)" : shades ? "on" : "on, not the shaded ones",
+             tex_bad[0], tex_bad[1], tex_bad[2],
+             tex_bad[3], colour_bad[0], colour_bad[1], colour_bad[2], gpu_write, gpu_read, ram_write, ram_read);
     gpu_log("%s", report);
     // Flat colours were for finding out whether the GPU path could work at
     // all: as a renderer it is the textured shaders or nothing.
@@ -1081,11 +1273,13 @@ void vgpu_init(void) {
         ready = 0;
         return;
     }
-    rastq_set_gpu(&queue_hooks);
+    rastq_set_gpu(shades ? &queue_hooks : &plain_hooks);
 }
 
 const char *vgpu_report(void) { return report; }
 
 int vgpu_available(void) { return ready && textured; }
+
+int vgpu_shades(void) { return vgpu_available() && shades; }
 
 #endif // VITA

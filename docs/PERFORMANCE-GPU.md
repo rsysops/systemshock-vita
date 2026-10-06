@@ -89,7 +89,8 @@ run something like it. It was not chosen:
 | G7 | Holding the screen's rate: the help scan's repeated questions, the queue told per view whether it is the GPU's, and measurements of where a GPU frame's CPU time, `sendview` and the input stalls go | **done**: the door is back at the screen's rate; the stalls are sound effects decoded for their first use; what is left under 60 fps (58.5 at one angle) is the HUD and the help scan on the CPU, next to 3.4 ms of the main thread waiting for the GPU |
 | G8 | The help scan run while the GPU draws, in place of the main thread waiting; the HUD measured part by part | **done**: where the scan runs the main thread waits 0.4 ms for the GPU in place of 3.4; G7's heavy angle and the paneled view with labels are at the screen's rate with 1.8 ms to spare. A heavier angle (132 polygons in 354 pieces, no scan) is at 53 to 57 fps |
 | G9 | A cheaper HUD: outlined text drawn once and copied; the vitals' arrows and the inventory's buttons stretched once and copied; transparent copies four pixels at a time | **done**: the full-screen HUD from 2.2-3.3 ms to 1.35-1.9, from 4.4 to 1.5 with a help label, on every renderer, no pixel changed in 438 checks. The hallway angle is at 59 fps in full screen, 55 paneled |
-| G10 | The sending shared between the three cores: deciding what each call is and cutting it up, the hand-over staying in order | about 2 ms off the frames with many pieces. **Not started** |
+| G10 | Cyberspace on the GPU: polygons shaded between colours, lines and points; flat polygons through the flat shaders | **done**: one renderer for all of the 3D world; 0.03% of cyberspace's pixels differ from the CPU's; 2 ms a frame ahead of three cores there, the view going to the screen without a copy. Voxel objects still split a frame into several scenes |
+| G11 | The sending shared between the three cores: deciding what each call is and cutting it up, the hand-over staying in order | about 2 ms off the frames with many pieces. **Not started** |
 
 G2 was not in the first roadmap. G1 showed that the memory question
 decides whether the GPU path is worth anything, so it comes before
@@ -1655,3 +1656,174 @@ After that, to choose from: the paneled view shown from GPU memory in
 place of copied (2.9 ms; everything the game draws over the view on the
 screen has to be looked at); the wait when the help scan doesn't run
 (2.4 to 3.8 ms); the stalls.
+
+## Step G10: cyberspace on the GPU
+
+Built and run on a Vita; results at the end of this section. Asked for
+ahead of the sending on three cores, which becomes G11.
+
+Cyberspace was the one part of the 3D world the GPU renderer left to
+the CPU (step G6), and it runs there at the screen's rate (62.7 fps,
+3.2 ms to spare). This step is not for speed: it makes one renderer
+draw all of it. The profile build alternates the two renderers in
+cyberspace as elsewhere, so the capture says which is faster.
+
+### What cyberspace is drawn with
+
+| | a frame (G8) | before this step |
+|---|---|---|
+| flat polygons | about 75 | on the GPU |
+| polygons shaded between colours (`FIX_UCPOLY`: walls, floors) | 7, up to 27 | the CPU's |
+| lines, in one colour or shaded (tile outlines, wireframes, explosions) | not counted | drawn at once after a flush: 7 flushes a frame |
+| points | not counted | the same |
+
+No texture, no translucency and no brightness-shaded polygon came up in
+the two visits measured.
+
+### Polygons shaded between colours
+
+The CPU steps red, green and blue (0 to 256) along the polygon's edges
+and across each row, and writes `grd_ipal` of their top five bits each:
+the palette index of that colour. On the GPU:
+
+- a third pair of shaders (`shaded_*` in `src/MacSrc/VitaGpu.c`) takes
+  the three colours as the textured ones take the light, `left + span *
+  along / width`, divides each by 8, rounds down and reads the palette
+  index from a 1024x32 texture: `grd_ipal`, copied once per scene that
+  needs it;
+- the queue cuts a polygon of four corners or more at its corners' rows
+  (`gpu_emit_cut`, as for the light since G5), so that the three values
+  are the mappers' at every pixel; a triangle goes whole;
+- a colour that sits on a multiple of 8, as corners' do, is nudged up by
+  a 64th so that it can't fall on either side from pixel to pixel.
+
+Only under the normal fill type; the colour-table fill has a loop of
+its own on the CPU and stays there.
+
+### Lines and points
+
+In a view the GPU draws, `g3_draw_line`, `g3_draw_cline` and
+`g3_draw_point` no longer flush the queue: the queue records them
+(`rastq_line`, `rastq_point`) and the list stays whole. For the CPU
+renderers nothing changes: flush, then draw.
+
+The 2D library's wire line is not one pixel a step. Row after row it
+draws the pixels between where the line enters the row and where it
+leaves it, at least one, as a polygon's edge would be walked. The queue
+turns that into three flat or shaded quads: the first row and the last,
+which are cut at the line's ends, as the whole pixels they come out to,
+and the rows between as one strip with the line's slope and the width
+of its step (`gpu_emit_line`). The line is clipped first by the
+library's own clipper. A shaded line's colours step once a pixel drawn,
+which is along x or along y: a plane over the strip. A point is its
+pixel.
+
+When the CPU draws such a view after all (the comparison, a refused
+frame), it draws the recorded lines and points in their place, alone on
+the main thread as other calls that can't be split into bands.
+
+### Flat polygons through the flat shaders
+
+Since G3 a flat polygon went through the textured shaders, as a texel
+of the tables' unchanged row: two texture reads a pixel to write one
+value. It goes through the flat shaders of G1 again (`DRAW_FLAT`), the
+clear at the start of a frame included. A scene's draws carry which
+shaders they use, and the three kinds mix in one scene in the order the
+game drew them.
+
+### Checked on the PC
+
+- The stand-in GPU has the shaded shader's arithmetic; the scenes have
+  shaded polygons, lines and points, and a colours' table in which
+  neighbouring colours have neighbouring indices when a GPU is compared.
+  `tests/rastq/run.sh 300`: passes, 0.082% of pixels not near one that
+  matches (limit 0.15%). Putting green in blue's place, or not cutting
+  the polygons, fails it.
+- Lines and points alone, 12,000 of them, some clipped: of 1,474,085
+  pixels in one colour 27 differ from the 2D library's; of 1,846,605
+  shaded, 11,099 differ (a shade a pixel early or late) and 1,141 have
+  no match within two pixels.
+- The reference libraries draw the test's lines as the 3D library used
+  to and give the same frames: the lines' drawing on the CPU hasn't
+  changed.
+
+Not checkable on the PC: how the Vita's GPU fills a slanted strip one
+pixel wide. Its edges fall between pixels at positions the GPU rounds;
+a line may come out a pixel off in a row here and there. The profile
+build's comparison will count it.
+
+### New at start-up and in the log
+
+- `gpu.txt`: the shaded shaders are compiled and checked like the
+  others (`colour check drawn: r g b wrong`: one band each for red,
+  green and blue going from 0 to 256, compared column by column with
+  the table). Without them the GPU still draws the station and
+  cyberspace stays on three cores (`textures=on, not the shaded ones`).
+- `gpukinds=` gains `shaded:`, `line:` and `point:`, calls a frame.
+- In cyberspace the two phases now differ: `var=1` is the GPU.
+
+### What the capture will show
+
+- In cyberspace: `gpuscenes` 1 a frame and `gpucpu` 0 if nothing else
+  turns up; otherwise `gpuwhy` names it.
+- `gpuwait` in cyberspace (nothing hides it there) against the three
+  cores' `raster`: which renderer is faster, and by how much.
+- `gpudiff` and the dumps in cyberspace: how far the GPU's lines and
+  colour bands are from the CPU's.
+- In the station: `gpuwait` a little lower if the flat clear matters.
+
+### Results (`docs/profiles-gpu/profile-step-10.txt`, `gpu.txt`, `gpudumps-step-10/`)
+
+`gpu.txt`: the shaded shaders compile (360 and 512 bytes) and
+`colour check drawn: 0 0 0 wrong`.
+
+Medians of the 1 s windows, with the time left waiting for the screen:
+
+| | 0: three cores | 1: GPU |
+|---|---|---|
+| station, standing still | 46.8 fps | 63.2 fps, 5.4 ms |
+| station, moving | 36.9 fps | 63.1 fps, 6.2 ms |
+| cyberspace, standing still | 62.7 fps, 5.5 ms | 63.2 fps, 7.6 ms |
+| cyberspace, moving | 62.3 fps, 5.2 ms | 63.4 fps, 7.5 ms |
+
+- **Cyberspace on the GPU is 2 ms a frame ahead of three cores**, where
+  about the same was expected. The drawing costs the same (`render3d`
+  6.9 against 6.7 ms): the gain is at the screen. The GPU's canvas is
+  shown as it is; the three-core picture is copied into the screen's
+  texture first (`present` without its wait: 0.9 against 3.1 ms).
+- **The picture is the CPU's but for 0.03% of the compared pixels** in
+  cyberspace (6.0% in the station): the strips of `gpu_emit_line` cover
+  the 2D library's pixels on the real GPU too.
+- A cyberspace frame, medians and the most in a window: 186 lines (405),
+  16 flat polygons (173), 3 shaded polygons (17), no points. `gpucpu`
+  and every `gpuwhy` stay at 0: no call of a kind the GPU path doesn't
+  draw.
+- **Voxel objects split the frame.** In 39 of the 145 cyberspace
+  windows a frame is 2 to 5 scenes, with as many flushes and nothing
+  drawn by the CPU through the queue. The one flush left outside the
+  queue is `FAUBJ_VOX` in `src/GameSrc/gameobj.c`: voxels are drawn
+  straight onto the canvas, so each such object ends a scene, is waited
+  for, and is drawn into GPU memory by the CPU. `gpuwait` goes from
+  1.95 ms to 5.7 ms in those windows; the heaviest frame is 14.1 ms and
+  still at the screen's rate. None came up in the station's captures.
+- `check=0`, `leaks=0`, `hudcheck=0/669`, `gpufallbacks=0`, 4 dumps.
+- No fight in cyberspace in this capture: shots and explosions there
+  are not measured.
+
+**A freeze at check 791**, in cyberspace. The log ends in the fifth
+window of a three-core phase, after four complete ones: the GPU's
+drawing wasn't running. What this step changed for that phase is the
+way the 3D library's lines reach the 2D library, which is the same call
+as before. Nothing in the log points at the renderer; the memory card
+adapter is known to freeze the console now and then. Not explained.
+
+### Go for G11
+
+The sending shared between the three cores, as written under "Go for
+G10" in step G9: about 2 ms off the frames with many pieces, for the
+hallway angle (59 fps in full screen, 55 paneled).
+
+After that, to choose from: voxel objects through the queue, so that a
+frame with them is one scene again (up to 3.7 ms in those frames); the
+paneled view shown from GPU memory in place of copied (2.9 ms); the wait
+when the help scan doesn't run (2.4 to 3.8 ms); the stalls.

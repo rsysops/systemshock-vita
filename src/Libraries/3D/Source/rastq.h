@@ -30,13 +30,16 @@ enum {
     RASTQ_GPU_KIND_PLAIN, // a texture map, texels as they are
     RASTQ_GPU_KIND_CLUT,  // through a colour table
     RASTQ_GPU_KIND_LIT,   // through the light table, the level varying
+    RASTQ_GPU_KIND_SHADED, // a polygon shaded between its corners' colours
+    RASTQ_GPU_KIND_LINE,  // a line, in one colour or shaded
+    RASTQ_GPU_KIND_POINT,
     RASTQ_GPU_KINDS
 };
 
 // Why the CPU drew a call of a view the GPU draws
 enum {
     RASTQ_GPU_WHY_TLUC_BITMAP, // a translucent bitmap
-    RASTQ_GPU_WHY_SHADED_POLY, // a polygon shaded from corner to corner
+    RASTQ_GPU_WHY_SHADED_POLY, // a polygon shaded in brightness from corner to corner
     RASTQ_GPU_WHY_TLUC_POLY,   // a translucent polygon
     RASTQ_GPU_WHY_OTHER_POLY,  // another kind of polygon
     RASTQ_GPU_WHY_FILL,        // a fill type other than the normal one
@@ -120,6 +123,11 @@ typedef struct {
     // how far along the pixel is, and the w the floor and wall mappers
     // divide by. One row for the whole polygon is (row + 0.5, 0, 0, 1, 1).
     float left, span, along, width, depth;
+    // For a polygon shaded between colours (the `shaded` call), left and
+    // span are its red, and these its green and blue, each
+    //   left + span * along / width
+    // from 0 to 256.
+    float g_left, g_span, b_left, b_span;
 } rastq_gpu_vertex;
 
 // How the texel at (u, v), both rounded down, is found
@@ -143,14 +151,22 @@ enum {
 
 typedef struct {
     // Starts a scene on a canvas, with its tables (`rows` of them, valid
-    // until the scene ends). 0 if it can't draw into that canvas.
-    int (*begin)(uchar *bits, int w, int h, int row, const uchar *tables, int rows);
+    // until the scene ends) and the palette index of each of the 32768
+    // colours of five bits a channel (red in the low bits, then green, then
+    // blue), or NULL if no call of the scene is shaded. 0 if it can't draw
+    // into that canvas.
+    int (*begin)(uchar *bits, int w, int h, int row, const uchar *tables, int rows, const uchar *ipal);
     // A polygon in one palette index. 0: no room left in this scene.
     int (*flat)(int n, const rastq_gpu_vertex *v, int color);
     // A texture-mapped polygon of at most RASTQ_GPU_VERTS vertices; the
     // bitmap's pixels are valid until the scene ends. 0: no room left in
     // this scene.
     int (*tmap)(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v);
+    // A polygon shaded between its corners' colours: a pixel takes the
+    // palette index of its red, green and blue, each divided by 8 and
+    // rounded down. 0: no room left in this scene. NULL: it can't, and the
+    // CPU draws those.
+    int (*shaded)(int n, const rastq_gpu_vertex *v);
     // Ends the scene: the GPU has it and draws it.
     void (*end)(void);
     // Returns once the canvas holds the result of the scenes ended so far.
@@ -179,6 +195,12 @@ int rastq_gpu_clear(int color);
 // but is free for anything else. rastq_gpu_busy: is a scene still out?
 int rastq_gpu_busy(void);
 void rastq_gpu_finish(void);
+// The 3D library's lines (one colour, or shaded between the colours in its
+// ends' u, v and w) and points. In a view the GPU draws they are recorded
+// like the polygons; in any other the queue is flushed and they are drawn at
+// once, as lines and points always were.
+void rastq_line(int shaded, long color, const grs_vertex *v0, const grs_vertex *v1);
+int rastq_point(short x, short y);
 // For a view the GPU is kept out of: has the view that rastq_begin starts
 // next count, in gpu_kinds and gpu_whys, what the GPU could draw of it.
 void rastq_gpu_survey(void);

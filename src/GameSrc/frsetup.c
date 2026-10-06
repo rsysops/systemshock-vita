@@ -648,9 +648,7 @@ int fr_start_view(void) {
     // A frame the GPU will draw goes into a GPU canvas, not the view's own
     // memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only the
     // main view: not the help scan, the security cameras or the 360 view.
-    // Nor in low resolution, where the view is doubled out of its canvas,
-    // nor in cyberspace, which is drawn with what the GPU path leaves to the
-    // CPU.
+    // Nor in low resolution, where the view is doubled out of its canvas.
     if (_fr->flags & FR_DOUBLEB_MASK) {
         static ushort own_row; // of the view that gets a GPU canvas, in its own memory
         extern uchar view360_is_rendering;
@@ -658,16 +656,10 @@ int fr_start_view(void) {
 
         if (_fr->draw_canvas.bm.bits != _fr->main_canvas.bm.bits) // the GPU drew it last time
             _fr->draw_canvas.bm.row = own_row;
-        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && !DoubleSize) {
-            if (!_frp.faces.cyber) {
-                if (rastq_gpu_next(_fr->draw_canvas.bm.h))
-                    gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, &gpu_row);
-            }
-#ifdef VITA_PROFILE
-            else
-                rastq_gpu_survey(); // counts what the GPU could draw of it
-#endif
-        }
+        // (cyberspace, shaded between colours all over, only if the GPU does that)
+        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && !DoubleSize &&
+            (!_frp.faces.cyber || vgpu_shades()) && rastq_gpu_next(_fr->draw_canvas.bm.h))
+            gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, &gpu_row);
         if (gpu_bits != NULL) {
             // a GPU canvas is as wide as the screen, whatever the view's width
             own_row = _fr->draw_canvas.bm.row;

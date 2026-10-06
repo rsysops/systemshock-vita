@@ -10,7 +10,10 @@
 
 #include "rastq.h"
 
+#include "2d.h"
 #include "band.h"
+#include "clpcon.h"
+#include "clpltab.h"
 #include "general.h"
 #include "lg.h"
 #include "memall.h"
@@ -38,7 +41,7 @@
 
 _Static_assert(RASTQ_THREADS == RASTQ_MAX_THREADS, "one stats entry per thread slot");
 
-enum { RQ_TMAP, RQ_POLY };
+enum { RQ_TMAP, RQ_POLY, RQ_LINE, RQ_CLINE, RQ_POINT };
 enum { RQ_RECORDED, RQ_DIRECT, RQ_DROPPED };
 // The lines a mapper draws a polygon in
 enum {
@@ -52,6 +55,9 @@ enum {
     GPU_FLAT, // a polygon in one palette index
     GPU_TMAP, // a texture map
     GPU_CULL, // wound the way the mappers draw nothing for
+    GPU_SHADED, // a polygon shaded between its corners' colours
+    GPU_LINE,   // a line, in one colour or shaded
+    GPU_POINT,
 };
 
 typedef struct {
@@ -361,6 +367,14 @@ static void choose_bands(void) {
 
 // Draws one recorded call inside `band`, which must be the calling thread's.
 // The mappers modify their arguments, so each thread draws from its own copy.
+// A line of the 3D library, as it draws them: clipped, in one colour or
+// shaded between the colours in its ends' u, v and w.
+static void draw_line_now(int shaded, long color, intptr_t parm, const grs_vertex *v0, const grs_vertex *v1) {
+    grs_vertex a = *v0, b = *v1;
+    ((int (*)(long, long, grs_vertex *, grs_vertex *))
+         grd_line_clip_fill_vector[shaded ? GR_WIRE_POLY_CLINE : GR_WIRE_POLY_LINE])(color, (long)parm, &a, &b);
+}
+
 static void draw_cmd(const rastq_cmd *c, const grs_band *band) {
     grs_vertex verts[RASTQ_MAX_VERTS];
     grs_vertex *vpl[RASTQ_MAX_VERTS];
@@ -370,6 +384,17 @@ static void draw_cmd(const rastq_cmd *c, const grs_band *band) {
 
     if (c->row_bot <= band->top || c->row_top >= band->bot)
         return;
+    if (c->kind == RQ_LINE || c->kind == RQ_CLINE) {
+        draw_line_now(c->kind == RQ_CLINE, c->color, c->fill_parm, &c->verts[0], &c->verts[1]);
+        return;
+    }
+    if (c->kind == RQ_POINT) {
+        long color = gr_get_fcolor();
+        gr_set_fcolor(c->color);
+        ((int (*)(short, short))grd_canvas_table[DRAW_POINT])((short)fix_int(c->verts[0].x), (short)fix_int(c->verts[0].y));
+        gr_set_fcolor(color);
+        return;
+    }
     for (i = 0; i < c->n; i++) {
         verts[i] = c->verts[i];
         vpl[i] = &verts[i];
@@ -513,6 +538,7 @@ static void test_ranges(void) {
 static uchar gpu_tables[RASTQ_GPU_TABLE_ROWS][256];
 static const uchar *gpu_table_from[RASTQ_GPU_TABLE_ROWS]; // what each added row is a copy of
 static int gpu_rows;
+static int gpu_colours; // the list has calls shaded between colours
 static long long gpu_lap_us;
 
 // Adds the time since the last lap to a counter.
@@ -644,9 +670,41 @@ static int gpu_per_family(const rastq_cmd *c) {
 static int gpu_classify(rastq_cmd *c) {
     int type, family, shade, pow2, i;
 
+    if (c->kind == RQ_LINE || c->kind == RQ_POINT) {
+        // as gri_flat8_wire_poly_uline takes its colour
+        if (c->fill_type == FILL_NORM)
+            c->gpu_row = (uchar)c->color;
+        else if (c->kind == RQ_LINE && c->fill_type == FILL_CLUT)
+            c->gpu_row = ((const uchar *)c->fill_parm)[(uchar)c->color];
+        else if (c->kind == RQ_LINE && c->fill_type == FILL_SOLID)
+            c->gpu_row = (uchar)c->fill_parm;
+        else
+            return gpu_leave(c, RASTQ_GPU_WHY_FILL);
+        c->gpu_kind = c->kind == RQ_LINE ? RASTQ_GPU_KIND_LINE : RASTQ_GPU_KIND_POINT;
+        return c->kind == RQ_LINE ? GPU_LINE : GPU_POINT;
+    }
+    if (c->kind == RQ_CLINE) {
+        if (c->fill_type != FILL_NORM)
+            return gpu_leave(c, RASTQ_GPU_WHY_FILL);
+        if (grd_ipal == NULL || rq.gpu->shaded == NULL)
+            return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
+        c->gpu_kind = RASTQ_GPU_KIND_LINE;
+        return GPU_LINE;
+    }
+
     if (c->n > RASTQ_GPU_VERTS)
         return gpu_leave(c, RASTQ_GPU_WHY_VERTS);
 
+    if (c->kind == RQ_POLY && c->index == FIX_UCPOLY) {
+        // gri_cpoly_init; the colour-table fill has a loop of its own
+        if (c->fill_type != FILL_NORM)
+            return gpu_leave(c, RASTQ_GPU_WHY_FILL);
+        if (grd_ipal == NULL || rq.gpu->shaded == NULL)
+            return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
+        c->gpu_scan = GPU_SCAN_ROWS;
+        c->gpu_kind = RASTQ_GPU_KIND_SHADED;
+        return gpu_reversed(c) ? GPU_CULL : GPU_SHADED;
+    }
     if (c->kind == RQ_POLY) {
         if (c->index == FIX_USPOLY)
             return gpu_leave(c, RASTQ_GPU_WHY_SHADED_POLY);
@@ -776,19 +834,23 @@ static void gpu_prepare(void) {
     for (i = 0; i < 256; i++)
         gpu_tables[RASTQ_GPU_PLAIN_ROW][i] = (uchar)i;
     gpu_rows = RASTQ_GPU_PLAIN_ROW + 1;
-    for (k = 0; k < rq.count; k++)
+    gpu_colours = 0;
+    for (k = 0; k < rq.count; k++) {
         cmds[k].gpu = (uchar)gpu_classify(&cmds[k]);
+        gpu_colours |= cmds[k].gpu == GPU_SHADED || (cmds[k].gpu == GPU_LINE && cmds[k].kind == RQ_CLINE);
+    }
 }
 
 static int gpu_scene_begin(void) {
     grs_bitmap *bm = &rq.canvas->bm;
 
     gpu_finish(); // a scene nobody waited for
-    if (!rq.gpu->begin(bm->bits, bm->w, bm->h, bm->row, &gpu_tables[0][0], gpu_rows))
+    if (!rq.gpu->begin(bm->bits, bm->w, bm->h, bm->row, &gpu_tables[0][0], gpu_rows, gpu_colours ? grd_ipal : NULL))
         return 0;
     if (rq.clear_pending) {
-        rastq_gpu_vertex v[4] = {{0}};
+        rastq_gpu_vertex v[4];
         int i;
+        memset(v, 0, sizeof(v));
         v[1].x = v[2].x = (float)bm->w;
         v[2].y = v[3].y = (float)bm->h;
         for (i = 0; i < 4; i++) {
@@ -854,6 +916,10 @@ static int slab_clip(const slab_vertex *in, int n, float bound, int keep_above, 
             o->v.along = a->v.along + t * (b->v.along - a->v.along);
             o->v.width = a->v.width + t * (b->v.width - a->v.width);
             o->v.depth = a->v.depth + t * (b->v.depth - a->v.depth);
+            o->v.g_left = a->v.g_left + t * (b->v.g_left - a->v.g_left);
+            o->v.g_span = a->v.g_span + t * (b->v.g_span - a->v.g_span);
+            o->v.b_left = a->v.b_left + t * (b->v.b_left - a->v.b_left);
+            o->v.b_span = a->v.b_span + t * (b->v.b_span - a->v.b_span);
             o->s = bound;
         }
     }
@@ -941,6 +1007,9 @@ static void gpu_light_piece(rastq_gpu_vertex *v, const float *s, int count, floa
         {
             float left = v[first].left, span = v[last].left - left;
             float from = v[first].along, width = v[last].along - from;
+            // a polygon shaded between colours has two more values like it
+            float g_left = v[first].g_left, g_span = v[last].g_left - g_left;
+            float b_left = v[first].b_left, b_span = v[last].b_left - b_left;
 
             for (i = 0; i < count; i++) {
                 if ((s[i] > middle) != side)
@@ -949,6 +1018,10 @@ static void gpu_light_piece(rastq_gpu_vertex *v, const float *s, int count, floa
                 v[i].span = span;
                 v[i].along -= from;
                 v[i].width = width;
+                v[i].g_left = g_left;
+                v[i].g_span = g_span;
+                v[i].b_left = b_left;
+                v[i].b_span = b_span;
             }
         }
     }
@@ -968,6 +1041,10 @@ static void gpu_light_piece(rastq_gpu_vertex *v, const float *s, int count, floa
 // The texture's repeats are cut within each piece: such a cut runs through
 // the polygon, and only values that are linear over the piece survive it.
 // 0 if the scene has no room for it.
+static int gpu_hand_over(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
+    return c->gpu == GPU_SHADED ? rq.gpu->shaded(count, v) : gpu_emit_repeats(c, count, v);
+}
+
 static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
     slab_vertex poly[GPU_WORK_VERTS], above[GPU_WORK_VERTS], piece[GPU_WORK_VERTS];
     rastq_gpu_vertex out[GPU_WORK_VERTS];
@@ -1014,7 +1091,7 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
         s_max = poly[i].s > s_max ? poly[i].s : s_max;
     }
     if (s_max <= s_min)
-        return gpu_emit_repeats(c, count, v);
+        return gpu_hand_over(c, count, v);
 
     // Where to cut, bounds[1 .. pieces - 1]: the corners' levels in order,
     // those that are all but one taken once.
@@ -1053,7 +1130,7 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
                 s[i] = piece[i].s;
             }
             gpu_light_piece(out, s, m, lo, bounds[k]);
-            if (!gpu_emit_repeats(c, m, out))
+            if (!gpu_hand_over(c, m, out))
                 return 0;
             if (!rq.gpu_check)
                 rastq_stats.gpu_pieces++;
@@ -1063,6 +1140,171 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
     return 1;
 }
 
+// A colour from 0 to 256 is looked up by its eighth, rounded down. One that
+// sits exactly on a multiple of 8, as most corners' do, mustn't fall on
+// either side of it from one pixel to the next: nudged up, by far less than
+// the steps the 3D library's colours come in.
+#define GPU_COLOUR_NUDGE (1.0f / 64.0f)
+
+// The colours of a shaded line, each a plane over the screen.
+typedef struct {
+    float at[3], by_x[3], by_y[3];
+} line_colours;
+
+// A four-cornered part of a line, in the line's colour or colours.
+static int line_quad(const rastq_cmd *c, const float (*xy)[2], const line_colours *col) {
+    rastq_gpu_vertex v[4];
+    int i;
+
+    memset(v, 0, sizeof(v));
+    for (i = 0; i < 4; i++) {
+        v[i].x = xy[i][0];
+        v[i].y = xy[i][1];
+        v[i].q = v[i].width = v[i].depth = 1.0f;
+        v[i].left = RASTQ_GPU_PLAIN_ROW + 0.5f;
+        if (col != NULL) {
+            v[i].left = col->at[0] + col->by_x[0] * v[i].x + col->by_y[0] * v[i].y;
+            v[i].g_left = col->at[1] + col->by_x[1] * v[i].x + col->by_y[1] * v[i].y;
+            v[i].b_left = col->at[2] + col->by_x[2] * v[i].x + col->by_y[2] * v[i].y;
+        }
+    }
+    return col != NULL ? rq.gpu->shaded(4, v) : rq.gpu->flat(4, v, c->gpu_row);
+}
+
+// The pixels from `from` up to, not including, `to` of one row.
+static int line_row(const rastq_cmd *c, int from, int to, int row, const line_colours *col) {
+    float xy[4][2] = {{from - 0.5f, row - 0.5f}, {to - 0.5f, row - 0.5f}, {to - 0.5f, row + 0.5f}, {from - 0.5f, row + 0.5f}};
+    return to <= from || line_quad(c, xy, col);
+}
+
+// A line, as gri_flat8_wire_poly_uline and its shaded cousin draw one: not
+// one pixel a step, but row after row the pixels between where the line
+// enters the row and where it leaves it, at least one. The first and the
+// last row are cut at the line's ends, and are given as they come out; the
+// rows between are a strip with the line's slope. 0 if the scene has no room
+// for it.
+static int gpu_emit_line(const rastq_cmd *c) {
+    grs_vertex a = c->verts[0], b = c->verts[1];
+    const grs_vertex *top, *bot;
+    int shaded = c->kind == RQ_CLINE, y, y_max, x, x_new, d, k;
+    fix dx, x_fix, x_first;
+    line_colours colours, *col = shaded ? &colours : NULL;
+    float r0[3], r1[3], step[3];
+
+    // clipped as the CPU's is, under the call's clip rectangle
+    grd_canvas->gc.clip = c->clip;
+    if ((shaded ? gri_cline_clip(&a, &b) : gri_line_clip(&a, &b)) == CLIP_ALL)
+        return 1;
+
+    top = b.y > a.y ? &a : &b;
+    bot = b.y > a.y ? &b : &a;
+    y = fix_cint(top->y);
+    y_max = fix_cint(bot->y);
+
+    if (y_max - y <= 1) {
+        // one row, from its left end to its right
+        const grs_vertex *left = b.x > a.x ? &a : &b, *right = b.x > a.x ? &b : &a;
+        x = fix_cint(left->x);
+        x_new = fix_cint(right->x);
+        if (shaded) {
+            d = x_new - x;
+            if (d <= 0)
+                return 1; // the shaded loop draws nothing then
+            r0[0] = (float)left->u, r0[1] = (float)left->v, r0[2] = (float)left->w;
+            r1[0] = (float)right->u, r1[1] = (float)right->v, r1[2] = (float)right->w;
+            for (k = 0; k < 3; k++) {
+                colours.by_x[k] = (r1[k] - r0[k]) / d;
+                colours.by_y[k] = 0;
+                colours.at[k] = r0[k] - colours.by_x[k] * x + GPU_COLOUR_NUDGE;
+            }
+        }
+        return line_row(c, x, x_new > x ? x_new : x + 1, y, col);
+    }
+
+    dx = fix_div(bot->x - top->x, bot->y - top->y);
+    x = fix_cint(top->x);
+    x_fix = x_first = top->x + fix_mul(fix_ceil(top->y) - top->y, dx); // the line at row y
+    x_new = fix_cint(x_fix);
+
+    if (shaded) {
+        // The colours step once a pixel drawn: along x for a line that
+        // runs more across than down, along y otherwise.
+        int across = fix_abs(dx) > FIX_UNIT;
+        d = across ? abs(fix_cint(bot->x) - fix_cint(top->x)) : y_max - y;
+        r0[0] = (float)top->u, r0[1] = (float)top->v, r0[2] = (float)top->w;
+        r1[0] = (float)bot->u, r1[1] = (float)bot->v, r1[2] = (float)bot->w;
+        // The first row's stretch up to the line is one pixel at least,
+        // even when the line starts in the pixel it is at on that row: the
+        // pixel is then drawn again by what follows, one step further on.
+        int again = x == x_new;
+        for (k = 0; k < 3; k++) {
+            step[k] = d > 0 ? (r1[k] - r0[k]) / d : 0;
+            if (across) {
+                // counted from the first pixel drawn: the leftmost, or
+                // going left the one before the line's end
+                colours.by_x[k] = dx >= 0 ? step[k] : -step[k];
+                colours.by_y[k] = 0;
+                colours.at[k] = r0[k] - colours.by_x[k] * (dx >= 0 ? x - again : x - 1 + again) + GPU_COLOUR_NUDGE;
+            } else {
+                // a pixel a row; going right the first row has drawn two
+                colours.by_x[k] = 0;
+                colours.by_y[k] = step[k];
+                colours.at[k] = r0[k] - step[k] * (dx >= 0 ? y - 1 : y) + GPU_COLOUR_NUDGE;
+            }
+        }
+    }
+
+    {
+        int rows = y_max - y, last = y_max - 1, first_to, first_from, last_from, last_to;
+        fix x_last; // the line at the row before the last, or at the last
+        float slope = (float)(dx / 65536.0), wide = slope < 0 ? -slope : slope;
+
+        if (wide < 1.0f)
+            wide = 1.0f;
+        if (dx >= 0) {
+            // row y: from the line's end to where it leaves the row;
+            // row r: from the line at r to the line at r + 1;
+            // the last: from the line there to its other end
+            fix next = x_fix + dx;
+            first_from = x;
+            first_to = fix_cint(next) > x_new ? fix_cint(next) : x_new + 1;
+            x_last = x_fix + (rows - 1) * dx;
+            last_from = fix_cint(x_last);
+            last_to = fix_cint(bot->x) > last_from ? fix_cint(bot->x) : last_from + 1;
+        } else {
+            // going left, a row runs from the line at that row back to the
+            // line at the row above; the first from the line's end
+            first_from = x_new;
+            first_to = x > x_new ? x : x_new + 1;
+            x_last = x_fix + (rows - 2) * dx;
+            last_from = fix_cint(bot->x);
+            last_to = fix_cint(x_last) > last_from ? fix_cint(x_last) : last_from + 1;
+            if (fix_cint(x_last) == last_from)
+                last_from = last_to - 1;
+        }
+        if (!line_row(c, first_from, first_to, y, col) || !line_row(c, last_from, last_to, last, col))
+            return 0;
+        if (rows > 2) {
+            // rows y + 1 to last - 1: [line, line + wide) at each
+            float at = (float)(x_first / 65536.0), y0 = y + 0.5f, y1 = last - 0.5f;
+            float x0 = at + (y0 - y) * slope, x1 = at + (y1 - y) * slope;
+            float xy[4][2] = {{x0, y0}, {x0 + wide, y0}, {x1 + wide, y1}, {x1, y1}};
+            if (!line_quad(c, xy, col))
+                return 0;
+        }
+    }
+    return 1;
+}
+
+// A point is its pixel, if the clip rectangle has it.
+static int gpu_emit_point(const rastq_cmd *c) {
+    int x = fix_int(c->verts[0].x), y = fix_int(c->verts[0].y);
+
+    if (x < c->clip.i.left || x >= c->clip.i.right || y < c->clip.i.top || y >= c->clip.i.bot)
+        return 1;
+    return line_row(c, x, x + 1, y, NULL);
+}
+
 // Hands a call to the scene under way. 0 if the scene has no room for it.
 static int gpu_emit(const rastq_cmd *c) {
     rastq_gpu_vertex v[RASTQ_GPU_VERTS];
@@ -1070,6 +1312,10 @@ static int gpu_emit(const rastq_cmd *c) {
     float w_max = 1.0f;
     int i;
 
+    if (c->gpu == GPU_LINE)
+        return gpu_emit_line(c);
+    if (c->gpu == GPU_POINT)
+        return gpu_emit_point(c);
     if (c->gpu == GPU_TMAP && c->gpu_persp) {
         if (c->gpu_scan == GPU_SCAN_DEPTH) {
             for (i = 0; i < c->n; i++)
@@ -1093,6 +1339,13 @@ static int gpu_emit(const rastq_cmd *c) {
         v[i].left = RASTQ_GPU_PLAIN_ROW + 0.5f;
         v[i].span = v[i].along = 0;
         v[i].width = v[i].depth = 1.0f;
+        v[i].g_left = v[i].g_span = v[i].b_left = v[i].b_span = 0;
+        if (c->gpu == GPU_SHADED) {
+            // the 3D library puts red, green and blue in u, v and w
+            v[i].left = (float)(p->u / 65536.0) + GPU_COLOUR_NUDGE;
+            v[i].g_left = (float)(p->v / 65536.0) + GPU_COLOUR_NUDGE;
+            v[i].b_left = (float)(p->w / 65536.0) + GPU_COLOUR_NUDGE;
+        }
         if (c->gpu == GPU_TMAP) {
             if (c->gpu_persp)
                 v[i].q = (float)w[i] / w_max;
@@ -1116,6 +1369,10 @@ static int gpu_emit(const rastq_cmd *c) {
     }
     if (c->gpu == GPU_FLAT)
         return rq.gpu->flat(c->n, v, c->gpu_row);
+    // The mappers take a colour along the edges, then across each row: a
+    // polygon of four corners or more is cut at their rows, as for the light.
+    if (c->gpu == GPU_SHADED)
+        return c->n >= 4 && c->n <= RASTQ_GPU_VERTS - 4 ? gpu_emit_cut(c, c->n, v) : rq.gpu->shaded(c->n, v);
     // Three light levels always fit one plane, so a lit triangle stays
     // whole: its level and its w, each linear, give the mapper's quotient.
     if (c->gpu_lit && c->n >= 4 && c->n <= RASTQ_GPU_VERTS - 4)
@@ -1609,6 +1866,45 @@ static int record_poly(int index, long color, int n, grs_vertex **vpl) {
     c->color = color;
     c->band_safe = (uchar)poly_band_safe(index);
     return RQ_RECORDED;
+}
+
+// Lines and points join the list only in a view the GPU draws: they keep
+// the list whole there, where every break is a scene to wait for. The CPU
+// replays lose nothing by drawing them at once, as before.
+static rastq_cmd *record_mark(int kind, long color, int n, const grs_vertex *v0, const grs_vertex *v1) {
+    grs_vertex a = *v0, b = *v1;
+    grs_vertex *vpl[2] = {&a, &b};
+    rastq_cmd *c;
+
+    start_batch();
+    c = new_cmd(kind, n, vpl);
+    c->color = color;
+    c->band_safe = 0;
+    return c;
+}
+
+void rastq_line(int shaded, long color, const grs_vertex *v0, const grs_vertex *v1) {
+    if (recording() && rq.gpu_view) {
+        VPROF_RUN(VPROF_RECORD, record_mark(shaded ? RQ_CLINE : RQ_LINE, color, 2, v0, v1));
+        flush_if_low();
+        return;
+    }
+    rastq_flush();
+    draw_line_now(shaded, color, gr_get_fill_parm(), v0, v1);
+}
+
+int rastq_point(short x, short y) {
+    if (recording() && rq.gpu_view) {
+        grs_vertex v;
+        memset(&v, 0, sizeof(v));
+        v.x = fix_make(x, 0);
+        v.y = fix_make(y, 0);
+        VPROF_RUN(VPROF_RECORD, record_mark(RQ_POINT, gr_get_fcolor(), 1, &v, &v));
+        flush_if_low();
+        return 0; // CLIP_NONE
+    }
+    rastq_flush();
+    return ((int (*)(short, short))grd_canvas_table[DRAW_POINT])(x, y);
 }
 
 void rastq_poly(int index, long color, int n, grs_vertex **vpl) {

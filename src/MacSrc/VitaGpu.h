@@ -4,8 +4,8 @@
 // The Vita's GPU as a filler for the rasterizer queue's draw list
 // (src/Libraries/3D/Source/rastq.h): see docs/PERFORMANCE-GPU.md.
 //
-// It draws flat polygons and the texture maps on ordinary 8-bit bitmaps; the
-// queue has the CPU draw the rest. Its shaders are compiled when the game
+// It draws flat polygons, the texture maps on ordinary 8-bit bitmaps and the
+// polygons shaded between colours; the queue has the CPU draw the rest. Its shaders are compiled when the game
 // starts, which needs ur0:data/libshacccg.suprx.
 
 #include <stddef.h>
@@ -24,6 +24,9 @@ void vgpu_init(void);
 
 // Whether that worked: the GPU can be given views.
 int vgpu_available(void);
+// Whether it also draws what is shaded between colours, which cyberspace is
+// made of. Without that a cyberspace view is better left to the CPU.
+int vgpu_shades(void);
 
 // One line on how the set-up and the start-up checks went, for the profiler.
 const char *vgpu_report(void);
