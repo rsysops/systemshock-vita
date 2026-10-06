@@ -91,7 +91,7 @@ run something like it. It was not chosen:
 | G9 | A cheaper HUD: outlined text drawn once and copied; the vitals' arrows and the inventory's buttons stretched once and copied; transparent copies four pixels at a time | **done**: the full-screen HUD from 2.2-3.3 ms to 1.35-1.9, from 4.4 to 1.5 with a help label, on every renderer, no pixel changed in 438 checks. The hallway angle is at 59 fps in full screen, 55 paneled |
 | G10 | Cyberspace on the GPU: polygons shaded between colours, lines and points; flat polygons through the flat shaders | **done**: one renderer for all of the 3D world; 0.03% of cyberspace's pixels differ from the CPU's; 2 ms a frame ahead of three cores there, the view going to the screen without a copy. Voxel objects still split a frame into several scenes |
 | G11 | The sending shared between the three cores: deciding what each call is and cutting it up, the hand-over staying in order | **done**: the workers take a third of the calls each; the sending at the hallway angle from 5.1 ms to 3.35; that angle at 62.3 fps in full screen (59.0) and 60.2 paneled (55.3), the paneled view with nothing to spare |
-| G12 | The paneled view shown from GPU memory, laid over the screen's picture, in place of copied into it | 2.5 ms off every paneled frame; the hallway angle paneled with 2.7 ms to spare. **Not started** |
+| G12 | The paneled view shown from GPU memory, laid over the screen's picture, in place of copied into it | **done**: the view's way to the screen from 2.9 ms to 0.09; the hallway angle paneled at 62.8 fps with 2.4 ms to spare (60.2 fps and 0.1 ms), ahead of three cores again |
 
 G2 was not in the first roadmap. G1 showed that the memory question
 decides whether the GPU path is worth anything, so it comes before
@@ -1980,3 +1980,123 @@ angle there from 16.6 ms to about 13.9.
 After that, to choose from: voxel objects through the queue (up to
 3.7 ms in the frames that have them); the wait when the help scan
 doesn't run (2.7 to 3.9 ms); the stalls.
+
+## Step G12: the paneled view without the copy
+
+Built and run on a Vita. Results at the end of this section.
+
+Since G6 a full-screen view is shown from the GPU canvas it was drawn
+into, and the paneled view is copied out of that canvas into the screen
+buffer every frame, because the game draws on the screen over it:
+`viewout` 2.9 ms (the CPU reads GPU memory four times slower than its
+own), against 0.4 ms when three cores draw the view in ordinary memory.
+
+### The view laid over the panels
+
+`src/MacSrc/Shock.c`:
+
+- `VitaShowView` takes where the view goes on the screen and accepts a
+  view smaller than the screen; `fr_send_view`'s paneled branch asks it
+  first and copies (`Fast_Slot_Copy`) only on a no;
+- `SDLDraw`, when the view doesn't fill the screen, draws the screen
+  buffer's picture as it always did and then the view's window from its
+  canvas over it (`vita2d_draw_texture_part_scale`), at the place
+  `Fast_Slot_Copy` would have put it (`Fast_Slot_Place`);
+- `VitaSyncView` copies the view's window back into the screen buffer,
+  for the callers that draw over the view without drawing it first (the
+  help overlay, video mail, the wait cursor, the pause, another
+  screen). They are the ones G6 gave the full-screen view.
+
+The screen buffer still goes to the screen's texture every frame, as
+before: the saving is the read of the canvas.
+
+### What the game draws over the paneled view
+
+Looked for in the code, since anything drawn on the screen buffer inside
+the view's window is now behind the canvas:
+
+- the cursor: `rend_mouse_hide` draws it into the view itself every
+  frame, in both views;
+- the HUD, the weapon in hand and the window's border: drawn into the
+  view by its draw callback;
+- messages: `message_info` puts them on the message line, outside the
+  window;
+- the zoom rectangle from an object to a panel (`ZoomDrawProc`, drawn
+  on the screen buffer around every `SDLDraw` for 286 ms): while one is
+  under way `VitaShowView` says no and the view is copied as before;
+- while the game is paused it says no too, as it did.
+
+Not changed: in full screen the zoom rectangle hasn't shown with the GPU
+renderer since G6, for the same reason. A copy of the whole view while
+it plays would cost about 5 ms a frame.
+
+Nothing of this runs on the PC: it is the Vita's screen code.
+
+### What the capture will show
+
+- `viewout` in the paneled view at about 0.1 ms, as in full screen.
+- The hallway angle in the paneled view with about 2.8 ms to spare
+  (0.1 ms in G11), ahead of three cores again.
+- To look at in the normal build, paneled view: the cursor across the
+  window's edge, an object dragged out of the view, a panel opening
+  with its zoom rectangle, pause, options, the help overlay, a video
+  mail, the map, switching views, cyberspace and back.
+
+### Results (`docs/profiles-gpu/profile-step-12.txt`, `gpu.txt`, `gpudumps-step-12/`)
+
+Medians of the 1 s windows, with the frame's time without its wait for
+the screen:
+
+| | 0: three cores | 1: GPU | GPU: waiting for the screen |
+|---|---|---|---|
+| start room, paneled | 62.4 fps (12.3 ms) | 62.8 fps (8.3 ms) | 7.6 ms |
+| start room, full screen | 47.2 fps (21.1 ms) | 63.5 fps (9.9 ms) | 5.9 ms |
+| the hallway angle, paneled | 61.5 fps (15.9 ms) | 62.8 fps (13.5 ms; 16.6 in G11) | 2.4 ms |
+| the hallway angle, full screen | 40.0 fps (24.9 ms) | 62.1 fps (15.3 ms) | 0.8 ms |
+
+- `viewout` in the paneled view: 0.09 ms on the GPU (2.92 in G11),
+  0.44 ms on three cores.
+- No window of the GPU renderer under 59 fps in either view.
+- No glitch was reported from the paneled view: cursor, zoom rectangle,
+  pause, overlays, view switches.
+- `check=0`, `leaks=0`, `hudcheck=0/225`, `gpufallbacks=0`, 3 dumps,
+  6.3% of the compared pixels differ.
+- **Stalls**: 5. Three have a sound effect's first decoding in them,
+  one a resource load, one is the capture's last second.
+
+## Where the GPU renderer stands after G12
+
+From the captures of steps G10 to G12:
+
+| | three cores | GPU |
+|---|---|---|
+| start room, full screen | 47 fps | 63 fps |
+| walking and fighting | 37 to 39 fps | 62 to 63 fps |
+| the hallway angle, full screen | 40 fps | 62 fps |
+| the hallway angle, paneled | 61.5 fps | 63 fps |
+| cyberspace | 63 fps | 63 fps |
+
+Every place measured is at the screen's rate with the GPU renderer, in
+both views. The thinnest margin is the hallway angle in full screen:
+0.8 to 1.2 ms to spare. Its frame, ms: 3.9 blocked on the GPU, 3.5
+sending, 1.9 HUD, the rest the game and the traversal.
+
+What is left, none of it started:
+
+- **The wait when the help scan doesn't run** (2.5 to 3.9 ms), which
+  after the first rooms is always: the level switches help off. Nothing
+  else in the frame is free to run meanwhile; hiding it means handing
+  the GPU its scene in parts while the view is still being traversed.
+  Several scenes a frame cost GPU time of their own (the voxel frames
+  of G10 suggest under 1 ms each), and the scene's buffers and tables
+  would have to outlive one another. A large change with an uncertain
+  gain.
+- **Voxel objects** (`FAUBJ_VOX`): drawn straight onto the canvas, they
+  split a frame into 2 to 5 scenes where they appear (cyberspace, still
+  at 61 fps).
+- **Translucent surfaces and brightness-shaded polygons**: the CPU's,
+  in their place in the frame. None has come up in a capture.
+- **The zoom rectangle in full screen**: not shown with the GPU
+  renderer since G6.
+- **The stalls**: a sound effect decoded on the main thread for its
+  first use, 0.1 to 0.2 s. Not the renderer; in `docs/TODO.md`.

@@ -282,13 +282,24 @@ bool CheckArgument(char *arg) {
 
 #ifdef VITA2D
 // The canvases the GPU draws views into (see docs/PERFORMANCE-GPU.md):
-// paletted textures like the screen's, used in turn (see vgpu_canvas). A
-// full-screen view drawn there is shown as it is, without copying it to the
-// screen buffer and on to texBuffer.
+// paletted textures like the screen's, used in turn (see vgpu_canvas). A view
+// drawn there is shown from there, without copying it to the screen buffer:
+// alone if it fills the screen, over the screen buffer's picture if it is
+// the paneled view's window.
 static vita2d_texture *viewTextures[VGPU_CANVASES];
 // The view the next SDLDraw shows from its canvas, and the one the last
-// SDLDraw showed, for as long as the screen buffer doesn't hold it.
+// SDLDraw showed, for as long as the screen buffer doesn't hold it; and the
+// part of the screen each covers.
+typedef struct {
+    int x, y, w, h;
+} ViewPlace;
 static vita2d_texture *shownView, *lastView;
+static ViewPlace shownPlace, lastPlace;
+
+static int FillsScreen(const ViewPlace *place)
+{
+    return place->x == 0 && place->y == 0 && place->w == gScreenWide && place->h == gScreenHigh;
+}
 
 static void MakeViewTextures(int width, int height)
 {
@@ -317,24 +328,37 @@ static void MakeViewTextures(int width, int height)
         vgpu_set_canvases(pixels, width, height, vita2d_texture_get_stride(viewTextures[0]));
 }
 
-// A full-screen view that the GPU drew into one of its canvases can be shown
-// from there. Returns whether the next SDLDraw will do that, in which case
-// the view needn't be copied to the screen buffer. Not while the game is
-// paused: a view drawn then goes under something the game has on the screen
-// (the options panel, a video mail), so the caller copies it there.
-int VitaShowView(const unsigned char *bits, int width, int height)
+// A view that the GPU drew into one of its canvases, to go at (x, y) on the
+// screen, can be shown from there. Returns whether the next SDLDraw will do
+// that, in which case the view needn't be copied to the screen buffer.
+//
+// Not when something the game has on the screen buffer goes over the view,
+// which the canvas would hide: the caller then copies the view there, as it
+// always did. That is while the game is paused (the options panel, a video
+// mail), and for the paneled view while a zoom rectangle is on its way from
+// an object to a panel (tools.c draws it on the screen buffer around every
+// SDLDraw).
+int VitaShowView(const unsigned char *bits, int x, int y, int width, int height)
 {
     extern unsigned char game_paused;
+    extern bool ZoomEnable;
+    ViewPlace place = {x, y, width, height};
     int i;
 
     shownView = lastView = NULL;
     if (game_paused)
         return 0;
+    if (!FillsScreen(&place) && ZoomEnable)
+        return 0;
+    if (x < 0 || y < 0 || x + width > gScreenWide || y + height > gScreenHigh)
+        return 0;
     for (i = 0; i < VGPU_CANVASES; i++) {
         vita2d_texture *t = viewTextures[i];
-        if (t != NULL && bits == vita2d_texture_get_datap(t) && width == (int)vita2d_texture_get_width(t) &&
-            height == (int)vita2d_texture_get_height(t)) {
+        // a view is drawn into the top left of its canvas
+        if (t != NULL && bits == vita2d_texture_get_datap(t) && width <= (int)vita2d_texture_get_width(t) &&
+            height <= (int)vita2d_texture_get_height(t)) {
             shownView = t;
+            shownPlace = place;
             return 1;
         }
     }
@@ -347,6 +371,7 @@ int VitaShowView(const unsigned char *bits, int width, int height)
 void VitaSyncView(void)
 {
     vita2d_texture *view = shownView != NULL ? shownView : lastView;
+    ViewPlace place = shownView != NULL ? shownPlace : lastPlace;
     const uint8_t *from;
     uint8_t *to;
     int y, stride;
@@ -356,9 +381,9 @@ void VitaSyncView(void)
         return;
     from = vita2d_texture_get_datap(view);
     stride = vita2d_texture_get_stride(view);
-    to = drawSurface->pixels;
-    for (y = 0; y < gScreenHigh; y++)
-        memcpy(to + y * drawSurface->pitch, from + y * stride, gScreenWide);
+    to = (uint8_t *)drawSurface->pixels + place.y * drawSurface->pitch + place.x;
+    for (y = 0; y < place.h; y++)
+        memcpy(to + y * drawSurface->pitch, from + y * stride, place.w);
 }
 
 void InitVita2D(int width, int height)
@@ -581,25 +606,33 @@ void SetSDLPalette(int index, int count, uchar *pal) {
 
 void SDLDraw() {
 #ifdef VITA2D
-    vita2d_texture *shown = texBuffer;
+    vita2d_texture *view = NULL;
+    float scaleX = (float)(destRect.w) / gScreenWide, scaleY = (float)(destRect.h) / gScreenHigh;
 
     if (shownView != NULL) {
-        // this frame is the 3D view as the GPU left it in one of its canvases
-        shown = lastView = shownView;
+        // this frame has the 3D view as the GPU left it in one of its canvases
+        view = lastView = shownView;
+        lastPlace = shownPlace;
         shownView = NULL;
     } else if (lastView != NULL) {
-        // No view drawn since, and nothing has said that the screen buffer is
-        // what to show (VitaSyncView): the last view stays on.
-        shown = lastView;
-    } else {
-        SDL_memcpy(palettedTexturePointer, drawSurface->pixels, gScreenWide * gScreenHigh * sizeof(uint8_t));
+        // No view drawn since, and nothing has said that the screen buffer
+        // holds it (VitaSyncView): the last view stays on.
+        view = lastView;
     }
+    // The screen buffer is what is shown, unless a view covers all of it.
+    if (view == NULL || !FillsScreen(&lastPlace))
+        SDL_memcpy(palettedTexturePointer, drawSurface->pixels, gScreenWide * gScreenHigh * sizeof(uint8_t));
 
     vita2d_start_drawing();
 
     vita2d_draw_rectangle(0, 0, VITA_FULLSCREEN_WIDTH, VITA_FULLSCREEN_HEIGHT, 0xff000000);
-    vita2d_draw_texture_scale(shown, destRect.x, destRect.y, (float)(destRect.w) / gScreenWide,
-                                (float)(destRect.h) / gScreenHigh);
+    if (view == NULL || !FillsScreen(&lastPlace))
+        vita2d_draw_texture_scale(texBuffer, destRect.x, destRect.y, scaleX, scaleY);
+    if (view != NULL && FillsScreen(&lastPlace))
+        vita2d_draw_texture_scale(view, destRect.x, destRect.y, scaleX, scaleY);
+    else if (view != NULL) // the paneled view's window, over the panels
+        vita2d_draw_texture_part_scale(view, destRect.x + lastPlace.x * scaleX, destRect.y + lastPlace.y * scaleY, 0, 0,
+                                       lastPlace.w, lastPlace.h, scaleX, scaleY);
 #ifdef VITA_PROFILE
     vprof_overlay_draw();
 #endif

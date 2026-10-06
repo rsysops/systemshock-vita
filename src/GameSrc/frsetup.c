@@ -965,13 +965,17 @@ int fr_send_view(void) {
                 {
                     if (full_game_3d) {
                         // a view in the GPU's canvas can be shown from there
-                        if (!VitaShowView(_fr->draw_canvas.bm.bits, _fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h))
+                        if (!VitaShowView(_fr->draw_canvas.bm.bits, 0, 0, _fr->draw_canvas.bm.w,
+                                          _fr->draw_canvas.bm.h))
                             Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
                     } else {
-                        // the paneled view is always copied: the game draws
-                        // on the screen over it
-                        VitaShowView(_fr->draw_canvas.bm.bits, _fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h);
-                        Fast_Slot_Copy(&_fr->draw_canvas.bm);
+                        // the paneled view too, laid over the panels when
+                        // the frame is shown (see VitaShowView for when not)
+                        int slot_x, slot_y;
+                        Fast_Slot_Place(&slot_x, &slot_y);
+                        if (!VitaShowView(_fr->draw_canvas.bm.bits, slot_x, slot_y, _fr->draw_canvas.bm.w,
+                                          _fr->draw_canvas.bm.h))
+                            Fast_Slot_Copy(&_fr->draw_canvas.bm);
                     }
                 }
             }

@@ -97,6 +97,12 @@ void Fast_Slot_Copy(grs_bitmap *bm) {
     gr_bitmap(bm, SCONV_X(kFastSlotLeft), SCONV_Y(kFastSlotTop));
 }
 
+// where on the screen Fast_Slot_Copy puts the slot view
+void Fast_Slot_Place(int *x, int *y) {
+    *x = SCONV_X(kFastSlotLeft);
+    *y = SCONV_Y(kFastSlotTop);
+}
+
 // copy the full screen view from offscreen to on
 // hard coded to copy from 0,0 to 640,480 to the screen
 void Fast_FullScreen_Copy(grs_bitmap *bm) { gr_bitmap(bm, 0, 0); }

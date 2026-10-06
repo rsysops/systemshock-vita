@@ -42,11 +42,12 @@ void vgpu_set_canvases(void *const *pixels, int width, int height, int stride);
 // Each call hands out the canvas used longest ago, so call it once per frame.
 unsigned char *vgpu_canvas(int width, int height, int *row);
 
-// In Shock.c: whether a finished full-screen view in a GPU canvas will be
-// shown from there, so that it needn't be copied to the screen buffer. When
-// it won't, the caller copies the view to the screen buffer, which is then
-// what is shown.
-int VitaShowView(const unsigned char *bits, int width, int height);
+// In Shock.c: whether a finished view in a GPU canvas, to go at (x, y) on
+// the screen, will be shown from there, so that it needn't be copied to the
+// screen buffer: alone if it fills the screen, laid over the screen buffer's
+// picture otherwise. When it won't, the caller copies the view to the screen
+// buffer, which is then what is shown.
+int VitaShowView(const unsigned char *bits, int x, int y, int width, int height);
 
 // In Shock.c: to be called before the game draws on the screen without having
 // drawn the view first (a pause, a panel, another screen). If the view was
@@ -68,7 +69,7 @@ extern vgpu_counters_t vgpu_counters;
 #define vgpu_init() ((void)0)
 #define vgpu_available() 0
 #define vgpu_canvas(width, height, row) NULL
-#define VitaShowView(bits, width, height) 0
+#define VitaShowView(bits, x, y, width, height) 0
 #define VitaSyncView() ((void)0)
 
 #endif
