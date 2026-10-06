@@ -58,6 +58,9 @@ int rastq_thread_cpu(void) { return -1; }
 // A worker without work keeps watching for some, and only sleeps after this
 // long: waking a sleeping worker takes far longer than a job does.
 #define IDLE_BEFORE_SLEEP_US 100000
+// After a job the caller didn't wait for: a little over a frame, so that the
+// workers stay awake only while such jobs keep coming.
+#define IDLE_AFTER_KICK_US 25000
 #define SPINS_PER_CLOCK_READ 2048
 
 typedef struct {
@@ -80,11 +83,13 @@ static atomic_uint generation;
 static atomic_uint done;
 static rastq_job current_job;
 static int current_threads;
+static atomic_int kicked; // the job under way wasn't waited for
+static int kick_pending;  // its workers haven't all answered yet
 
 static void worker_loop(worker_t *w) {
     unsigned seen = atomic_load(&generation);
     unsigned spins = 0;
-    long long idle_since = 0;
+    long long idle_since = 0, idle_limit = IDLE_BEFORE_SLEEP_US;
 
     lg_slot_register(w->slot);
     w->temp.baseptr = w->temp_mem;
@@ -100,6 +105,7 @@ static void worker_loop(worker_t *w) {
             seen = g;
             if (w->slot < current_threads)
                 current_job(w->slot);
+            idle_limit = atomic_load(&kicked) ? IDLE_AFTER_KICK_US : IDLE_BEFORE_SLEEP_US;
             atomic_fetch_add(&done, 1);
             spins = 0;
             idle_since = 0;
@@ -113,7 +119,7 @@ static void worker_loop(worker_t *w) {
             long long now = rastq_clock_us();
             if (idle_since == 0) {
                 idle_since = now;
-            } else if (now - idle_since > IDLE_BEFORE_SLEEP_US) {
+            } else if (now - idle_since > idle_limit) {
                 // Say so, then look once more: the main thread bumps the
                 // generation first and only then looks for sleepers, so one
                 // of the two always notices the other.
@@ -208,27 +214,54 @@ int rastq_threads_start(int threads) {
     return worker_count + 1;
 }
 
-void rastq_threads_run(rastq_job job, int threads) {
+void rastq_threads_settle(void) {
+    if (!kick_pending)
+        return;
+    while (atomic_load(&done) != (unsigned)worker_count)
+        cpu_relax();
+    kick_pending = 0;
+}
+
+// Hands the job to the workers: the generation goes up first and the
+// sleepers are woken after, so one of the two always notices the other.
+static void start(rastq_job job, int threads, int kick) {
     int i;
 
+    rastq_threads_settle();
+    current_job = job;
+    current_threads = threads;
+    atomic_store(&kicked, kick);
+    atomic_store(&done, 0);
+    atomic_fetch_add(&generation, 1);
+    for (i = 0; i < worker_count; i++)
+        if (atomic_load(&workers[i].asleep))
+            os_sem_signal(workers[i].wake);
+}
+
+void rastq_threads_run(rastq_job job, int threads) {
     if (threads > worker_count + 1)
         threads = worker_count + 1;
     if (threads <= 1) {
         job(0);
         return;
     }
-    current_job = job;
-    current_threads = threads;
-    atomic_store(&done, 0);
-    atomic_fetch_add(&generation, 1);
-    for (i = 0; i < worker_count; i++)
-        if (atomic_load(&workers[i].asleep))
-            os_sem_signal(workers[i].wake);
-
+    start(job, threads, 0);
     job(0);
     while (atomic_load(&done) != (unsigned)worker_count)
         cpu_relax();
 }
+
+int rastq_threads_kick(rastq_job job, int threads) {
+    if (threads > worker_count + 1)
+        threads = worker_count + 1;
+    if (threads <= 1)
+        return 0;
+    start(job, threads, 1);
+    kick_pending = 1;
+    return 1;
+}
+
+void rastq_threads_relax(void) { cpu_relax(); }
 
 #else
 
@@ -241,6 +274,13 @@ void rastq_threads_run(rastq_job job, int threads) {
     (void)threads;
     job(0);
 }
+void rastq_threads_settle(void) {}
+int rastq_threads_kick(rastq_job job, int threads) {
+    (void)job;
+    (void)threads;
+    return 0;
+}
+void rastq_threads_relax(void) {}
 void rastq_threads_pin_main(int pin) { (void)pin; }
 long long rastq_clock_us(void) { return 0; }
 int rastq_thread_cpu(void) { return -1; }

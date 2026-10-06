@@ -143,6 +143,8 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     hudkeep_stats.text_hits = hudkeep_stats.text_misses = 0;
     hudkeep_stats.scaled_hits = hudkeep_stats.scaled_misses = 0;
     rastq_stats.gpu_prepare_us = 0;
+    for (i = 0; i < RASTQ_THREADS; i++)
+        rastq_stats.gpu_cut[i] = 0;
     for (i = 0; i < RASTQ_SOLO_REASONS; i++)
         rastq_stats.solo[i] = 0;
     for (i = 0; i < RASTQ_THREADS; i++)
@@ -217,7 +219,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "sndload=%.2f/%.2f resload=%.2f/%.2f | "
                 "gpuoverlap=%.2f hudparts=hand:%.2f,label:%.2f,text:%.2f,buttons:%.2f,mfd:%.2f,inv:%.2f,"
                 "vitals:%.2f,icons:%.2f | "
-                "hudkept=text:%.1f/%.2f,scaled:%.1f/%.2f hudcheck=%u/%u\n",
+                "hudkept=text:%.1f/%.2f,scaled:%.1f/%.2f hudcheck=%u/%u | gpucut=%.1f/%.1f/%.1f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -309,7 +311,10 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)hudkeep_stats.text_misses / g_frame_samples,
                 (double)hudkeep_stats.scaled_hits / g_frame_samples,
                 (double)hudkeep_stats.scaled_misses / g_frame_samples,
-                hudkeep_stats.check_bad, hudkeep_stats.checks);
+                hudkeep_stats.check_bad, hudkeep_stats.checks,
+                (double)rastq_stats.gpu_cut[0] / g_frame_samples,
+                (double)rastq_stats.gpu_cut[1] / g_frame_samples,
+                (double)rastq_stats.gpu_cut[2] / g_frame_samples);
         fclose(fp);
     }
 }

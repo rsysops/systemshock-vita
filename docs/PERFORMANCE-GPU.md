@@ -90,7 +90,8 @@ run something like it. It was not chosen:
 | G8 | The help scan run while the GPU draws, in place of the main thread waiting; the HUD measured part by part | **done**: where the scan runs the main thread waits 0.4 ms for the GPU in place of 3.4; G7's heavy angle and the paneled view with labels are at the screen's rate with 1.8 ms to spare. A heavier angle (132 polygons in 354 pieces, no scan) is at 53 to 57 fps |
 | G9 | A cheaper HUD: outlined text drawn once and copied; the vitals' arrows and the inventory's buttons stretched once and copied; transparent copies four pixels at a time | **done**: the full-screen HUD from 2.2-3.3 ms to 1.35-1.9, from 4.4 to 1.5 with a help label, on every renderer, no pixel changed in 438 checks. The hallway angle is at 59 fps in full screen, 55 paneled |
 | G10 | Cyberspace on the GPU: polygons shaded between colours, lines and points; flat polygons through the flat shaders | **done**: one renderer for all of the 3D world; 0.03% of cyberspace's pixels differ from the CPU's; 2 ms a frame ahead of three cores there, the view going to the screen without a copy. Voxel objects still split a frame into several scenes |
-| G11 | The sending shared between the three cores: deciding what each call is and cutting it up, the hand-over staying in order | about 2 ms off the frames with many pieces. **Not started** |
+| G11 | The sending shared between the three cores: deciding what each call is and cutting it up, the hand-over staying in order | **done**: the workers take a third of the calls each; the sending at the hallway angle from 5.1 ms to 3.35; that angle at 62.3 fps in full screen (59.0) and 60.2 paneled (55.3), the paneled view with nothing to spare |
+| G12 | The paneled view shown from GPU memory, laid over the screen's picture, in place of copied into it | 2.5 ms off every paneled frame; the hallway angle paneled with 2.7 ms to spare. **Not started** |
 
 G2 was not in the first roadmap. G1 showed that the memory question
 decides whether the GPU path is worth anything, so it comes before
@@ -1827,3 +1828,155 @@ After that, to choose from: voxel objects through the queue, so that a
 frame with them is one scene again (up to 3.7 ms in those frames); the
 paneled view shown from GPU memory in place of copied (2.9 ms); the wait
 when the help scan doesn't run (2.4 to 3.8 ms); the stalls.
+
+## Step G11: the sending on three cores
+
+Built and run on a Vita. Results at the end of this section.
+
+At the hallway angle the main thread takes 5.1 ms to send a frame: 133
+calls decided (`gpuprepare`, 1.25 ms), then cut into 354 pieces and
+handed to the GPU (`gpusubmit`, 3.8 ms), while the two worker cores do
+nothing.
+
+### The list is decided and cut by all the threads
+
+`gpu_cut_list` in `src/Libraries/3D/Source/rastq.c`. A list of at least
+`RASTQ_GPU_CUT_CALLS` (64) calls of a view the GPU draws is gone through
+by all the threads before anything is handed over:
+
+- each thread takes calls eight at a time from a shared counter, decides
+  what each is (`gpu_classify`) and cuts it (`gpu_emit`), keeping the
+  pieces in a sink of its own (`gpu_sink`: 4,096 pieces, 8,192
+  vertices);
+- the main thread then goes through the list in its order as before and
+  hands each call's pieces to the GPU (`gpu_hand`).
+
+The cutting code is the same: it puts a piece where it is told to
+(`gpu_put`), the GPU or a sink. The pieces and their order are those of
+one thread's cutting, so the picture is the same to the byte.
+
+Left to the main thread, at the hand-over: lines and points (their
+clipping goes through the canvas's clip rectangle), and a call whose
+pieces don't fit its thread's sink. The scene's colour tables are the
+one thing the threads share while deciding: `gpu_table_row` adds to
+them one thread at a time. A shorter list is decided and cut call by
+call as before.
+
+### Workers that are started and not waited for
+
+`rastq_threads_kick` in `src/Libraries/3D/Source/rastqthr.c`.
+`rastq_threads_run`, which the three-core replay uses, returns when
+every worker has answered. A worker the system holds up answers
+milliseconds late: in the captures the latest start within a second of
+three-core drawing is 4 to 7 ms (the sound threads share the workers'
+cores). A band of the picture has to be waited for. Here the wait would
+cost more than the step gains.
+
+`rastq_threads_kick` starts the job on the workers and returns. The
+main thread takes calls like the others and waits only for calls a
+worker has taken. A worker that comes late finds the counter past the
+list's end and leaves without touching anything. Before the next job of
+either kind the pool lets such a latecomer through
+(`rastq_threads_settle`), and `gpu_cut_list` does so before it resets
+what the job looks at.
+
+A worker goes on looking for work for 25 ms after such a job
+(`IDLE_AFTER_KICK_US`), then sleeps: the worker cores are busy only
+while heavy frames keep coming. After a three-core band it is 100 ms, as
+before.
+
+### Checked on the PC
+
+- Every GPU scene of the test is drawn a second time with its lists cut
+  by all the threads, whatever their length: 1,200 scenes, 59,960
+  calls, about a third of them cut by the workers, and no picture
+  differs from the one-thread one by a byte.
+- The thread-sanitizer build of `tests/rastq/run.sh` goes through the
+  same and reports nothing.
+
+Not checkable on the PC: how fast the Vita's workers come to the job,
+which decides the gain.
+
+### New in the log (profile build)
+
+| field | what |
+|---|---|
+| `gpuprepare=` | now, for a shared list: the deciding and the cutting, by all the threads, as the main thread waits for it |
+| `gpusubmit=` | for a shared list: the hand-over alone |
+| `gpucut=a/b/c` | calls a frame decided and cut by the main thread and by each worker, of the lists they shared (all 0: the lists were short) |
+
+### What the capture will show
+
+- At the hallway angle: `gpucut` with the workers taking about a third
+  each, and `gpuprepare` + `gpusubmit` under the 5.1 ms of G9. If the
+  workers' numbers are near 0 they come too late, and the main thread
+  does the work as before: no gain, no loss.
+- The hallway angle at the screen's rate in full screen (16.95 ms in
+  G9) and paneled (18.1 ms).
+- Nothing else changes: `gpudiff` as before.
+
+### Results (`docs/profiles-gpu/profile-step-11.txt`, `gpu.txt`, `gpudumps-step-11/`)
+
+Medians of the 1 s windows, cut by the check numbers noted while
+playing:
+
+| | 0: three cores | 1: GPU | GPU: waiting for the screen |
+|---|---|---|---|
+| standing still | 46.8 fps | 63.5 fps | 5.9 ms |
+| moving | 38.8 fps | 63.1 fps | 6.3 ms |
+| fights | 37.1 fps | 62.3 fps | 5.2 ms |
+| the hallway angle, full screen | 40.7 fps | 62.3 fps (16.06 ms; 59.0 fps in G9) | 1.2 ms |
+| the hallway angle, paneled | 62.2 fps | 60.2 fps (16.6 ms; 55.3 fps in G9) | 0.1 ms |
+| cyberspace, with fights | 62.8 fps | 63.1 fps | 7.6 ms |
+
+- **The workers come to the job in time.** At the hallway angle
+  `gpucut=52.8/46.6/46.7`: a third of the calls each, the main thread a
+  few more. In cyberspace, whose lists of lines are long too,
+  `78/68/73`.
+- **The sending**, `gpuprepare` + `gpusubmit`, ms a frame:
+
+  | | G9 | G11 |
+  |---|---|---|
+  | the hallway angle, 135 calls in 358 pieces | 1.25 + 3.82 = 5.07 | 1.48 + 1.87 = 3.35 |
+  | standing still, 77 calls | 0.56 + 1.21 = 1.77 | 0.49 + 0.88 = 1.37 |
+
+  What is left in `gpusubmit` is the hand-over, 0.8 ms of it the
+  bitmaps copied into GPU memory (`gpuupload`).
+- **Cyberspace with fights**, which G10's capture lacked: one scene a
+  frame at the median, nothing left to the CPU, 63.1 fps.
+- `check=0`, `leaks=0`, `hudcheck=0/745`, `gpufallbacks=0`, 4 dumps;
+  4.6% of the compared pixels differ over the run, the station and
+  cyberspace together.
+- **Stalls**: 14. Eight have a sound effect's first decoding in them,
+  three a resource load, one is the cyberspace level loading, and two
+  (60 ms in a fight, 98 ms in cyberspace) show little or nothing in the
+  timers there are.
+- No freeze.
+
+The hallway angle in the paneled view is at the screen's rate with
+nothing to spare: 6 of its 55 windows are under 59 fps, the lowest at
+57.0, and three cores do 62.2 fps there. Its frame, ms:
+
+| | |
+|---|---|
+| sending (`gpuprepare` + `gpusubmit`) | 3.3 |
+| the view copied out of GPU memory onto the screen (`viewout`) | 2.9 |
+| blocked on the GPU, no scan to run meanwhile (`gpuwait`) | 2.7 |
+| HUD | 0.5 |
+| whole frame | 16.6 |
+
+### Go for G12
+
+The paneled view shown as the full-screen view is: the GPU's canvas
+laid over the view's window when the frame is put on screen, in place
+of `Fast_Slot_Copy` reading it out of GPU memory every frame (2.9 ms
+against 0.4 ms from ordinary memory). What the game draws over the view
+on the screen (messages, the help overlay, the pause text) has to keep
+showing: that is the part to plan first.
+
+Expected, not measured: 2.5 ms off every paneled frame, the hallway
+angle there from 16.6 ms to about 13.9.
+
+After that, to choose from: voxel objects through the queue (up to
+3.7 ms in the frames that have them); the wait when the help scan
+doesn't run (2.7 to 3.9 ms); the stalls.

@@ -82,6 +82,7 @@ typedef struct {
     unsigned gpu_kinds[RASTQ_GPU_KINDS]; // the GPU's calls, by kind
     unsigned gpu_whys[RASTQ_GPU_WHYS];  // the CPU's, by reason
     unsigned gpu_pieces;                 // pieces lit calls were cut into
+    unsigned gpu_cut[RASTQ_THREADS];     // calls each thread decided and cut, of the lists they shared
     unsigned gpu_fallbacks;             // lists it refused, drawn by the CPU
     unsigned long long gpu_prepare_us;  // deciding what each call is, and the tables
     unsigned long long gpu_submit_us;   // cutting the calls up and handing them over
@@ -190,6 +191,12 @@ void rastq_gpu_view(int on);
 // thing in its scene and this returns 1. Otherwise it does nothing and
 // returns 0.
 int rastq_gpu_clear(int color);
+// A list of at least this many calls is decided and cut into its pieces by
+// all the threads before it is handed to the GPU; a shorter one by the
+// caller, call by call. The default is RASTQ_GPU_CUT_CALLS: under it,
+// starting the other threads costs more than they save.
+#define RASTQ_GPU_CUT_CALLS 64
+void rastq_set_gpu_cut(int min_calls);
 // rastq_end doesn't wait for the last scene of a view the GPU draws: until
 // rastq_gpu_finish, the canvas is the GPU's and the CPU must leave it alone,
 // but is free for anything else. rastq_gpu_busy: is a scene still out?

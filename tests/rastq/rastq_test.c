@@ -1282,6 +1282,7 @@ int main(int argc, char **argv) {
     unsigned batches = 0, solo_mapper = 0, solo_direct = 0;
     unsigned gpu_scenes = 0, gpu_polys = 0, gpu_culled = 0, gpu_cpu_calls = 0, gpu_whole_checks = 0;
     unsigned gpu_pieces = 0;
+    unsigned cut_lists = 0, cut_bad = 0, cut_calls = 0, cut_by_workers = 0;
     long gpu_diff = 0, gpu_far = 0;
     int s, f;
     // RASTQ_HASH: only draw directly and print a checksum per frame, to
@@ -1435,6 +1436,22 @@ int main(int argc, char **argv) {
                         gpu_cpu_calls += rastq_stats.gpu_cpu_calls;
                         drawn_ok = rastq_stats.gpu_scenes > 0 && rastq_stats.gpu_fallbacks == 0 &&
                                    far <= (long)(GPU_FRAME_LIMIT * cw * ch);
+                        // The same list decided and cut by all the threads
+                        // before it is handed over: the same pieces in the
+                        // same order, so the same picture to the byte.
+                        set_split(SPLIT_THREADS);
+                        rastq_set_gpu_cut(1);
+                        memset(&rastq_stats, 0, sizeof(rastq_stats));
+                        draw_scene(gpu_ops, gpu_count, RASTQ_TRUST_STABLE, result[3]);
+                        rastq_set_gpu_cut(RASTQ_GPU_CUT_CALLS);
+                        set_split(SPLIT_NONE);
+                        cut_lists++;
+                        cut_calls += rastq_stats.gpu_cut[0] + rastq_stats.gpu_cut[1] + rastq_stats.gpu_cut[2];
+                        cut_by_workers += rastq_stats.gpu_cut[1] + rastq_stats.gpu_cut[2];
+                        if (differing(result[2], result[3]) != 0) {
+                            cut_bad++;
+                            drawn_ok = 0;
+                        }
                         rastq_set_check_interval(1);
                         memset(&rastq_stats, 0, sizeof(rastq_stats));
                         ref_expected_cpu = result[1];
@@ -1514,6 +1531,11 @@ int main(int argc, char **argv) {
         printf("  no scene was compared in one go\n");
         bad++;
     }
+    printf("  %u lists cut by all the threads, %u calls of which %u by the workers; %u pictures differ from one "
+           "thread's\n",
+           cut_lists, cut_calls, cut_by_workers, cut_bad);
+    if (cut_lists == 0 || cut_calls == 0 || cut_bad != 0)
+        bad++;
     printf("  the GPU was left its last scene %u times; %u views drawn by the CPU meanwhile\n", left_out, other_views);
     if (left_out == 0 || other_views == 0 || other_bad || other_lost || ref_unfinished) {
         printf("  of those views %u came out wrong and %u had the GPU waited for; %u scenes begun on one not "

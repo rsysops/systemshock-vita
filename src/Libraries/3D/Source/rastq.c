@@ -5,6 +5,7 @@
 #endif
 
 #include <math.h>
+#include <stdatomic.h>
 #include <stdint.h>
 #include <string.h>
 
@@ -85,6 +86,10 @@ typedef struct {
     uchar gpu_scan;  // GPU_SCAN_*: the lines the call's mapper draws
     uchar gpu_kind;  // RASTQ_GPU_KIND_*, for the counts
     uchar gpu_why;   // GPU_CPU: RASTQ_GPU_WHY_*
+    // set by gpu_prepare when the list was cut ahead of the hand-over:
+    uchar cut;      // the call's pieces are in a sink
+    uchar cut_slot; // which thread's
+    unsigned cut_first, cut_count; // which pieces of it
 } rastq_cmd;
 
 // How one view's rows are shared between the threads. It is kept per canvas,
@@ -107,6 +112,7 @@ static struct {
     int gpu_survey; // this view isn't the GPU's: only count what it could draw of it
     int survey_next;
     int gpu_view_next; // the caller's word on the view that starts next
+    int gpu_cut_min;   // lists of at least this many calls are cut by all the threads
     int gpu_out;       // a scene the GPU has and hasn't been waited for
     int gpu_out_timed; // that scene's times count
     long long gpu_out_us; // when it was handed over
@@ -131,7 +137,7 @@ static struct {
     int test_bands;                 // > 0: draw band after band on the calling thread
     int test_bounds[RASTQ_MAX_BANDS];
     int test_ranges;
-} rq = {.threads = 1, .only_band = -1};
+} rq = {.threads = 1, .only_band = -1, .gpu_cut_min = RASTQ_GPU_CUT_CALLS};
 
 // The run of calls the threads are drawing
 static struct {
@@ -230,6 +236,8 @@ static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next(canvas->b
 void rastq_gpu_view(int on) { rq.gpu_view_next = on; }
 
 void rastq_gpu_survey(void) { rq.survey_next = 1; }
+
+void rastq_set_gpu_cut(int min_calls) { rq.gpu_cut_min = min_calls; }
 
 // Waits for the scene the GPU still has, if it has one.
 static void gpu_finish(void) {
@@ -567,20 +575,26 @@ static void clear_on_cpu(void) {
 // The row of the scene's tables that holds a colour table, added if need be.
 // -1 if there is no room for it.
 static int gpu_table_row(const uchar *clut) {
+    static atomic_flag adding = ATOMIC_FLAG_INIT;
     const uchar *ltab = gr_get_light_tab();
-    int r;
+    int r, row = -1;
 
     if (ltab != NULL && (uintptr_t)clut >= (uintptr_t)ltab &&
         (uintptr_t)clut < (uintptr_t)ltab + RASTQ_GPU_LIGHT_ROWS * 256 && ((uintptr_t)clut - (uintptr_t)ltab) % 256 == 0)
         return (int)(((uintptr_t)clut - (uintptr_t)ltab) / 256);
-    for (r = RASTQ_GPU_PLAIN_ROW + 1; r < gpu_rows; r++)
+    // several threads may be deciding calls at once: one at a time here
+    while (atomic_flag_test_and_set(&adding))
+        rastq_threads_relax();
+    for (r = RASTQ_GPU_PLAIN_ROW + 1; r < gpu_rows && row < 0; r++)
         if (gpu_table_from[r] == clut)
-            return r;
-    if (gpu_rows == RASTQ_GPU_TABLE_ROWS)
-        return -1;
-    memcpy(gpu_tables[gpu_rows], clut, 256);
-    gpu_table_from[gpu_rows] = clut;
-    return gpu_rows++;
+            row = r;
+    if (row < 0 && gpu_rows < RASTQ_GPU_TABLE_ROWS) {
+        memcpy(gpu_tables[gpu_rows], clut, 256);
+        gpu_table_from[gpu_rows] = clut;
+        row = gpu_rows++;
+    }
+    atomic_flag_clear(&adding);
+    return row;
 }
 
 // The mappers stop at the first row whose right edge is left of its left
@@ -823,7 +837,11 @@ static int gpu_classify(rastq_cmd *c) {
     return gpu_reversed(c) ? GPU_CULL : GPU_TMAP;
 }
 
-// The tables of the list's scenes, and what each call becomes.
+static void gpu_cut_list(void);
+
+// The tables of the list's scenes, and what each call becomes. A long list
+// of a view the GPU draws is cut into its pieces as well, by all the threads
+// (see gpu_cut_list).
 static void gpu_prepare(void) {
     const uchar *ltab = gr_get_light_tab();
     unsigned k;
@@ -834,11 +852,17 @@ static void gpu_prepare(void) {
     for (i = 0; i < 256; i++)
         gpu_tables[RASTQ_GPU_PLAIN_ROW][i] = (uchar)i;
     gpu_rows = RASTQ_GPU_PLAIN_ROW + 1;
-    gpu_colours = 0;
-    for (k = 0; k < rq.count; k++) {
-        cmds[k].gpu = (uchar)gpu_classify(&cmds[k]);
-        gpu_colours |= cmds[k].gpu == GPU_SHADED || (cmds[k].gpu == GPU_LINE && cmds[k].kind == RQ_CLINE);
+    if (rq.gpu_view && rq.threads > 1 && rq.count >= (unsigned)rq.gpu_cut_min) {
+        gpu_cut_list();
+    } else {
+        for (k = 0; k < rq.count; k++) {
+            cmds[k].gpu = (uchar)gpu_classify(&cmds[k]);
+            cmds[k].cut = 0;
+        }
     }
+    gpu_colours = 0;
+    for (k = 0; k < rq.count; k++)
+        gpu_colours |= cmds[k].gpu == GPU_SHADED || (cmds[k].gpu == GPU_LINE && cmds[k].kind == RQ_CLINE);
 }
 
 static int gpu_scene_begin(void) {
@@ -926,20 +950,68 @@ static int slab_clip(const slab_vertex *in, int n, float bound, int keep_above, 
     return m;
 }
 
+// ---- pieces kept for the hand-over ------------------------------------------
+//
+// Deciding what a call is and cutting it into pieces needs nothing of the
+// GPU, and for a view of many lit polygons it is most of the sending. A long
+// list is therefore gone through by all the threads first, each taking calls
+// a few at a time and keeping their pieces in a sink of its own; the main
+// thread then hands them to the GPU call by call, in the list's order.
+
+enum { PUT_FLAT, PUT_TMAP, PUT_SHADED };
+
+typedef struct {
+    unsigned first; // of its vertices, in the sink
+    uchar n, put;
+} gpu_piece;
+
+#define SINK_PIECES 4096
+#define SINK_VERTS 8192
+
+typedef struct {
+    gpu_piece pieces[SINK_PIECES];
+    rastq_gpu_vertex verts[SINK_VERTS];
+    unsigned piece_count, vert_count;
+    unsigned light_pieces; // for the counts
+    unsigned calls;        // it went through
+} gpu_sink;
+
+static gpu_sink sinks[RASTQ_THREADS];
+
+// A piece of a call: to the GPU (sink NULL; 0 if the scene has no room for
+// it), or into a sink (0 if that is full).
+static int gpu_put(gpu_sink *sink, const rastq_cmd *c, int put, int n, const rastq_gpu_vertex *v) {
+    gpu_piece *piece;
+
+    if (sink == NULL)
+        return put == PUT_TMAP     ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
+               : put == PUT_SHADED ? rq.gpu->shaded(n, v)
+                                   : rq.gpu->flat(n, v, c->gpu_row);
+    if (sink->piece_count == SINK_PIECES || sink->vert_count + n > SINK_VERTS)
+        return 0;
+    piece = &sink->pieces[sink->piece_count++];
+    piece->first = sink->vert_count;
+    piece->n = (uchar)n;
+    piece->put = (uchar)put;
+    memcpy(&sink->verts[sink->vert_count], v, n * sizeof(v[0]));
+    sink->vert_count += n;
+    return 1;
+}
+
 // The row, floor and wall mappers read bits[(v * width + u) mod size]: where
 // a texture repeats along u, each repeat is one texel row further down than
 // the last. A GPU wraps u and v each on their own, so the polygon is cut
 // where u passes a multiple of the width (a straight line on screen) and
 // each part's v moved by as many rows as it is repeats along. 0 if the
 // scene has no room for it.
-static int gpu_emit_repeats(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
+static int gpu_emit_repeats(gpu_sink *sink, const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
     slab_vertex poly[GPU_WORK_VERTS], kept[GPU_WORK_VERTS], part[GPU_WORK_VERTS];
     rastq_gpu_vertex out[GPU_WORK_VERTS];
     float width = (float)c->bm.w, u_min, u_max;
     int i, k, k_min, k_max, n;
 
     if (!c->gpu_carry)
-        return rq.gpu->tmap(&c->bm, c->gpu_flags, count, v);
+        return gpu_put(sink, c, PUT_TMAP, count, v);
     u_min = u_max = v[0].u / v[0].q;
     for (i = 1; i < count; i++) {
         float u = v[i].u / v[i].q;
@@ -949,7 +1021,7 @@ static int gpu_emit_repeats(const rastq_cmd *c, int count, const rastq_gpu_verte
     k_min = (int)floorf(u_min / width);
     k_max = (int)floorf(u_max / width);
     if (k_max - k_min > GPU_MAX_REPEATS || count > RASTQ_GPU_VERTS - 2)
-        return rq.gpu->tmap(&c->bm, c->gpu_flags, count, v);
+        return gpu_put(sink, c, PUT_TMAP, count, v);
 
     for (k = k_min; k <= k_max; k++) {
         n = count;
@@ -972,7 +1044,7 @@ static int gpu_emit_repeats(const rastq_cmd *c, int count, const rastq_gpu_verte
             out[i] = part[i].v;
             out[i].v += k * out[i].q;
         }
-        if (!rq.gpu->tmap(&c->bm, c->gpu_flags, n, out))
+        if (!gpu_put(sink, c, PUT_TMAP, n, out))
             return 0;
     }
     return 1;
@@ -1041,11 +1113,11 @@ static void gpu_light_piece(rastq_gpu_vertex *v, const float *s, int count, floa
 // The texture's repeats are cut within each piece: such a cut runs through
 // the polygon, and only values that are linear over the piece survive it.
 // 0 if the scene has no room for it.
-static int gpu_hand_over(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
-    return c->gpu == GPU_SHADED ? rq.gpu->shaded(count, v) : gpu_emit_repeats(c, count, v);
+static int gpu_hand_over(gpu_sink *sink, const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
+    return c->gpu == GPU_SHADED ? gpu_put(sink, c, PUT_SHADED, count, v) : gpu_emit_repeats(sink, c, count, v);
 }
 
-static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
+static int gpu_emit_cut(gpu_sink *sink, const rastq_cmd *c, int count, const rastq_gpu_vertex *v) {
     slab_vertex poly[GPU_WORK_VERTS], above[GPU_WORK_VERTS], piece[GPU_WORK_VERTS];
     rastq_gpu_vertex out[GPU_WORK_VERTS];
     float bounds[GPU_WORK_VERTS + 1], levels[GPU_WORK_VERTS];
@@ -1091,7 +1163,7 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
         s_max = poly[i].s > s_max ? poly[i].s : s_max;
     }
     if (s_max <= s_min)
-        return gpu_hand_over(c, count, v);
+        return gpu_hand_over(sink, c, count, v);
 
     // Where to cut, bounds[1 .. pieces - 1]: the corners' levels in order,
     // those that are all but one taken once.
@@ -1130,9 +1202,11 @@ static int gpu_emit_cut(const rastq_cmd *c, int count, const rastq_gpu_vertex *v
                 s[i] = piece[i].s;
             }
             gpu_light_piece(out, s, m, lo, bounds[k]);
-            if (!gpu_hand_over(c, m, out))
+            if (!gpu_hand_over(sink, c, m, out))
                 return 0;
-            if (!rq.gpu_check)
+            if (sink != NULL)
+                sink->light_pieces++;
+            else if (!rq.gpu_check)
                 rastq_stats.gpu_pieces++;
         }
         lo = bounds[k];
@@ -1168,7 +1242,7 @@ static int line_quad(const rastq_cmd *c, const float (*xy)[2], const line_colour
             v[i].b_left = col->at[2] + col->by_x[2] * v[i].x + col->by_y[2] * v[i].y;
         }
     }
-    return col != NULL ? rq.gpu->shaded(4, v) : rq.gpu->flat(4, v, c->gpu_row);
+    return gpu_put(NULL, c, col != NULL ? PUT_SHADED : PUT_FLAT, 4, v);
 }
 
 // The pixels from `from` up to, not including, `to` of one row.
@@ -1305,8 +1379,10 @@ static int gpu_emit_point(const rastq_cmd *c) {
     return line_row(c, x, x + 1, y, NULL);
 }
 
-// Hands a call to the scene under way. 0 if the scene has no room for it.
-static int gpu_emit(const rastq_cmd *c) {
+// Hands a call to the scene under way, or its pieces to a sink. 0 if the
+// scene, or the sink, has no room for it. Lines and points go to the scene
+// only: their clipping uses the canvas's clip rectangle.
+static int gpu_emit(gpu_sink *sink, const rastq_cmd *c) {
     rastq_gpu_vertex v[RASTQ_GPU_VERTS];
     fix w[RASTQ_GPU_VERTS];
     float w_max = 1.0f;
@@ -1368,16 +1444,102 @@ static int gpu_emit(const rastq_cmd *c) {
         }
     }
     if (c->gpu == GPU_FLAT)
-        return rq.gpu->flat(c->n, v, c->gpu_row);
+        return gpu_put(sink, c, PUT_FLAT, c->n, v);
     // The mappers take a colour along the edges, then across each row: a
     // polygon of four corners or more is cut at their rows, as for the light.
     if (c->gpu == GPU_SHADED)
-        return c->n >= 4 && c->n <= RASTQ_GPU_VERTS - 4 ? gpu_emit_cut(c, c->n, v) : rq.gpu->shaded(c->n, v);
+        return c->n >= 4 && c->n <= RASTQ_GPU_VERTS - 4 ? gpu_emit_cut(sink, c, c->n, v)
+                                                        : gpu_put(sink, c, PUT_SHADED, c->n, v);
     // Three light levels always fit one plane, so a lit triangle stays
     // whole: its level and its w, each linear, give the mapper's quotient.
     if (c->gpu_lit && c->n >= 4 && c->n <= RASTQ_GPU_VERTS - 4)
-        return gpu_emit_cut(c, c->n, v);
-    return gpu_emit_repeats(c, c->n, v);
+        return gpu_emit_cut(sink, c, c->n, v);
+    return gpu_emit_repeats(sink, c, c->n, v);
+}
+
+// ---- the list decided and cut by all the threads ----------------------------
+
+#define CUT_CHUNK 8
+static struct {
+    atomic_uint next, finished; // calls taken, and done with
+    unsigned count;
+} cutting;
+
+static void cut_job(int slot) {
+    gpu_sink *sink = &sinks[slot];
+
+    for (;;) {
+        unsigned first = atomic_fetch_add(&cutting.next, CUT_CHUNK), end, k;
+
+        // A thread that comes to the job late ends up here, and leaves.
+        if (first >= cutting.count)
+            return;
+        end = first + CUT_CHUNK < cutting.count ? first + CUT_CHUNK : cutting.count;
+        for (k = first; k < end; k++) {
+            rastq_cmd *c = &cmds[k];
+
+            c->gpu = (uchar)gpu_classify(c);
+            c->cut = 0;
+            if (c->gpu == GPU_FLAT || c->gpu == GPU_TMAP || c->gpu == GPU_SHADED) {
+                unsigned pieces = sink->piece_count, verts = sink->vert_count, light = sink->light_pieces;
+
+                if (gpu_emit(sink, c)) {
+                    c->cut = 1;
+                    c->cut_slot = (uchar)slot;
+                    c->cut_first = pieces;
+                    c->cut_count = sink->piece_count - pieces;
+                } else {
+                    // no room in the sink: cut at the hand-over, as a short
+                    // list's calls are
+                    sink->piece_count = pieces;
+                    sink->vert_count = verts;
+                    sink->light_pieces = light;
+                }
+            }
+        }
+        sink->calls += end - first;
+        atomic_fetch_add(&cutting.finished, end - first);
+    }
+}
+
+// Has all the threads decide what the list's calls are and cut them.
+static void gpu_cut_list(void) {
+    int i;
+
+    rastq_threads_settle(); // nobody is in cut_job now
+    for (i = 0; i < RASTQ_THREADS; i++)
+        sinks[i].piece_count = sinks[i].vert_count = sinks[i].light_pieces = sinks[i].calls = 0;
+    cutting.count = rq.count;
+    atomic_store(&cutting.finished, 0);
+    atomic_store(&cutting.next, 0);
+    // The workers aren't waited for: one that is held up elsewhere takes
+    // what is left when it comes, or nothing.
+    rastq_threads_kick(cut_job, rq.threads);
+    cut_job(0);
+    while (atomic_load(&cutting.finished) < cutting.count)
+        rastq_threads_relax();
+    for (i = 0; i < RASTQ_THREADS; i++) {
+        if (!rq.gpu_check) {
+            rastq_stats.gpu_pieces += sinks[i].light_pieces;
+            rastq_stats.gpu_cut[i] += sinks[i].calls;
+        }
+    }
+}
+
+// Hands a call to the scene under way: its pieces if it was cut ahead.
+static int gpu_hand(const rastq_cmd *c) {
+    const gpu_sink *sink;
+    unsigned i;
+
+    if (!c->cut)
+        return gpu_emit(NULL, c);
+    sink = &sinks[c->cut_slot];
+    for (i = 0; i < c->cut_count; i++) {
+        const gpu_piece *piece = &sink->pieces[c->cut_first + i];
+        if (!gpu_put(NULL, c, piece->put, piece->n, &sink->verts[piece->first]))
+            return 0;
+    }
+    return 1;
 }
 
 // Draws the list with the GPU, in as few scenes as it takes: what the GPU
@@ -1406,14 +1568,14 @@ static int gpu_run(void) {
         if (c->gpu != GPU_CPU && !dead) {
             if (!in_scene && !(in_scene = gpu_scene_begin()))
                 dead = 1;
-            if (in_scene && !(sent = gpu_emit(c))) {
+            if (in_scene && !(sent = gpu_hand(c))) {
                 // the scene is full: the call opens the next one
                 gpu_scene_end(1);
                 in_scene = gpu_scene_begin();
                 if (!in_scene)
                     dead = 1;
                 else
-                    sent = gpu_emit(c);
+                    sent = gpu_hand(c);
             }
         }
         if (sent) {
