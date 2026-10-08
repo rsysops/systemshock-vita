@@ -77,33 +77,6 @@ int RectSect(LGRect *pr1, LGRect *pr2, LGRect *prsect)
 
 //	---------------------------------------------------------
 //
-//	RectUnion() finds union of two rects.
-//
-//		pr1     = ptr to 1st rectangle
-//		pr2     = ptr to 2nd rectangle
-//		prunion = ptr to rectangle, filled with union of the two rects
-
-void RectUnion(LGRect *pr1, LGRect *pr2, LGRect *prunion)
-{
-	RECT_UNION(pr1, pr2, prunion);
-}
-
-//	---------------------------------------------------------
-//
-//	RectEncloses() tests whether first rect fully encloses second.
-//
-//		pr1 = ptr to 1st rectangle
-//		pr2 = ptr to 2nd rectangle
-//
-//	returns: TRUE if *pr1 encloses *pr2, FALSE otherwise
-
-int RectEncloses(LGRect *pr1, LGRect *pr2)
-{
-	return(RECT_ENCLOSES(pr1, pr2));
-}
-
-//	---------------------------------------------------------
-//
 //	RectTestPt() tests whether point is inside rect.
 //
 //		prect = ptr to rectangle
@@ -126,53 +99,6 @@ int RectTestPt(LGRect *prect, LGPoint pt)
 void RectMove(LGRect *pr, LGPoint delta)
 {
 	RECT_MOVE(pr, delta);
-}
-
-//	---------------------------------------------------------
-//
-//	RectOffsettedRect() creates a rectangle, offsetted from another.
-//
-//		pr    = ptr to original rect
-//		delta = pt to offset by
-//		proff = rectangle to fill in with offsetted rect
-
-void RectOffsettedRect(LGRect *pr, LGPoint delta, LGRect *proff)
-{
-	RECT_OFFSETTED_RECT(pr, delta, proff);
-}
-
-//	---------------------------------------------------------
-//
-//	RectClipCode() calculates 4-bit clipcode for pt vs. rect.
-//
-//		prect = ptr to rectangle
-//		pt    = point to be tested
-//
-//	Returns: a 4-bit clipcode, bits set as follows:
-//
-//	000x: set to 1 if pt.x < rect.ul.x
-//	00x0: set to 1 if pt.x >= rect.lr.x
-//	0x00: set to 1 if pt.y < rect.ul.y
-//	x000: set to 1 if pt.y >= rect.lr.y
-//
-//	thus set to 0 if point is inside rect, although a cheaper test can be
-//	done (via RectTestPt()).
-
-int RectClipCode(LGRect *prect, LGPoint pt)
-{
-	short flag;
-
-	flag = 0;
-	if (pt.x < prect->ul.x)
-		flag = 1;
-	if (pt.x >= prect->lr.x)
-		flag |= 2;
-	if (pt.y < prect->ul.y)
-		flag |= 4;
-	if (pt.y >= prect->lr.y)
-		flag |= 8;
-
-	return(flag);
 }
 
 //	---------------------------------------------------------

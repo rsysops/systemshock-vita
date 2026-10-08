@@ -235,8 +235,6 @@ static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next(canvas->b
 
 void rastq_gpu_view(int on) { rq.gpu_view_next = on; }
 
-void rastq_gpu_survey(void) { rq.survey_next = 1; }
-
 void rastq_set_gpu_cut(int min_calls) { rq.gpu_cut_min = min_calls; }
 
 // Waits for the scene the GPU still has, if it has one.

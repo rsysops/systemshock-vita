@@ -228,7 +228,6 @@ extern grt_function_table *grd_function_fill_table;
    ((int (*)())grd_pixel_table[POP_STATE])
 #endif
 extern int gr_init (void);
-extern int gr_close (void);
 #define gr_alloc_temp temp_malloc
 #define gr_free_temp temp_free
 extern grs_context grd_defgc;
@@ -240,11 +239,6 @@ extern void gr_init_canvas (grs_canvas *c, uchar *p, int id,
                             short w, short h);
 extern void gr_init_sub_canvas (grs_canvas *sc, grs_canvas *dc,
                                 short x, short y, short w, short h);
-extern grs_canvas *gr_alloc_canvas (int id, short w, short h);
-extern void gr_free_canvas (grs_canvas *c);
-extern grs_canvas *gr_alloc_sub_canvas (grs_canvas *c, short x, short y,
-                                        short w, short h);
-extern void gr_free_sub_canvas (grs_canvas *c);
 #define CLIP_NONE    0
 #define CLIP_LEFT    1
 #define CLIP_TOP     2
@@ -408,7 +402,6 @@ extern int gr_set_mode (int mode, int clear);
    
 #define STF_MULT     1
 extern grs_screen *gr_alloc_screen (short w, short h);
-extern void gr_free_screen (grs_screen *s);
 extern void gr_set_screen (grs_screen *s);
 typedef 
    void *grt_line_clip_fill;
@@ -607,8 +600,6 @@ extern void gr_hflip_in_place(grs_bitmap *bm);
 #define gr_mask_rsd8_bitmap \
    ((int (*)(grs_bitmap *bm,short x,short y)) \
    grd_canvas_table[MASK_RSD8_BITMAP])
-extern void gr_set_malloc (void *(*malloc_func)(int bytes));
-extern void gr_set_free (void (*free_func)(void *mem));
 extern void *(*gr_malloc)(int n);
 extern void (*gr_free)(void *p);
 extern int gr_int_line (short x0, short y0, short x1, short y1);
@@ -765,7 +756,6 @@ extern int gen_fill_pixel(long color, short x, short y);
 #define gr_flat8_per_map \
    ((void (*)(grs_bitmap *bm,int n,grs_vertex **vpl)) \
    grd_canvas_table[FLAT8_PER_MAP])
-extern grs_per_context *grd_per_context;
    
 #define gr_clut_ubitmap(bm,x,y,cl) \
    ((void (*)(grs_bitmap *_bm,short _x,short _y, uchar *_cl)) \
@@ -1294,7 +1284,6 @@ enum {
    GRT_SPAN_TABLE,
    GRD_DEVICE_FUNCS
 };
-extern uchar grd_interrupt;
 extern void gr_set_pal (int start, int n, uchar *pal_data);
 extern void gr_set_gamma_pal (int start, int n, fix gamma);
 extern void gr_get_pal (int start, int n, uchar *pal_data);
@@ -1308,11 +1297,7 @@ enum {
    GR_HIGH_PER_DETAIL,
    GR_NUM_PER_DETAIL_LEVELS
 };
-extern void gr_set_per_tol(ubyte linear_tol, ubyte wall_floor_tol);
-extern void gr_set_clut_lit_tol(fix clut_lit_tol);
 extern void gr_set_per_detail_level(int detail_level);
-extern void gr_set_per_detail_level_param
-   (int linear_tol, int wall_floor_tol, fix clut_lit_tol, int detail_level);
 #define RGB_OK (0)
 #define RGB_OUT_OF_MEMORY (-1)
 #define RGB_CANT_DEALLOCATE (-2)
@@ -1341,7 +1326,6 @@ int gr_free_ipal(void);
 #define GRD_STATE_DEF 0
 #define GRD_STATE_PAL 1
 int gr_push_video_state (int flags);
-void gr_pop_video_state (int clear);
 #endif
 
 extern void gr_font_string_size (grs_font *font, char *string, short *width, short *height);
@@ -1527,8 +1511,6 @@ extern int span_per_poly_setup(short nverts, grs_vertex **data, int func);
 extern uchar *gr_init_translucency_table(uchar *p, fix opacity, fix purity, grs_rgb color);
 extern uchar *gr_init_lit_translucency_table(uchar *p, fix opacity, fix purity, grs_rgb color, grs_rgb light);
 extern uchar *gr_init_lit_translucency_tables(uchar *p, fix opacity, fix purity, grs_rgb color, int n);
-extern int gr_dump_tluc8_table(uchar *buf, int nlit);
-extern void gr_read_tluc8_table(uchar *buf);
 #define gr_alloc_translucency_table(n) \
    ((uchar *)gr_malloc(n*256))
 #define gr_free_translucency_table(tab) (gr_free(tab))

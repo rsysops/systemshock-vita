@@ -1580,8 +1580,6 @@ int kb_shutdown(void) { return (0); }
 //---------------------------------------------------------------
 int kb_get_flags() { return (pKbdStatusFlags); }
 
-void kb_set_flags(int flags) { pKbdStatusFlags = flags; }
-
 //---------------------------------------------------------------
 //  Get the next available key from the event queue.
 //---------------------------------------------------------------
@@ -1630,15 +1628,6 @@ void kb_flush(void) {
 //  Return the state of the indicated key (scan code).
 //---------------------------------------------------------------
 
-uchar kb_state(uchar code) {
-    // see
-    // http://mirror.informatimago.com/next/developer.apple.com/documentation/Carbon/Reference/Event_Manager/event_mgr_ref/function_group_4.html#//apple_ref/c/func/GetKeys
-    // GetKeys((UInt32 *) pKbdGetKeys);
-    // return ((pKbdGetKeys[code>>3] >> (code & 7)) & 1);
-
-    return sshockKeyStates[code] != 0;
-}
-
 //---------------------------
 //
 // MOUSE STUFF
@@ -1653,8 +1642,6 @@ uchar kb_state(uchar code) {
 //  For Mac version: Get event from the normal Mac event queue for mouse events.
 //  The events looked for depend on the 'mouseMask' setting.
 
-uchar btn_left = FALSE;
-uchar btn_right = FALSE;
 errtype mouse_next(ss_mouse_event *res) {
     if (nextMouseEvent <= 0)
         return ERR_DUNDERFLOW;

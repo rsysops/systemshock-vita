@@ -107,8 +107,6 @@ errtype region_create(LGRegion *parent, LGRegion *ret, LGRect *r, int z, int eve
 // Returns whether or not the operation was successful.  Any newly exposed
 // areas will recieve expose callbacks if their masks allow.
 
-errtype region_destroy(LGRegion *reg, uchar draw);
-
 // Move a region to a new set of coordinates.  Expose and saveunder
 // callbacks are dished out for the original area and any newly covered
 // area.  As usual, these coords are relative....
@@ -117,8 +115,6 @@ errtype region_move(LGRegion *reg, int new_x, int new_y, int new_z);
 
 // Change the size of a region.  Appropriate callbacks are
 // triggered if the regions masks allow.
-
-errtype region_resize(LGRegion *reg, int new_x_size, int new_y_size);
 
 errtype region_expose(LGRegion *reg, LGRect *exp_rect);
 
@@ -130,7 +126,6 @@ errtype region_expose(LGRegion *reg, LGRect *exp_rect);
 
 int region_traverse_rect(LGRegion *reg, LGRect *target, TravRectCallback fn, int order, void *data);
 int region_traverse_point(LGRegion *reg, LGPoint target, TravRectCallback fn, int order, void *data);
-int region_traverse(LGRegion *reg, TravCallback fn, int order, void *data);
 
 // Converts a rectangle from a given region's coordinate system to the frame of a child of that
 // coordinate system.
@@ -147,7 +142,6 @@ errtype region_convert_to_root(LGRegion *reg, LGRegion **root_reg, LGRect *rect,
 // not.  The coordinates of the rectangle are local coords.  region_foreign_obscured is
 // like region_obscured but ignores children for purposes of obscuration.
 int region_obscured(LGRegion *reg, LGRect *obs_rect);
-int foreign_region_obscured(LGRegion *reg, LGRect *obs_rect);
 
 // These functions control whether or not the region library thinks the application is
 // in the middle of a sequence which will generate multiple, probably duplicate, expose events.
@@ -164,7 +158,6 @@ errtype region_end_sequence(uchar replay);
 errtype region_set_invisible(LGRegion* reg, uchar invis);
 // Sets whether or not a region is invisible
 
-errtype region_get_invisible(LGRegion* reg, uchar* invis);
 // determines whether a region is currently invisible. 
 
 #define UNOBSCURED            0

@@ -250,13 +250,6 @@ void ss_kept_bitmap(grs_bitmap *bmp, short x, short y) {
     ss_bitmap(bmp, x, y);
 }
 
-void ss_ubitmap(grs_bitmap *bmp, short x, short y) {
-    if (perform_svga_conversion(OVERRIDE_SCALE))
-        gr_scale_ubitmap(bmp, SCONV_X(x), SCONV_Y(y), SCONV_X(bmp->w), SCONV_Y(bmp->h));
-    else
-        gr_ubitmap(bmp, x, y);
-}
-
 void ss_noscale_bitmap(grs_bitmap *bmp, short x, short y) {
     uchar rv;
     if ((rv = perform_svga_conversion(OVERRIDE_SCALE))) // ?
@@ -389,15 +382,6 @@ void ss_set_pixel(long color, short x, short y) {
         gr_set_pixel(color, x, y);
 }
 
-void ss_set_thick_pixel(long color, short x, short y) {
-    if (perform_svga_conversion(OVERRIDE_SCALE)) {
-        //      gr_set_pixel(color, SCONV_X(x), SCONV_Y(y));
-        gr_set_fcolor(color);
-        gr_box(SCONV_X(x), SCONV_Y(y), SCONV_X(x + 1) - 1, SCONV_Y(y + 1) - 1);
-    } else
-        gr_set_pixel(color, x, y);
-}
-
 void ss_clut_ubitmap(grs_bitmap *bmp, short x, short y, uchar *cl) {
     if (perform_svga_conversion(OVERRIDE_SCALE))
         gr_clut_scale_ubitmap(bmp, SCONV_X(x), SCONV_Y(y), SCONV_X(bmp->w), SCONV_Y(bmp->h), cl);
@@ -435,10 +419,6 @@ void gr2ss_register_mode(char conv_mode, short nx, short ny) {
         inv_convert_y[conv_mode][m]++;
 }
 
-void ss_recompute_zoom(frc *which_frc, short oldm) {
-    fr_mod_cams(which_frc, FR_NOCAM, fix_div(convert_x[convert_type][convert_use_mode], convert_x[convert_type][oldm]));
-}
-
 void ss_point_convert(short *px, short *py, uchar down) {
     if (convert_use_mode != 0) {
         short ox, oy;
@@ -454,10 +434,6 @@ void ss_point_convert(short *px, short *py, uchar down) {
         //      Warning(("%d >> %d %d --> %d %d\n",down,ox,oy,*px,*py));
     }
 }
-
-short ss_curr_mode_width(void) { return (SCONV_X(convert_x[convert_type][0])); }
-
-short ss_curr_mode_height(void) { return (SCONV_Y(convert_y[convert_type][0])); }
 
 // Basically, if you are in the secret hack mode 5
 // then MODE_SCONV_X will act as if you are in mode M

@@ -30,7 +30,6 @@ void slam_posture_meter_state(void);
 fix velocity_crouch_filter(fix crouch);
 void lean_icon(LGPoint *pos, grs_bitmap **icon, int *inum);
 void player_reset_eye(void);
-byte player_get_eye(void);
 void player_set_eye_fixang(int ang);
 int player_get_eye_fixang(void);
 uchar eye_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t);

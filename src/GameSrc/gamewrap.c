@@ -67,8 +67,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define SCHEDULE_BASE_ID 590
 
 extern long old_ticks;
-extern char saveload_string[30];
-extern uchar display_saveload_checkpoints;
 extern ulong obj_check_time;
 extern uchar mlimbs_on;
 

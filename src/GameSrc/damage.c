@@ -81,7 +81,6 @@ int armor_absorption(int raw_damage, int obj_triple, ubyte penetrate);
 int shield_absorb_damage(int damage, ubyte dtype, byte shield_absorb, ubyte shield_threshold);
 void player_dies();
 ubyte damage_player(int damage, ubyte dtype, ubyte flags);
-void critter_hit_effect(ObjID target, ubyte effect, Combat_Pt location, int damage, int max_damage);
 
 // -------------------------------------------
 // destroy_destroyed_objects()
@@ -317,13 +316,6 @@ int armor_absorption(int raw_damage, int obj_triple, ubyte penetrate) {
     return (damage);
 }
 
-// some globals
-uchar sound_hurt_threshold = 10;
-uchar static_pain_time = 64;
-uchar static_pain_base = 30;
-uchar static_pain_delta = 30;
-uchar shield_blowout_threshold = 15;
-
 short fr_solidfr_time;
 short fr_sfx_time;
 
@@ -465,8 +457,6 @@ void regenerate_player(void) {
 
 #define MAX_FATIGUE 10000
 #define DEATH_TICKS CIT_CYCLE
-
-ulong player_death_time = 0;
 
 // Something has caused the player to become a fatality
 // typically this is damage, but can be delayed-death due to craze
@@ -915,43 +905,6 @@ int compute_damage(ObjID target, int damage_type, int damage_mod, ubyte offense,
     }
 
     return (damage);
-}
-
-// --------------------------------------------------------------
-// critter_hit_effect()
-//
-void critter_hit_effect(ObjID target, ubyte effect, Combat_Pt location, int damage, int max_damage) {
-    fix radius, height;
-    byte ht;
-    ObjLoc loc = objs[target].loc;
-
-    // temporary - to hit effect_center - will take care of later
-    SET_EFFECT_LOC(target, EFFECT_CENTER);
-
-    SET_EFFECT_NUM(target, effect);
-    SET_EFFECT_FRAME(target, 0);
-
-    radius = fix_make(ObjProps[OPNUM(target)].physics_xr, 0) / (PHYSICS_RADIUS_UNIT * 4);
-
-    height = fix_from_obj_height_val(loc.z);
-    ht = ((height - location.z) / radius) + 4;
-    if (ht < 1)
-        ht = 1;
-    else if (ht > 7)
-        ht = 7;
-
-    SET_EFFECT_HEIGHT(target, ht);
-
-    if (damage < (max_damage / 3)) {
-        SET_EFFECT_DUAL(target, 0);
-        SET_EFFECT_SCALE(target, 1);
-    } else if (damage < max_damage) {
-        SET_EFFECT_DUAL(target, 0);
-        SET_EFFECT_SCALE(target, 2);
-    } else {
-        SET_EFFECT_DUAL(target, 1);
-        SET_EFFECT_SCALE(target, 3);
-    }
 }
 
 // ---------------------------------------------------------------------------

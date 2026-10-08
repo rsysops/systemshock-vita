@@ -95,7 +95,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 int run_fatigue_rate = 5;
 extern short fr_solidfr_time;
 extern short fr_sfx_time;
-ulong fr_shake_time;
 uchar gamesys_on = TRUE;
 
 // hud vars
@@ -115,11 +114,6 @@ void do_stuff_every_second(void);
 void expose_player_real(short damage, ubyte type, ushort tsecs);
 
 void game_sched_init(void) { schedule_init(&game_seconds_schedule, GAME_SCHEDULE_SIZE, FALSE); }
-
-void game_sched_free(void) {
-    //extern errtype schedule_free(Schedule * s);
-    schedule_free(&game_seconds_schedule);
-}
 
 short fatigue_accum_rate = 100;
 
@@ -361,7 +355,6 @@ void fatigue_player(void) {
 }
 
 uchar gamesys_render_fx = TRUE;
-uchar gamesys_restore_health = TRUE;
 uchar gamesys_slow_proj = TRUE;
 uchar gamesys_beam_wpns = TRUE;
 uchar gamesys_drugs = TRUE;

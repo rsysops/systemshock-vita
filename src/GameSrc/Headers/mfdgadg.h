@@ -71,7 +71,6 @@ errtype MFDBttnArrayInit(MFDhandler *h, LGRect *r, LGPoint bdims, LGPoint bsize,
 // describes the pixel dimensions of each button.  Whenever a button is clicked on, cb will be called with the
 // coordinates of the button, the mouse event, and the value of cbdata.
 
-errtype MFDBttnArrayShutdown(MFDhandler *h);
 // shuts down a button array.
 
 errtype MFDBttnArrayResize(MFDhandler *h, LGRect *r, LGPoint bdims, LGPoint bsize);

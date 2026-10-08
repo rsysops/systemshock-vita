@@ -28,7 +28,6 @@ int mfd_bmap_id(int triple);
 uchar mfd_distance_remove(ubyte slot_func);
 void mfd_item_micro_expose(uchar full, int triple);
 
-void install_keypad_hotkeys(void);
 void mfd_setup_keypad(char special);
 
 void update_item_mfd(void);

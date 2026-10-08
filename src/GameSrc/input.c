@@ -142,16 +142,10 @@ Ref motion_cursor_ids[] = {
 LGCursor motion_cursors[NUM_MOTION_CURSORS];
 grs_bitmap motion_cursor_bitmaps[NUM_MOTION_CURSORS];
 
-static uchar posture_keys[NUM_POSTURES] = {'t', 'g', 'b'};
-
 int input_cursor_mode = INPUT_NORMAL_CURSOR;
 int throw_oomph = 5;
 
 uchar inp6d_headset = FALSE;
-uchar inp6d_stereo = FALSE;
-uchar inp6d_doom = FALSE;
-uchar inp6d_stereo_active = FALSE;
-int inp6d_stereo_div = fix_make(3, 0x4000); // 3.25 inches apart
 fix inpJoystickSens = FIX_UNIT;
 
 // checking for game paused
@@ -161,17 +155,8 @@ LGPoint use_cursor_pos;
 
 // extern uchar texture_annihilate_func(ushort keycode, uint32_t context, intptrr_t data);
 
-// 6d wackiness
-uchar inp6d_exists = FALSE;
 void inp6d_chk(void);
 
-// globals for doubling headset angular values
-uchar inp6d_hdouble = FALSE;
-uchar inp6d_pdouble = FALSE;
-uchar inp6d_bdouble = FALSE;
-
-// and joysticks, heck, why be efficient
-uchar joystick_mouse_emul = FALSE;
 uchar joystick_count = 0;
 uchar recenter_joystick(ushort keycode, uint32_t context, intptr_t data);
 
@@ -182,7 +167,6 @@ uchar change_gamma(ushort keycode, uint32_t context, intptr_t data);
 // -------------
 void handle_keyboard_fatigue(void);
 void poll_mouse(void);
-uchar eye_hotkey_func(ushort keycode, uint32_t context, intptr_t data);
 
 
 int view3d_mouse_input(LGPoint pos, LGRegion *reg, uchar move, int *lastsect);
@@ -192,9 +176,6 @@ uchar view3d_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data);
 void view3d_rightbutton_handler(uiEvent *ev, LGRegion *r, view3d_data *data);
 uchar view3d_key_handler(uiEvent *ev, LGRegion *r, intptr_t data);
 void use_object_in_3d(ObjID obj, bool shifted);
-
-uchar MacResFunc(ushort keycode, uint32_t context, intptr_t data);
-uchar MacSkiplinesFunc(ushort keycode, uint32_t context, intptr_t data);
 
 //EXTERN FUNCTIONS
 
@@ -339,38 +320,6 @@ uchar posture_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
     return player_set_posture((unsigned int)data) == OK;
 }
 
-uchar eye_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
-    byte eyectl = player_get_eye();
-    int r = 1 + (player_struct.drug_status[DRUG_REFLEX] > 0 && !global_fullmap->cyber);
-
-    if (data == 0) {
-        player_set_eye(0);
-        return TRUE;
-    }
-    for (; r > 0; r--) {
-        if (data < 0) {
-            if (eyectl > 0)
-                eyectl = 0;
-            else
-                eyectl = (eyectl - CONTROL_MAX_VAL) / 3;
-        } else {
-            if (eyectl < 0)
-                eyectl = 0;
-            else
-                eyectl = (eyectl + CONTROL_MAX_VAL) / 3;
-        }
-    }
-    player_set_eye(eyectl);
-    return TRUE;
-}
-
-
-static ushort eye_lvl_keys[] = {
-    'f',
-    'F',
-};
-
-#define NUM_EYE_LVL_KEYS (sizeof(eye_lvl_keys) / sizeof(ushort))
 // -------------------------------------
 // INITIALIZATION
 uchar toggle_profile(ushort keycode, uint32_t context, intptr_t data);
@@ -433,41 +382,6 @@ void alloc_cursor_bitmaps(void)
 //extern bool gPlayingGame;
 extern bool DoubleSize;
 extern bool SkipLines;
-bool gShowFrameCounter = false;
-bool gShowMusicGlobals = false;
-
-uchar MacQuitFunc(ushort keycode, uint32_t context, intptr_t data) {
-    return TRUE;
-}
-
-uchar MacResFunc(ushort keycode, uint32_t context, intptr_t data) {
-    DoubleSize = !DoubleSize;
-    change_svga_screen_mode();
-
-    if (DoubleSize)
-        message_info("Low res.");
-    else {
-        message_info("High res.");
-        SkipLines = FALSE;
-    }
-    gShockPrefs.doResolution = (DoubleSize) ? 1 : 0; // KLC - Yeah, got to update this one too
-    gShockPrefs.doUseQD = SkipLines;                 // KLC - and this one
-    SavePrefs();                                     // KLC - and save the prefs out to disk.
-
-    return TRUE;
-}
-
-uchar MacSkiplinesFunc(ushort keycode, uint32_t context, intptr_t data) {
-    if (!DoubleSize) // Skip lines only applies in double-size mode.
-    {
-        message_info("Skip lines works only in low-res mode.");
-        return FALSE;
-    }
-    SkipLines = !SkipLines;
-    gShockPrefs.doUseQD = SkipLines;
-    SavePrefs();
-    return TRUE;
-}
 
 uchar MacDetailFunc(ushort keycode, uint32_t context, intptr_t data) {
     char msg[32];
@@ -809,16 +723,6 @@ void init_input(void) {
 }
 */
 
-void shutdown_input(void) {
-    hotkey_shutdown();
-    kb_flush_bios();
-
-    //   kb_clear_state(0x1d, 3);
-    //   kb_clear_state(0x9d, 3);
-    //   kb_clear_state(0x38, 3);
-    //   kb_clear_state(0xb8, 3);
-}
-
     // ------------------------
     // 3D VIEW/MOTION INTERFACE
     // ------------------------
@@ -857,7 +761,6 @@ LGCursor object_cursor;
 // ------------------------------------------------------------------------------
 // view3d_rightbutton_handler deals with firing/throwing objects in 3d.
 
-uchar mouse_jump_ui = TRUE;
 uchar fire_slam = FALSE;
 uchar left_down_jump = FALSE;
 

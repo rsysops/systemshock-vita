@@ -78,7 +78,6 @@ int ss_edms_bcd_param;
 
 // globals...
 fix (*tf_vert_2d)[2]; // 2d vertices of the face, when reset
-char tf_norm_hnts[4]; // normal hints for strange param stuff
 fix *tf_pt;           // 3 elements: first 2 in plane, 3 is distance from plane
 fix tf_loc_pt[3];     // localized relative to current map tile
 fix tf_raw_pt[3];     // raw world location of object

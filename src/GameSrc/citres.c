@@ -165,23 +165,6 @@ errtype load_res_bitmap_cursor(LGCursor *c, grs_bitmap *bmp, Ref rid, uchar allo
     return retval;
 }
 
-errtype simple_load_res_bitmap_cursor(LGCursor *c, grs_bitmap *bmp, Ref rid) {
-    return load_res_bitmap_cursor(c, bmp, rid, TRUE);
-}
-
-errtype load_hires_bitmap_cursor(LGCursor *c, grs_bitmap *bmp, Ref rid, uchar alloc) {
-    errtype retval = OK;
-    LGRect anchor;
-
-    retval = master_load_bitmap_from_res(bmp, REFID(rid), REFINDEX(rid),
-                                         &anchor, (alloc) ? NULL : bmp->bits);
-    if (retval == OK) {
-        retval = uiMakeBitmapCursor(c, bmp, anchor.ul);
-    }
-
-    return retval;
-}
-
 /*
 void *CitMalloc(int n)
 {

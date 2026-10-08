@@ -161,16 +161,6 @@ ObjID do_special_effect_location(ObjID owner, ubyte effect, ubyte start, ObjLoc 
     return (new_id);
 }
 
-// --------------------------------------------------------------
-// do_special_effect()
-//
-
-ObjID do_special_effect(ObjID owner, ubyte effect, ubyte start, ObjID target_id, short location) {
-    ObjLoc loc = objs[target_id].loc;
-
-    return (do_special_effect_location(owner, effect, start, &loc, location));
-}
-
 void critter_light_world(ObjID id) {
     int j;
     ubyte light_bits = 0;
@@ -734,12 +724,6 @@ errtype remove_obj_from_animlist(ObjID id) {
         }
     }
     return (ERR_NOEFFECT);
-}
-
-errtype animlist_clear() {
-    LG_memset(animlist, 0, sizeof(AnimListing) * MAX_ANIMLIST_SIZE);
-    anim_counter = 0;
-    return (OK);
 }
 
 void init_animlist(void) {

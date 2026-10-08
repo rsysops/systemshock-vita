@@ -88,7 +88,6 @@ char curr_clut_table = 0;
 #define height_step fix_make(0, 0x010000 >> SLOPE_SHIFT)
 
 // prototypes
-int munge_val(int val, int range, int delta);
 void _fr_draw_parm_cube(grs_bitmap *side_bm, grs_bitmap *oth_bm, int x, int y, int z);
 void _fr_draw_poly_cube(int p_color, int x, int y, int z);
 void _fr_draw_polyobj(void *model_ptr, uchar use_lighting);
@@ -96,19 +95,8 @@ void gen_seed_vec(g3s_vector *gpt_vec, int seed, int scale, int deviant);
 void do_xplodamatron(int frame, int severity, int seed, int col1, int col2);
 void gen_tetra(g3s_phandle *xplo_pts, fix size, int deviant, int color);
 void draw_ice(void);
-void draw_ice_wall(void);
 void _fr_draw_tmtile(grs_bitmap *draw_bm, int col_val, g3s_phandle *plst, uchar dblface, uchar use_lighting);
 void _fr_draw_bitmap(grs_bitmap *draw_bm, int dist, int sc, int anch_x, int anch_y);
-
-int munge_val(int val, int range, int delta) {
-    int base = range - delta;
-    if (val <= delta)
-        base = 0;
-    else if (val >= range - delta)
-        base = range - 2 * delta;
-    val = (val + base + (rand() % (2 * delta + 1))) & 0xff;
-    return val;
-}
 
 #define PARM_MAX (0x0f8)
 #define PARM_MOD (PARM_MAX << 1)
@@ -404,8 +392,6 @@ void draw_ice(void) {
 }
 //#pragma enable_message(202)
 
-//#pragma disable_message(202)
-void draw_ice_wall(void) { int size_x = 0x8000, size_y = 0x8000; }
 //#pragma enable_message(202)
 
 void _fr_draw_tmtile(grs_bitmap *draw_bm, int col_val, g3s_phandle *plst, uchar dblface, uchar use_lighting) {

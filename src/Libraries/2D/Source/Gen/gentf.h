@@ -30,7 +30,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "tmapint.h"
 
 /* bitmap blitters */
-extern void gen_flat8_ubitmap (grs_bitmap *bm, short x, short y);
 extern int gen_flat8_bitmap (grs_bitmap *bm, short x, short y);
 
 /* init functions */

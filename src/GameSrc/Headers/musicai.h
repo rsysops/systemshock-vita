@@ -117,12 +117,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // Initialize the AI portion of the MLIMBS system.
 errtype mlimbs_AI_init(void);
-void music_ai(void);
 errtype musicai_shutdown();
 errtype musicai_reset(uchar runai);
-int gen_monster(int monster_num);
 void musicai_clear();
-errtype mai_monster_nearby(int monster_type);
 errtype mai_attack();
 errtype mai_intro();
 errtype mai_monster_defeated();
@@ -147,7 +144,6 @@ errtype play_sound_effect(char *filename);
 uchar digi_fx_playing(int fx_id, int *handle_ptr);
 errtype output_text(char *);
 extern void mlimbs_do_ai(void);
-extern void digifx_EOS_callback(snd_digi_parms *sdp);
 
 extern uchar digi_pan_reverse;
 
@@ -160,7 +156,6 @@ extern int current_score, current_zone, current_mode, random_flag;
 extern int current_transition, last_score;
 extern int boring_count;
 extern int mlimbs_boredom;
-extern int *output_table;
 extern uchar wait_flag;
 extern int next_mode, ai_cycle;
 extern uchar music_card, music_on;

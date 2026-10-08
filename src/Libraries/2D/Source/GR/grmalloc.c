@@ -38,15 +38,3 @@ typedef void (*free_type)(void *);
 
 void *(*gr_malloc)(int n) = (ptr_type) malloc;
 void (*gr_free)(void *m) = (free_type)free;
-
-/* set 2d's internal function pointer to a malloc routine. */
-void gr_set_malloc (void *(*malloc_func)(int bytes))
-{
-   gr_malloc = malloc_func;
-}
-
-/* set 2d's internal function pointer to a free routine. */
-void gr_set_free (void (*free_func)(void *mem))
-{
-   gr_free = free_func;
-}

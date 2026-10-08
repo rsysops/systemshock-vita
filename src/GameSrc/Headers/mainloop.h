@@ -63,7 +63,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 void mainloop(int argc, char *argv[]);
 void loopmode_switch(short *cmode);
 errtype static_change_copy();
-void loopmode_exit(short loopmode);
 void loopmode_enter(short loopmode);
 
 extern short _current_loop; // which loop we currently are
@@ -73,13 +72,9 @@ extern uint _change_flag;   // change flags for loop
 extern uint _static_change; // current static changes
 extern short _new_mode;     // mode to change to, if any
 extern short _last_mode;    // last mode we were in, to switch back to
-extern uchar player_invulnerable;
-extern uchar player_immortal;
 extern uchar physics_running;
-extern uchar ai_on;
 extern uchar anim_on;
 extern uchar always_render;
-extern uchar saves_allowed;
 extern uchar time_passes;
 extern uchar pal_fx_on;
 extern LGRegion *_current_view;

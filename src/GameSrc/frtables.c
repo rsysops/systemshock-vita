@@ -105,11 +105,6 @@ ushort pt_uv[FRPTSUNIQUE][4][2] = {
 fix pt_offs[FRPTSOFFS] = {fix_make(0, 0),         fix_make(0, 0x2000), fix_make(0, FROCTNUM), fix_make(0, 0x8000),
                           fix_make(0, -FROCTNUM), fix_make(0, 0xE000), fix_make(1, 0),        0xffffffff};
 
-uchar pt_from_faceoff[4][FRPTSOFFS] = {{0x4, 0xD, 0x16, 0xE, 0x17, 0xF, 0x8, 0x4},
-                                       {0x8, 0x7, 0x13, 0x6, 0x12, 0x5, 0xC, 0x8},
-                                       {0xC, 0xB, 0x15, 0xA, 0x14, 0x9, 0x0, 0xC},
-                                       {0x0, 0x1, 0x10, 0x2, 0x11, 0x3, 0x4, 0x0}};
-
 // #define fxptoff(n) fix_make(0,0x2000*n)
 // {fxptoff(0),fxptoff(1),fxptoff(2),fxptoff(3),fxptoff(4),fxptoff(5),fxptoff(6),fxptoff(7)};
 // {fix_make(0,0),fix_make(0,0x2000),fix_make(0,0x8000),fix_make(0,0xe000)};
@@ -297,45 +292,6 @@ TilesToFloors tile_floors[FRTILEFLOORCNT] = {
 #define mk_mnorm(m, xn, yn, zn) (m | (xn << 8) | (yn << 4) | zn)
 #define mk_hnorm(h, xn, yn, zn) (h | (xn << 8) | (yn << 4) | zn)
 #define mk_norm(xn, yn, zn) ((xn << 8) | (yn << 4) | zn)
-
-fix fr_norm_elements[9] = {-fix_make(1, 0),     -fix_make(0, 58616), -fix_make(0, 46340),
-                           -fix_make(0, 29308), fix_make(1, 0),      fix_make(0, 58616),
-                           fix_make(0, 46340),  fix_make(0, 29308),  fix_make(0, 0)};
-
-ushort fr_wnorm_list[FRWALLPTSCNT] = {
-    // main diagonals
-    mk_hnorm(hXY, pfdg, pfdg, npnp), mk_hnorm(hXY, pfdg, nfdg, npnp), mk_hnorm(hXY, nfdg, pfdg, npnp),
-    mk_hnorm(hXY, nfdg, nfdg, npnp),
-    // slope 1/2 quarter diagonals
-    mk_hnorm(hXY, nfhx, pfhy, npnp), mk_hnorm(hXY, pfhx, nfhy, npnp), mk_hnorm(hXY, nfhx, pfhy, npnp),
-    mk_hnorm(hXY, pfhx, nfhy, npnp), mk_hnorm(hXY, pfhx, pfhy, npnp), mk_hnorm(hXY, nfhx, nfhy, npnp),
-    mk_hnorm(hXY, pfhx, pfhy, npnp), mk_hnorm(hXY, nfhx, nfhy, npnp),
-    // slope 2 quarter diagonals
-    mk_hnorm(hXY, nfhy, pfhx, npnp), mk_hnorm(hXY, pfhy, nfhx, npnp), mk_hnorm(hXY, nfhy, pfhx, npnp),
-    mk_hnorm(hXY, pfhy, nfhx, npnp), mk_hnorm(hXY, pfhy, pfhx, npnp), mk_hnorm(hXY, nfhy, nfhx, npnp),
-    mk_hnorm(hXY, pfhy, pfhx, npnp), mk_hnorm(hXY, nfhy, nfhx, npnp),
-    // halve tiles
-    mk_hnorm(hY, npnp, pff1, npnp), mk_hnorm(hY, npnp, nff1, npnp), mk_hnorm(hX, nff1, npnp, npnp),
-    mk_hnorm(hX, pff1, npnp, npnp),
-    // one foot walls
-    mk_hnorm(hY, npnp, pff1, npnp), mk_hnorm(hY, npnp, nff1, npnp), mk_hnorm(hX, nff1, npnp, npnp),
-    mk_hnorm(hX, pff1, npnp, npnp),
-    // triangle
-    mk_hnorm(hXZ, pfhy, npnp, pfhx), mk_hnorm(hXZ, nfhy, npnp, pfhx), mk_hnorm(hYZ, npnp, pfhy, pfhx),
-    mk_hnorm(hYZ, npnp, nfhy, pfhx),
-    // oct NS
-    mk_hnorm(hXZ, pfdg, npnp, pfdg), mk_hnorm(hX, pff1, npnp, npnp), mk_hnorm(hXZ, pfdg, npnp, nfdg),
-    mk_hnorm(hXZ, nfdg, npnp, pfdg), mk_hnorm(hX, nff1, npnp, npnp), mk_hnorm(hXZ, nfdg, npnp, nfdg),
-    mk_hnorm(hYZ, npnp, pfdg, pfdg), mk_hnorm(hY, npnp, pff1, npnp), mk_hnorm(hYZ, npnp, pfdg, nfdg),
-    mk_hnorm(hYZ, npnp, nfdg, pfdg), mk_hnorm(hY, npnp, nff1, npnp), mk_hnorm(hYZ, npnp, nfdg, nfdg),
-    // parm diagonals, (each is 2 walls)
-    mk_hnorm(hXY, pfdg, pfdg, npnp), mk_hnorm(hXY, pfdg, nfdg, npnp), mk_hnorm(hXY, nfdg, pfdg, npnp),
-    mk_hnorm(hXY, nfdg, nfdg, npnp), mk_hnorm(hXY, pfdg, pfdg, npnp), mk_hnorm(hXY, pfdg, nfdg, npnp),
-    mk_hnorm(hXY, nfdg, pfdg, npnp), mk_hnorm(hXY, nfdg, nfdg, npnp),
-    // normal edges (n,s,e,w)
-    mk_hnorm(hY, npnp, nff1, npnp), mk_hnorm(hX, nff1, npnp, npnp), mk_hnorm(hY, npnp, pff1, npnp),
-    mk_hnorm(hX, pff1, npnp, npnp)
-};
 
 // direction the vector heads, ie the low side
 #define slpN  FRFNORM_SLPN

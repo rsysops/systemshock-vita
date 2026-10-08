@@ -370,11 +370,9 @@ ubyte weapons_add_func(inv_display *dp, int row, ObjID *objP, uchar select);
 void weapon_drop_func(inv_display *dp, int itemnum);
 ubyte generic_add_func(inv_display *dp, int row, ObjID *idP, uchar select);
 void generic_drop_func(inv_display *dp, int row);
-char *null_name_func(inv_display *dp, int n, char *buf);
 static char *grenade_name_func(void *vdp, int n, char *buf);
 uchar grenade_use_func(inv_display *dp, int row);
 ubyte grenade_add_func(inv_display *dp, int row, ObjID *idP, uchar select);
-char *drug_name_func(inv_display *dp, int n, char *buf);
 uchar drug_use_func(inv_display *dp, int row);
 char *ammo_name_func(void *, int n, char *buf);
 void hardware_add_specials(int n, int ver);
@@ -391,7 +389,6 @@ uchar inv_select_general(inv_display *dp, int w);
 void email_more_draw(inv_display *dp);
 uchar email_more_use(inv_display *dp, int);
 uchar email_use_func(inv_display *dp, int row);
-void email_select_func(inv_display *dp, int row);
 ubyte email_add_func(inv_display *, int, ObjID *idP, uchar select);
 void email_drop_func(inv_display *, int);
 char *log_name_func(void *, int num, char *buf);
@@ -404,8 +401,6 @@ uchar inventory_handle_leftbutton(uiEvent *ev, inv_display *dp, int row);
 uchar inventory_handle_rightbutton(uiEvent *ev, LGRegion *reg, inv_display *dp, int row);
 uchar inventory_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t);
 uchar pagebutton_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t);
-uchar invent_hotkey_func(ushort, uint32_t, intptr_t data);
-void init_invent_hotkeys(void);
 void gen_log_displays(int pgnum);
 void absorb_object_on_cursor(ushort keycode, uint32_t context, intptr_t data);
 uchar gen_inv_page(int pgnum, int *i, inv_display **dp);
@@ -925,13 +920,6 @@ static char *generic_quant_func(inv_display *dp, int n, int q, char *buf) {
     return buf;
 }
 
-char *null_name_func(inv_display *dp, int n, char *buf) {
-    char *goof;
-    goof = (char*)dp + n;
-    *buf = '\0';
-    return buf;
-}
-
     // -------------
     // GRENADE FUNCS
     // -------------
@@ -1056,12 +1044,6 @@ ubyte grenade_add_func(inv_display *dp, int row, ObjID *idP, uchar select) {
 // ----------
 #define DRUG_CLASSES (1 << CLASS_DRUG)
 #define DRUG_TRIP MAKETRIP(CLASS_DRUG, 0, 0)
-
-char *drug_name_func(inv_display *dp, int n, char *buf) {
-    inv_display *dummy;
-    dummy = dp;
-    return get_drug_name(n, buf);
-}
 
 uchar drug_use_func(inv_display *dp, int row) {
     uchar retval = FALSE;
@@ -1595,14 +1577,6 @@ uchar email_use_func(inv_display *dp, int row) {
     return retval;
 }
 
-void email_select_func(inv_display *dp, int row) {
-    int n = dp->lines[row].num;
-    if (n < dp->listlen) {
-        play_digi_fx(SFX_INVENT_SELECT, 1);
-        select_email(n, TRUE);
-    }
-}
-
 void add_email_datamunge(short mung, uchar select) {
     int n;
     uchar flash_email = TRUE;
@@ -1825,14 +1799,6 @@ errtype inventory_clear(void) {
     if (inventory_page == inv_last_page)
         inv_last_page = INV_BLANK_PAGE;
     return (OK);
-}
-
-errtype inventory_full_redraw() {
-    int i;
-    inv_last_page = -1;
-    for (i = 0; i < NUM_PAGE_BUTTONS; i++)
-        old_button_state[i] = BttnDummy;
-    return (inventory_draw());
 }
 
 errtype inventory_draw(void) {
@@ -2145,38 +2111,6 @@ uchar pagebutton_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
 #define MAX_HOTKEY_PAGES 6
 #define EMPTY_PAGE(i) (page_button_state[i] == BttnDummy)
 
-uchar invent_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
-    if (inventory_page < 0)
-        inventory_page = MAX_HOTKEY_PAGES;
-    if (inventory_page >= MAX_HOTKEY_PAGES)
-        inventory_page = -1;
-    if (data == 0) {
-        inventory_page--;
-        if (inventory_page < 0)
-            inventory_page = MAX_HOTKEY_PAGES - 1;
-        while (EMPTY_PAGE(inventory_page))
-            inventory_page--;
-    } else {
-        inventory_page++;
-        if (inventory_page >= MAX_HOTKEY_PAGES)
-            inventory_page = 0;
-        while (EMPTY_PAGE(inventory_page))
-            inventory_page++;
-    }
-    play_digi_fx(SFX_INVENT_BUTTON, 1);
-    if (!(full_visible & FULL_INVENT_MASK)) {
-        gr_push_canvas(pinv_canvas);
-        gr_clear(0);
-        gr_pop_canvas();
-        if (convert_use_mode == 5)
-            full_visible = FULL_INVENT_MASK;
-        else
-            full_visible |= FULL_INVENT_MASK;
-    }
-    INVENT_CHANGED;
-    return TRUE;
-}
-
 uchar cycle_weapons_func(ushort keycode, uint32_t context, intptr_t data) {
     if (global_fullmap->cyber) {
         int ac = player_struct.actives[ACTIVE_COMBAT_SOFT];
@@ -2209,19 +2143,6 @@ uchar cycle_weapons_func(ushort keycode, uint32_t context, intptr_t data) {
 
 #define PAGEUP_KEY KEY_PAD_PGUP | KB_FLAG_DOWN
 #define PAGEDN_KEY KEY_PAD_PGDN | KB_FLAG_DOWN
-
-void init_invent_hotkeys(void) {
-    /*  later
-    //   hotkey_add(PAGEUP_KEY,DEMO_CONTEXT,invent_hotkey_func,0);
-       hotkey_add(PAGEUP_KEY|KB_FLAG_2ND,DEMO_CONTEXT,invent_hotkey_func,0);
-       hotkey_add(KB_FLAG_DOWN|KB_FLAG_ALT|'[',DEMO_CONTEXT,invent_hotkey_func,0);
-    //   hotkey_add(PAGEDN_KEY,DEMO_CONTEXT,invent_hotkey_func,1);
-       hotkey_add(PAGEDN_KEY|KB_FLAG_2ND,DEMO_CONTEXT,invent_hotkey_func,1);
-       hotkey_add(KB_FLAG_DOWN|KB_FLAG_ALT|']',DEMO_CONTEXT,invent_hotkey_func,1);
-    */
-    hotkey_add(KEY_TAB | KB_FLAG_DOWN, DEMO_CONTEXT, cycle_weapons_func, 1);
-    hotkey_add(KEY_TAB | KB_FLAG_DOWN | KB_FLAG_SHIFT, DEMO_CONTEXT, cycle_weapons_func, -1);
-}
 
 void invent_language_change(void) {
     load_string_array(REF_STR_InvCursor, cursor_strings, cursor_string_buf, sizeof(cursor_string_buf),

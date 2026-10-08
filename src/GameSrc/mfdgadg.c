@@ -109,12 +109,6 @@ errtype MFDBttnArrayInit(MFDhandler *h, LGRect *r, LGPoint bdims, LGPoint bsize,
     return OK;
 }
 
-errtype MFDBttnArrayShutdown(MFDhandler *h) {
-    free(h->data);
-    h->proc = NULL;
-    return OK;
-}
-
 errtype MFDBttnArrayResize(MFDhandler *h, LGRect *r, LGPoint bdims, LGPoint bsize) {
     MFDBttnArray *ba = (MFDBttnArray *)h->data;
     if (bsize.x < 1 || bsize.y < 1)

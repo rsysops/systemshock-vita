@@ -23,7 +23,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frtypes.h"
 
 void olh_init_single_scan(fauxrend_context **outxt, fauxrend_context *intxt);
-void olh_free_scan(void);
 void olh_svga_deal(void);
 ushort olh_scan_objs(void);
 

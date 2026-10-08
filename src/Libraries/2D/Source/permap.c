@@ -44,8 +44,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 extern int gri_per_umap_setup(int n, grs_vertex **vpl, grs_per_setup *ps);
 
-uchar grd_enable_quad_blend=FALSE;
-
 int per_map (grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
 {
    grs_vertex **cpl;          /* clipped vertices */

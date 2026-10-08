@@ -122,12 +122,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //void DrawSplashScreen(short id, Boolean fadeIn);
 void PreloadGameResources(void);
 errtype init_gamesys();
-errtype free_gamesys(void);
 errtype init_load_resources();
 errtype init_3d_objects();
-errtype obj_3d_shutdown();
 void init_popups();
-uchar pause_for_input(ulong wait_time);
 
 errtype init_pal_fx();
 void byebyemessage(void);
@@ -163,7 +160,6 @@ extern void end_setup_sound(void);
 extern void init_watchpoints(void);
 */
 
-uchar real_archive_fn[64];
 /*
 #define SPLASH_RES_FILE "splash.rsrc"
 #ifndef EDITOR
@@ -174,19 +170,6 @@ uchar real_archive_fn[64];
 */
 MemStack temp_memstack;
 #define TEMP_STACK_SIZE (16 * 1024)
-
-uchar pause_for_input(ulong wait_time) {
-    bool gotInput = false;
-
-    uint32_t wait_until = TickCount() + wait_time;
-    while (!gotInput && (TickCount() < wait_until)) {
-        pump_events();
-        SDLDraw();
-    }
-
-    // return if we got input
-    return (gotInput);
-}
 
 extern char which_lang;
 int mfdart_res_file;
@@ -524,15 +507,6 @@ void PreloadGameResources(void) {
     ResLock(RES_games);
 }
 
-void object_data_flush(void) {
-    if (!objdata_loaded)
-        return;
-
-    free_dynamic_memory(DYNMEM_ALL);
-    objdata_loaded = FALSE;
-    obj_shutdown();
-}
-
 errtype object_data_load(void) {
     LGRect bounds;
     extern cams objmode_cam;
@@ -697,12 +671,6 @@ errtype init_gamesys() {
     return (OK);
 }
 
-errtype free_gamesys(void) {
-    game_sched_free();
-
-    return (OK);
-}
-
     // Okay, this should all move to somewhere more real, but I really
     // can't put it in the right place until the new 3d regime comes into
     // being
@@ -711,11 +679,6 @@ errtype free_gamesys(void) {
 
 errtype init_3d_objects() {
     vx_init(16);
-    return (OK);
-}
-
-errtype obj_3d_shutdown() {
-    vx_close();
     return (OK);
 }
 

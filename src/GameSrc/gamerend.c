@@ -72,7 +72,6 @@ extern uchar tmap_big_buffer[];
 // prototypes
 void do_secret_fx(void);
 void gamesys_render_effects(void);
-uchar use_ir_hack(void);
 void draw_single_static_line(uchar *line_base, int lx, int rx, int c_base);
 void draw_line_static(grs_bitmap *stat_dest, int dens1, int color1);
 
@@ -454,8 +453,6 @@ void gamesys_render_effects(void) {
     } else
         fullscreen_overlay();
 }
-
-uchar use_ir_hack(void) { return (WareActive(player_struct.hardwarez_status[HARDWARE_GOGGLE_INFRARED])); }
 
 //#pragma aux c_ror_by_5 = "ror eax,5" parm [eax] modify exact [eax];
 

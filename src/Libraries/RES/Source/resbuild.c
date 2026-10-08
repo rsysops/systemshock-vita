@@ -201,44 +201,6 @@ int32_t ResWrite(Id id) {
 
 //  -------------------------------------------------------------
 //
-//  ResKill() not only deletes a resource from memory, it removes it
-//  from the file too.
-//  -------------------------------------------------------------
-//  For Mac version:  Use Resource Manager to remove resource from file.  Have
-//  to do
-//  our own thing (instead of calling ResDelete()) because RmveResource turns
-//  the resource handle into a normal handle.
-
-void ResKill(Id id) {
-    ResDesc *prd = RESDESC(id);
-
-    if (prd->ptr) {
-        if (prd->lock == 0)
-            ResRemoveFromLRU(prd);
-    }
-    memset(prd, 0, sizeof(ResDesc));
-
-    // Check for valid id
-    if (!ResCheckId(id))
-        return;
-    TRACE("%s: killing $%x\n", __FUNCTION__, id);
-
-    // Delete it
-    ResDelete(id);
-
-    // Make sure file is writeable
-    prd = RESDESC(id);
-    if (resFile[prd->filenum].pedit == NULL) {
-        WARN("%s: file %d not open for writing", __FUNCTION__, prd->filenum);
-        return;
-    }
-
-    // If so, erase it
-    ResEraseIfInFile(id);
-}
-
-//  -------------------------------------------------------------
-//
 //  ResPack() removes holes from a resource file.
 //
 //    filenum = resource filenum (must already be open for

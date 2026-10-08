@@ -121,44 +121,6 @@ char *hotkey_help_text(short keycode, ulong contexts, hotkey_callback func)
 #endif
 */
 
-errtype hotkey_remove(short keycode, ulong contexts, hotkey_callback func)
-{
-   hotkey_entry *ch;
-   errtype err;
-   int i;
-   hotkey_link *chain;
-   err = hash_lookup(&hotkey_table,(hotkey_entry*)&keycode,(void **)&ch);
-   if (err != OK) return err;
-   if (ch == NULL) return ERR_NOEFFECT;
-   chain = (hotkey_link*)ch->keychain.vec;
-   for (i = ch->first; chain[i].func == func;)
-   {
-      chain[i].context &= ~contexts;
-      if (chain[i].context == 0)
-      {
-         ch->first = chain[i].next;
-//         free(chain[i].help_text);
-         array_dropelem(&ch->keychain,i);
-         i = ch->first;
-      }
-   }
-   for(i = ch->first; chain[i].next != CHAIN_END; i = chain[i].next)
-   {
-      int n = chain[i].next;
-      if (chain[n].func == func)
-      {
-         chain[n].context &= ~contexts;
-         if (chain[n].context == 0)
-         {
-            chain[i].next = chain[n].next;
-//            free(chain[i].help_text);
-            array_dropelem(&ch->keychain,n);
-         }
-      }
-   }
-   return OK;
-}
-
 
 errtype hotkey_dispatch(short keycode)
 {
@@ -182,36 +144,6 @@ errtype hotkey_dispatch(short keycode)
    }
    return ERR_NOEFFECT;
 }
-
-static uchar shutdown_iter_func(void* elem, void* data)
-{
-   void *dummy = data;
-   hotkey_entry* ch = (hotkey_entry*)elem;
-/* KLC
-#ifdef HOTKEY_HELP
-   int i;
-   hotkey_link *chain = (hotkey_link*)(ch->keychain.vec);
-   
-   if (ch == NULL) return FALSE;
-   for (i = ch->first; i != CHAIN_END; i = chain[i].next)
-   {
-      free(chain[i].help_text);
-   }
-#endif // HOTKEY_HELP
-*/
-   data = dummy;
-   array_destroy(&ch->keychain);
-   return FALSE;
-}
-
-errtype hotkey_shutdown(void)
-{
-   hash_iter(&hotkey_table,shutdown_iter_func,NULL);
-   hash_destroy(&hotkey_table);
-   return OK;
-}
-
-int list_index = 0;
 
    
 

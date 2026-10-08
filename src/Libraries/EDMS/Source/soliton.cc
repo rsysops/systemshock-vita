@@ -101,8 +101,6 @@ void soliton(Q /*timestep*/) {}
 // Soliton_Lite (tm)...
 // ====================
 
-int32_t active_objects = 0;
-
 // Are non-sleeping objects in the middle of doing their integrating thing,
 // and thus using A[][][] instead of S[][][]?
 bool A_is_active = false;

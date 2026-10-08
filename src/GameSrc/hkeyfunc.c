@@ -51,8 +51,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //--------------
 int select_object_by_class(int obclass, int num, ubyte *quantlist);
 
-int current_palette_mode = TERRAIN_MODE;
-
 uchar really_quit_key_func(ushort keycode, uint32_t context, intptr_t data) {
     // Avoid ever hitting process exit (atexit/SDL_Quit/GXM teardown) on Vita, where
     // it's a reproducible Vita3K crash real hardware doesn't have - go back to the
@@ -63,12 +61,6 @@ uchar really_quit_key_func(ushort keycode, uint32_t context, intptr_t data) {
     extern errtype wrapper_panel_close(uchar clear_message);
     wrapper_panel_close(TRUE);
     return change_mode_func(keycode, context, SETUP_LOOP);
-}
-
-uchar toggle_bool_func(ushort keycode, uint32_t context, intptr_t data) {
-    bool *tgl = (bool *)data;
-    *tgl = !*tgl;
-    return TRUE;
 }
 
 extern bool DoubleSize;
@@ -215,17 +207,8 @@ uchar clear_fullscreen_func(ushort keycode, uint32_t context, intptr_t data) {
     return (FALSE);
 }
 
-char conv_hex(char val);
 uchar location_spew_func(ushort, uint32_t, intptr_t);
 
-char conv_hex(char val) {
-    char retval = '?';
-    if ((val >= 0) && (val <= 9))
-        retval = '0' + val;
-    else if ((val >= 10) && (val <= 15))
-        retval = 'a' + (val - 10);
-    return (retval);
-}
 /*KLC   moved to TOOLS.C
 int str_to_hex(char val)
 {

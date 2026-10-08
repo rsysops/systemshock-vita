@@ -96,20 +96,14 @@ extern volatile struct mlimbs_request_info current_request[MLIMBS_MAX_SEQUENCES 
 
 extern char mlimbs_status; // could make this one bitfield of status, on/off, enable/not, so on
 extern uchar mlimbs_on;
-extern volatile long mlimbs_error;
 extern volatile uint default_rel_vol;
 extern volatile uint default_ramp_time;
-extern volatile uchar num_XMIDI_sequences;
 extern volatile ulong mlimbs_counter;
-extern volatile void (*mlimbs_AI)();
-extern volatile int mlimbs_master_slot;
 
 /* Function prototypes */
-int mlimbs_init(void);
 //¥¥¥void cdecl  mlimbs_callback(snd_midi_parms *mprm, int trigger_value);
 //¥¥¥void cdecl  mlimbs_seq_done_call(snd_midi_parms *mprm);
 
-void mlimbs_shutdown(void);
 int mlimbs_load_theme(char *, char *, int);
 void mlimbs_stop_theme(void);
 int mlimbs_start_theme(void);

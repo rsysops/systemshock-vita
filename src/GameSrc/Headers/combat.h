@@ -61,8 +61,6 @@ typedef struct {
 ObjID ray_cast_attack(ObjID src, ObjLoc dest, fix bullet_mass, fix bullet_size, fix bullet_speed, fix bullet_range);
 
 // does a ray cast between point src to point dest
-ObjID ray_cast_points(ObjID exclusion, Combat_Pt src, Combat_Pt dest, fix bullet_mass, fix bullet_size,
-                      fix bullet_speed, fix bullet_range);
 
 // does a ray cast from point src in the direction of vector
 // returns hit location at src

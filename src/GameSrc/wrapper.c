@@ -102,10 +102,7 @@ uchar clear_panel = TRUE, wrapper_panel_on = FALSE;
 grs_font *opt_font;
 uchar olh_temp;
 static bool digi_gain = true; // enable sfx volume slider
-errtype (*wrapper_cb)(int num_clicked);
-errtype (*slot_callback)(int num_clicked);
 static uchar cursor_loaded = FALSE;
-int inp6d_curr_fov = 60;
 
 errtype music_slots();
 errtype wrapper_do_save();
@@ -178,7 +175,6 @@ void draw_button(uchar butid);
 
 #define OPTIONS_FONT RES_tinyTechFont
 
-errtype (*verify_callback)(int num_clicked) = NULL;
 char savegame_verify;
 char comments[NUM_SAVE_SLOTS + 1][SAVE_COMMENT_LEN];
 uchar pause_game_func(ushort keycode, uint32_t context, intptr_t data);
@@ -2124,7 +2120,6 @@ void olh_dealfunc(uchar olh) {
 #pragma enable_message(202)
 
 ushort wrap_joy_type = 0;
-ushort high_joy_flags;
 void joystick_type_func(ushort new_joy_type) {
     extern uchar joystick_count;
     // joystick_count = joy_init(high_joy_flags | new_joy_type);

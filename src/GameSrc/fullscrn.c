@@ -66,13 +66,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 uchar fullscrn_vitals = TRUE;
 uchar fullscrn_icons = TRUE;
 
-extern uchar inp6d_stereo_active;
-extern uchar inp6d_stereo;
-
 grs_screen *svga_screen = NULL;
 frc *svga_render_context = NULL;
 short svga_mode_data[] = {GRM_320x200x8, GRM_320x400x8, GRM_640x400x8, GRM_640x480x8, GRM_1024x768x8, GRM_320x200x8};
-char mickey_stupid[][2] = {{16, 8}, {16, 4}, {3, 1}, {2, 1}, {3, 1}, {16, 8}};
 short mode_id = 3; // KLC - start off in 640x480 in Mac version      old -  short mode_id=0;
 
 uiSlab fullscreen_slab;

@@ -1259,14 +1259,6 @@ uchar elevator_use(short dest_level, ubyte which_panel) {
     return (TRUE);
 }
 
-errtype obj_door_lock(ObjID door_id, uchar new_lock) {
-    if (new_lock)
-        QUESTBIT_ON(objDoors[objs[door_id].specID].locked);
-    else
-        QUESTBIT_OFF(objDoors[objs[door_id].specID].locked);
-    return (OK);
-}
-
 uchar in_anim_callback = FALSE;
 
 void unmulti_anim_callback(ObjID id, intptr_t user_data) {

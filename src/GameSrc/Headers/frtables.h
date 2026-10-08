@@ -97,7 +97,6 @@ typedef struct {
 extern fix pt_offs[FRPTSOFFS];
 extern pt_mods pt_deref[FRPTSUNIQUE];
 extern ushort pt_uv[FRPTSUNIQUE][4][2];
-extern uchar pt_from_faceoff[4][FRPTSOFFS];
 
 //======== WallstoPts
 
@@ -204,9 +203,7 @@ extern TilesToFloors tile_floors[FRTILEFLOORCNT];
 #define FRFNORM_VZ_MIR 6
 #define FRFNORM_VF_MIR 7
 
-extern ushort fr_wnorm_list[FRWALLPTSCNT];
 extern uchar fr_fnorm_list[FRTILEFLOORCNT];
-extern fix fr_norm_elements[FRWNORM_MAX + 1];
 
 //======== Obstruct
 

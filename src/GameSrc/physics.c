@@ -99,7 +99,6 @@ Robot standard_robot = {STANDARD_MASS, DEFAULT_SIZE, STANDARD_HARDNESS, STANDARD
 Pelvis standard_pelvis = {STANDARD_MASS,   DEFAULT_SIZE, STANDARD_HARDNESS, STANDARD_PEP, STANDARD_GRAVITY,
                           STANDARD_HEIGHT, FALSE};
 
-fix standard_corner[4] = {0, 0, 0, 0};
 Dirac_frame standard_dirac = {
     STANDARD_MASS,   STANDARD_HARDNESS, STANDARD_ROUGHNESS, STANDARD_GRAVITY,
 };

@@ -97,8 +97,6 @@ void extract_level_resource(Id id_num, int index, uint32_t version, void *ptr) {
 #define FIRST_CSPACE_LEVEL 14
 
 
-char saveload_string[30];
-uchar display_saveload_checkpoints = FALSE;
 uchar saveload_static = FALSE;
 uint dynmem_mask = DYNMEM_ALL;
 
@@ -709,21 +707,7 @@ void load_level_data() {
     load_small_texturemaps();
 }
 
-void SwapLongBytes(void *pval4);
-void SwapShortBytes(void *pval2);
 #define MAKE4(c0, c1, c2, c3) ((((ulong)c0) << 24) | (((ulong)c1) << 16) | (((ulong)c2) << 8) | ((ulong)c3))
-
-//      ---------------------------------------------------------
-// Â¥ Put this in some more appropriate, global place.
-void SwapLongBytes(void *pval4) {
-    long *temp = (long *)pval4;
-    *temp = MAKE4(*temp & 0xFF, (*temp >> 8) & 0xFF, (*temp >> 16) & 0xFF, *temp >> 24);
-}
-
-void SwapShortBytes(void *pval2) {
-    short *temp = (short *)pval2;
-    *temp = ((*temp & 0xFF) << 8) | ((*temp >> 8) & 0xFF);
-}
 
 //---------------------------------------------------------------------------------
 //  Loads in the map for a level, and all the other related resources (2+ MB worth).

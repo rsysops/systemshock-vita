@@ -87,7 +87,6 @@ errtype array_newelem(Array* a, int* index);
 errtype array_dropelem(Array* a, int index);
 
 // Destroy an array, deallocating its vec and freevec
-errtype array_destroy(Array* a);
 
 
 // Globals

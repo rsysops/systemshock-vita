@@ -98,8 +98,6 @@ void AnimRecur() {
     SDLDraw();
 }
 
-void AnimSetAnimPall(Ref animRef) {}
-
 bool AnimPreloadFrames(ActAnim *paa, Ref animRef) { return 1; }
 
 ActAnim *AnimPlayRegion(Ref animRef, LGRegion *region, LGPoint loc, char unknown,

@@ -78,7 +78,6 @@ short mouse_attack_y = -1;
 //----------------
 //  Internal Prototypes
 //----------------
-void weapon_properties(int triple, ubyte *damage_modifier, ubyte *offense);
 ObjID do_effect_fix(ObjID owner, ubyte effect, ubyte start, Combat_Pt effect_point, short location);
 ObjID do_wall_hit(Combat_Pt *hit_point, Combat_Pt pt, int triple, short mouse_x, short mouse_y, uchar do_effect);
 uchar player_fire_handtohand(LGPoint *pos, ubyte slot, ObjID *what_hit, int gun_triple);
@@ -143,29 +142,6 @@ char *get_weapon_long_name(int type, int subtype, char *buf) {
     strcpy(buf, name);
 
     return buf;
-}
-
-// ---------------------------------------------------------------------
-// weapon_properties()
-//
-
-void weapon_properties(int triple, ubyte *damage_modifier, ubyte *offense) {
-    int wpn_class = TRIP2CL(triple);
-
-    switch (wpn_class) {
-    case (CLASS_GUN): // Beam weapon is the only gun with damage type
-        *damage_modifier = BeamGunProps[SCTRIP(triple)].damage_modifier;
-        *offense = BeamGunProps[SCTRIP(triple)].offense_value;
-        break;
-    case (CLASS_PHYSICS):
-        *damage_modifier = AmmoProps[CPTRIP(triple)].damage_modifier;
-        *offense = AmmoProps[CPTRIP(triple)].offense_value;
-        break;
-    case (CLASS_GRENADE):
-        *damage_modifier = GrenadeProps[CPTRIP(triple)].damage_modifier;
-        *offense = GrenadeProps[CPTRIP(triple)].offense_value;
-        break;
-    }
 }
 
 // -------------------------------------------------------------------------
@@ -806,8 +782,6 @@ byte gun_fire_offset = 0;
 
 #define AUTOFIRE_SPEED 1500
 #define SOFTWARE_SPEW_FIRE_RATE 60
-
-ulong software_fire_remainder = 0;
 
 char cspace_digi_fxs[] = {SFX_DRILL, SFX_DATASTORM, SFX_NONE, SFX_DISC, SFX_PULSER, SFX_NONE, SFX_NONE};
 int cspace_slow_projs[] = {DRILLSLOW_TRIPLE, SPEWSLOW_TRIPLE, 0, DISCSLOW_TRIPLE, CYBERSLOW_TRIPLE, 0, 0};

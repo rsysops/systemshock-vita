@@ -201,11 +201,8 @@ extern long flat8_get_pixel24(short x, short y);
 
 /* straight, rectangular-type primitives. */
 extern void flat8_clear(long color);
-extern void flat8_upoint(short x, short y);
-extern int flat8_point(short x, short y);
 extern void flat8_uhline(short x0, short y0, short x1);
 extern void flat8_uvline(short x0, short y0, short y1);
-extern void flat8_urect(short left, short top, short right, short bot);
 
 /* fixed-point rendering-type primitives. */
 extern void flat8_fix_uline(fix x0, fix y0, fix x1, fix y1);

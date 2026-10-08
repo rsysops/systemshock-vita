@@ -21,6 +21,5 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define VITALS_H
 
 void status_vitals_start();
-void status_vitals_end();
 
 #endif

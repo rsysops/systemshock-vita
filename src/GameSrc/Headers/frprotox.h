@@ -72,18 +72,12 @@ typedef void fmp;
 //======== From frsetup.c
 // global initialization
 void fr_startup(void);
-void fr_shutdown(void);
 void fr_closedown(void);
 
 // view control/setup
 frc *fr_place_view(frc *view, void *cam, void *canvas, int pflags, char axis, int fov, int xc, int yc, int wid,
                    int hgt);
 void fr_use_global_detail(frc *view);
-int fr_view_resize(frc *view, int wid, int hgt);
-int fr_view_full(frc *view, int wid, int hgt);
-int fr_mod_size(frc *view, int xc, int yc, int wid, int hgt);
-int fr_mod_cams(frc *view, void *cam, int mod_fac);
-int fr_context_mod_flag(frc *view, int pflags_on, int pflags_off); // remember to set flags_off for things you turn on
 int fr_global_mod_flag(int flags_on, int flags_off);
 void *fr_get_canvas(frc *view); // really returns a grs_canvas, but no want 2d.h
 int fr_set_view(frc *view);
@@ -103,7 +97,6 @@ int fr_rend(frc *view);
 ushort fr_get_at(frc *view, int x, int y, uchar transp);
 
 //======== From frutil.c
-char *fr_get_frame_rate(void);
 ushort fr_get_again(frc *fr, int x, int y);
 
 //======== Externals to provide, initialized to dumb things

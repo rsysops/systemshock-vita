@@ -62,7 +62,6 @@ void free_cursor_bitmaps();
 
 void input_chk(void);
 // uchar main_kb_callback(uiEvent *h, LGRegion *r, intptr_t udata);
-void shutdown_input(void);
 void init_input(void);
 void install_motion_mouse_handler(LGRegion *r, frc *fr);
 void install_motion_keyboard_handler(LGRegion *r);

@@ -66,7 +66,6 @@ typedef struct {
 uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj);
 
 // Lock/unlock a door
-errtype obj_door_lock(ObjID door_id, uchar new_lock);
 
 errtype obj_screen_animate(ObjID id);
 

@@ -55,7 +55,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //  PROTOTYPES
 // ----------
 extern errtype accesspanel_trigger(ObjID id);
-errtype simple_load_res_bitmap_cursor(LGCursor *c, grs_bitmap *bmp, Ref rid);
 errtype load_res_bitmap(grs_bitmap *bmp, Ref rid, uchar alloc);
 
 int wirepos_score(wirePosPuzzle *wppz);

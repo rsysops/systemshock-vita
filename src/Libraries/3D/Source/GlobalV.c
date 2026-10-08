@@ -149,7 +149,6 @@ fix _g3d_flash = 0;            // fix    0       ; specular flash point below wh
 // funny functions to make it "flash" only within a certain
 // range.
 
-g3s_vector _g3d_light_src;   //  g3s_vector      <>      ; light source, either
                              //  local or vector
 g3s_vector _g3d_light_trans; //  g3s_vector   		<>      ; point
                              //  source in view coords
@@ -168,17 +167,6 @@ fix _g3d_sdotv; //  fix     ?       ; surface vector dotted with view vector
 
 long _g3d_light_tab = 0; //  dd      0       ; lighting table with 32 or 24
                          //  entries.  Should go from black to white,
-
-// stereo globals, read em and weep
-fix _g3d_eyesep_raw = 0;    //  fix     0     ;raw 3d sep between eyes
-fix _g3d_eyesep = 0;        //  fix     0     ;scaled eye sep between eyes
-long _g3d_stereo_base = 0;  //   dd     0     ;stereo point offset, default zero, means non
-long _g3d_stereo_list = 0;  //   dd     0     ;start of stereo point list, makes it easy to detect
-char _g3d_stereo = 0;       //   db     0     ;stereo this frame
-long _g3d_rt_canv = 0;      //   dd     0     ;pointer to right eye canvas
-long _g3d_rt_canv_bits = 0; //   dd     0     ;pointer to bits of rt canvas
-long _g3d_lt_canv_bits = 0; //   dd     0     ;pointer to bits of lt canvas
-long _g3d_stereo_tmp[14];   //   dd     14 dup (?) ;temporary point list
 
 // palette base for gouraud-shaded polys
 

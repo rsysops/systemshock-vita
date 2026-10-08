@@ -159,8 +159,6 @@ typedef struct {
     uchar pad[GRIDP_PADSIZE];
 } gridFlowPuzzle;
 
-extern LGRegion *mfd_regions[NUM_MFDS];
-
 typedef enum {
     GPZ_EMPTY = 0,
     GPZ_OPEN,

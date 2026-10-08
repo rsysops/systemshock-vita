@@ -113,7 +113,6 @@ errtype hotkey_add_help(ushort keycode, uint32_t context_mask, hotkey_callback f
 char *hotkey_help_text(short keycode, ulong contexts, hotkey_callback func);
 // looks up the help string for a given hotkey
 
-errtype hotkey_remove(short keycode, ulong context_mask, hotkey_callback func);
 // delete all hotkey handlers with the specified keycode and callback function 
 // from the contexts specified by the context_mask. 
 
@@ -121,7 +120,6 @@ errtype hotkey_dispatch(short keycode);
 // dispatches the keycode to the highest-priority key handler for that 
 // keycode that has any set bits in common with HotkeyContext.  
 
-errtype hotkey_shutdown(void);
 // shut down the hotkey system.
 
 // Globals

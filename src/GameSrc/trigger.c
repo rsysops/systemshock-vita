@@ -920,7 +920,6 @@ errtype trap_damage_func(int p1, int p2, int p3, int p4) {
     return (OK);
 }
 
-uchar fake_endgame = FALSE;
 #define ENDGAME_TICKS CIT_CYCLE * 2
 
 errtype trap_sfx_func(int p1, int p2, int p3, int p4) {
@@ -931,7 +930,6 @@ errtype trap_sfx_func(int p1, int p2, int p3, int p4) {
     short scr_fx, sfx_time, sound_fx;
     short wacky, wacky_sev;
     extern short surge_duration;
-    extern ulong player_death_time;
 
     sound_fx = qdata_get(p1 & 0xFFFF);
     scr_fx = qdata_get(p3);
@@ -1959,8 +1957,6 @@ errtype (*trap_functions[])(int, int, int, int) = {
     trap_monster_func,
     trap_transmogrify_func
 };
-
-ubyte num_trap_types = (sizeof(trap_functions) / sizeof(trap_functions[0]));
 
 errtype grind_trap(char type, int p1, int p2, int p3, int p4, ubyte *destroy_count_ptr, ObjID id) {
     trap_functions[type](p1, p2, p3, p4);

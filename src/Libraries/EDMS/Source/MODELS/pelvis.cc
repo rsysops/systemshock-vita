@@ -41,12 +41,8 @@ Q EDMS_CYBER_FLOW1X = 100;
 Q EDMS_CYBER_FLOW2X = 200;
 Q EDMS_CYBER_FLOW3X = 270;
 
-int32_t EDMS_BCD = 0;
 bool pelvis_is_climbing = false;
 int32_t edms_ss_head_bcd_flags;
-
-fix hacked_head_bob_1 = fix_make(1, 0);
-fix hacked_head_bob_2 = fix_make(1, 0);
 
 //}
 

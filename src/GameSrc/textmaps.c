@@ -249,22 +249,6 @@ void free_textures(void) {
     tmaps_setup = FALSE;
 }
 
-errtype bitmap_array_unload(int *num_bitmaps, grs_bitmap *arr[]) {
-    int i;
-
-    if (*num_bitmaps == 0)
-        return (ERR_NOEFFECT);
-
-    // Spew(DSRC_SYSTEM_Memory, ("Freeing %d bitmaps...\n",*num_bitmaps));
-    for (i = 0; i < *num_bitmaps; i++) {
-        //      Spew(DSRC_SYSTEM_Memory, ("%d ",i));
-        free(arr[i]->bits);
-        free(arr[i]);
-    }
-    *num_bitmaps = 0;
-    return (OK);
-}
-
 uchar empty_bitmap(grs_bitmap *bmp) {
     uchar *cur = &bmp->bits[0], *targ = cur + (bmp->w * bmp->h);
     while (cur < targ)

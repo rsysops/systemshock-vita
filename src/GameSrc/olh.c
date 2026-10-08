@@ -432,10 +432,6 @@ void olh_init(void)
 
 void olh_closedown(void) { olh_object.obj = OBJ_NULL; }
 
-void olh_shutdown(void) {
-    olh_free_scan();
-}
-
 short _olh_overlay_keys[] = {
     ' ' | KB_FLAG_DOWN,
     KEY_ENTER | KB_FLAG_DOWN, // the pad's cross, circle and triangle (see sdl_events.c)

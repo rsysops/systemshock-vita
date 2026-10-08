@@ -328,16 +328,6 @@ static void difficulty_focus_set(int focus) {
     difficulty_draw(FALSE);
 }
 
-errtype draw_difficulty_line(int which_line) {
-    int i;
-
-    for (i = 0; i < 4; i++)
-        draw_difficulty_char((which_line * 4) + i);
-    draw_difficulty_description(which_line, NORMAL_ENTRY_COLOR);
-
-    return OK;
-}
-
 errtype draw_difficulty_description(int which_cat, int color) {
     if (color != -1)
         gr_set_fcolor(color);
@@ -489,8 +479,6 @@ errtype journey_difficulty_func(uchar draw_stuff) {
 #define CredResource (RES_credits)
 
 int credits_inp = 0;
-
-void *credits_txtscrn;
 
 int CreditsTune;
 

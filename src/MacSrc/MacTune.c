@@ -36,15 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 uchar mlimbs_on = FALSE;
 char mlimbs_status = 0;
 
-// Handle			gHeaderHdl, gTuneHdl, gOfsHdl;			// Holds the tune-related data for the current
-// theme file.
-long *gOffsets; // Array of offsets for the beginning of each tune.
-// TunePlayer	gPlayer;										// The Tune
-// Player.
-bool gTuneDone;     // True when a sequence has finished playing (set by CB proc).
 bool gReadyToQueue; // True when it's time to queue up a new sequence.
-int gOverlayTime;   // Amount of time (in millisecs) to wait for overlays.
-int gQueueTime;     // Amount of time (in millisecs) to wait to queue next tune.
 
 // TuneCallBackUPP	gTuneCBProc;							// Pointer to tune-finished callback
 // proc.
@@ -63,10 +55,6 @@ int gQueueTime;     // Amount of time (in millisecs) to wait to queue next tune.
 //---------------------------------------------------------------
 #pragma require_prototypes off
 
-//---------------------------------------------------------------
-void CalcTuneProc(void) {
-    gReadyToQueue = TRUE; // It's time to queue up another tune.
-}
 #pragma require_prototypes on
 
 //------------------------------------------------------------------------------
@@ -293,70 +281,6 @@ queue.
 }*/
 
 //------------------------------------------------------------------------------
-//  Stop the current tune playing, stop the tune queue timer task.
-//------------------------------------------------------------------------------
-void MacTunePurgeCurrentTheme() {
-    /*MacTuneKillCurrentTheme();							// Kill the current theme.
-
-    // Dispose of all the theme's data.
-    if (gHeaderHdl)
-    {
-            HUnlock(gHeaderHdl);
-            DisposeHandle(gHeaderHdl);
-            gHeaderHdl = NULL;
-    }
-    if (gTuneHdl)
-    {
-            HUnlock(gTuneHdl);
-            DisposeHandle(gTuneHdl);
-            gTuneHdl = NULL;
-    }
-    if (gOfsHdl)
-    {
-            HUnlock(gOfsHdl);
-            DisposeHandle(gOfsHdl);
-            gOfsHdl = NULL;
-    }
-
-    // Free the tune player component, then open it back up again.  This should make the
-    // game run much faster.
-    CloseComponent(gPlayer);
-    gPlayer = OpenDefaultComponent(kTunePlayerType, 0);
-    if (!gPlayer)
-            DebugString("Error:  Could not open a tune player.");		//¥¥¥ Handle this!
-
-    // Clear our the current request array.
-    for (int i = 0; i < MLIMBS_MAX_SEQUENCES -1; i++)
-    {
-            current_request[i].pieceID = 255;
-    }*/
-    mlimbs_counter = 0;
-}
-
-//------------------------------------------------------------------------------
-//  Play a tune right now (prime the TM task).  Usually this is called when music is first started.
-//------------------------------------------------------------------------------
-void MacTunePlayTune(int tune) {
-    /*if (tune == 255 || tune == -1)
-            DebugString("Eep Eep Invalid tune!");  //¥¥¥
-
-            if (gOffsets[tune] != -1)							// If there really is a tune there, play it
-    now.
-            {
-                    TuneQueue(gPlayer, (unsigned long *)(*gTuneHdl + gOffsets[tune]), 0x10000,
-                                                    0, 0x7FFFFFFF, kTuneStartNow, gTuneCBProc, 0);
-                    PrimeTime((QElemPtr)&gCalcTuneTask, gOverlayTime + gQueueTime);
-    //¥¥¥ temp
-    // the above amount for PrimeTime is temporary because we're not doing overlays yet.
-    //  so just queue up the next tune at queue time.
-            }
-
-            // If there was no tune to play this time, set a flag so it will prime the timer again.
-            else
-                    gTuneDone = TRUE;*/
-}
-
-//------------------------------------------------------------------------------
 //  Add a tune to the tune queue.
 //------------------------------------------------------------------------------
 void MacTuneQueueTune(int tune) {
@@ -381,16 +305,6 @@ void MacTuneQueueTune(int tune) {
             // If there was no tune to queue this time, set a flag so it will prime the timer again.
             else
                     gTuneDone = TRUE;*/
-}
-
-//------------------------------------------------------------------------------
-//  Prime the TM task to trigger the next tune queueing.
-//------------------------------------------------------------------------------
-void MacTunePrimeTimer(void) {
-    // PrimeTime((QElemPtr)&gCalcTuneTask, gOverlayTime + gQueueTime);
-    //¥¥¥ temp
-    // the above amount for PrimeTime is temporary because we're not doing overlays yet.
-    //  so just queue up the next tune at queue time.
 }
 
 void MacTuneUpdateVolume(void) { UpdateVolumeXMI(); }

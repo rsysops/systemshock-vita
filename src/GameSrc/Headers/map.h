@@ -336,7 +336,6 @@ extern FullMap *global_fullmap;
 FullMap *map_create(int xshf, int yshf, int zshf, uchar cyb);
 uchar map_set_default(FullMap *fmap);
 void map_init(void);
-void map_free(void);
 
 #define DEFAULT_XSHF 6u
 #define DEFAULT_YSHF 6u

@@ -63,7 +63,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 errtype set_posture_safe(ObjSpecID osid, ubyte new_pos);
 errtype set_posture_movesafe(ObjSpecID osid, ubyte new_pos);
-errtype clear_critter_controls(ObjSpecID osid);
 errtype apply_EDMS_controls(ObjSpecID osid);
 errtype roll_on_dnd_treasure_tables(int *pcont, char treasure_type);
 

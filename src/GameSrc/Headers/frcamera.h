@@ -65,7 +65,6 @@ uchar fr_camera_create(cams *cam, int camtype, ushort oid, fix *coor, fix *args)
 uchar fr_camera_modtype(cams *cam, uchar type_on, uchar type_off);
 int fr_camera_update(cams *cam, uintptr_t arg1, int whicharg, uintptr_t arg2);
 void fr_camera_slewone(cams *cam, int which, int how);
-void fr_camera_setone(cams *cam, int which, int newCam);
 fix *fr_camera_getpos(cams *cam);
 void fr_camera_slewcam(cams *cam, int which, int how);
 cams *fr_camera_getdef(void);

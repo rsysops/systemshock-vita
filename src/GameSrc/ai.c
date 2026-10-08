@@ -117,14 +117,6 @@ errtype set_posture_movesafe(ObjSpecID osid, ubyte new_pos) {
     return (OK);
 }
 
-errtype clear_critter_controls(ObjSpecID osid) {
-    objCritters[osid].des_heading = 0;
-    objCritters[osid].des_speed = 0;
-    objCritters[osid].urgency = 0;
-    objCritters[osid].sidestep = 0;
-    return (OK);
-}
-
 // tolerance between "standing" and "walking" anims
 // when all your dots is greater than this, you are considered moving
 //#define MOVE_TOLERANCE  fix_make(0,0x0700)

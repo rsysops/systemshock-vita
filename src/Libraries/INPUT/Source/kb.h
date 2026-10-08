@@ -63,8 +63,6 @@ typedef struct {
  *
  */
 
-extern uchar kb_state(uchar code);
-
 #define kb_init kb_startup
 #define kb_close kb_shutdown
 extern int kb_startup(void *init_buf);
@@ -78,7 +76,6 @@ extern void kb_clear_state(uchar kb_code, uchar bits);
 extern void kb_set_state(uchar kb_code, uchar bits);
 extern void kb_set_signal(uchar code, uchar int_no);
 extern int kb_get_flags();
-extern void kb_set_flags(int flags);
 extern void kb_generate(kbs_event e);
 // extern void kb_flush_bios(void);				// For Mac version
 #define kb_flush_bios kb_flush

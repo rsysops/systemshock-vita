@@ -123,7 +123,6 @@ typedef struct Amethods_ {
 
 int32_t AfileOpen(Afile *paf, MFILE *mf, AfileType aftype);
 int32_t AfileReadFullFrame(Afile *paf, grs_bitmap *pbm, fix *ptime);
-int32_t AfileReadDiffFrame(Afile *paf, grs_bitmap *pbm, fix *ptime);
 bool AfileGetFramePal(Afile *paf, Apalette *ppal);
 int32_t AfileGetAudio(Afile *paf, void *paudio);
 int32_t AfileReadReset(Afile *paf);
@@ -143,8 +142,6 @@ int32_t AfileSetFramePal(Afile *paf, Apalette *ppal);
 
 //	Function prototypes: information & miscellaneous
 
-AfileType AfileLookupType(char *ext);
-int32_t AfileBitmapLength(Afile *paf);
 int32_t AfileAudioLength(Afile *paf);
 
 #endif

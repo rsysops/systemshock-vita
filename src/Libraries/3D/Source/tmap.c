@@ -134,12 +134,9 @@ extern void h_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 extern void v_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 
 // prototypes
-int do_tmap_tile(g3s_phandle upperleft, g3s_vector *u_vec, g3s_vector *v_vec, int nverts, g3s_phandle *vp,
-                 grs_bitmap *bm);
 int do_check_tmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count);
 int do_tmap(int n, g3s_phandle *vp, grs_bitmap *bm);
 int do_tmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count);
-void calc_warp_matrix2(g3s_phandle upperleft, fix x10, fix x20, fix y10, fix y20, fix z10, fix z20, grs_bitmap *bm);
 int draw_tmap_common(int n, g3s_phandle *vp, grs_bitmap *bm);
 int check_linear(int w);
 
@@ -149,10 +146,6 @@ int check_linear(int w);
 void *tmap_func;
 grs_bitmap unpack_bm;
 grs_tmap_info ti;
-grs_tmap_info *ti_ptr = &ti;
-
-// matrix for 2d
-fix warp[9];
 
 long light_flag;
 
@@ -164,134 +157,6 @@ extern g3s_phandle _vbuf2[];
 extern grs_vertex p_vlist[];
 extern grs_vertex *p_vpl[];
 extern long _n_verts;
-
-// tiles a texture map over an arbitarary polygon.
-// takes eax=upperleft, ebx=width, ecx=height, edx=nverts, esi=ptr to points,
-// edi=ptr to bitmap
-int g3_draw_lmap_tile(g3s_phandle upperleft, g3s_vector *u_vec, g3s_vector *v_vec, int nverts, g3s_phandle *vp,
-                      grs_bitmap *bm) {
-    tmap_func = (void *)&h_umap;
-    ti.tmap_type = GRC_BILIN;
-    ti.flags = 0;
-    light_flag = 0;
-    return (do_tmap_tile(upperleft, u_vec, v_vec, nverts, vp, bm));
-}
-
-int g3_light_lmap_tile(g3s_phandle upperleft, g3s_vector *u_vec, g3s_vector *v_vec, int nverts, g3s_phandle *vp,
-                       grs_bitmap *bm) {
-    tmap_func = (void *)&h_umap;
-    ti.tmap_type = GRC_LIT_BILIN;
-    ti.flags = 0;
-    light_flag = 1;
-    return (do_tmap_tile(upperleft, u_vec, v_vec, nverts, vp, bm));
-}
-
-int g3_light_tmap_tile(g3s_phandle upperleft, g3s_vector *u_vec, g3s_vector *v_vec, int nverts, g3s_phandle *vp,
-                       grs_bitmap *bm) {
-    tmap_func = (void *)&per_umap;
-    ti.tmap_type = GRC_LIT_PER;
-    ti.flags = 0;
-    light_flag = 1;
-    return (do_tmap_tile(upperleft, u_vec, v_vec, nverts, vp, bm));
-}
-
-int g3_draw_tmap_tile(g3s_phandle upperleft, g3s_vector *u_vec, g3s_vector *v_vec, int nverts, g3s_phandle *vp,
-                      grs_bitmap *bm) {
-    tmap_func = (void *)&per_umap;
-    ti.tmap_type = GRC_PER;
-    ti.flags = 0;
-    light_flag = 0;
-    return (do_tmap_tile(upperleft, u_vec, v_vec, nverts, vp, bm));
-}
-
-int do_tmap_tile(g3s_phandle upperleft, g3s_vector *u_vec, g3s_vector *v_vec, int nverts, g3s_phandle *vp,
-                 grs_bitmap *bm) {
-    byte andcode, orcode;
-    int i;
-    g3s_phandle *src;
-    g3s_phandle tempHand;
-    fix x10;
-    fix y10;
-    fix z10;
-    fix x20;
-    fix y20;
-    fix z20;
-
-    // get codes for this polygon
-    andcode = 0xff;
-    orcode = 0;
-    src = vp;
-    for (i = nverts; i > 0; i--) {
-        tempHand = *(src++);
-        andcode &= tempHand->codes;
-        orcode |= tempHand->codes;
-    }
-
-    // check codes for trivial reject.
-    if (andcode)
-        return CLIP_ALL;
-
-    // upper left handle of 0 means reuse old warp matrix.
-
-    // store elements of u difference vector as 10 warp differences.
-    x10 = u_vec->gX;
-    y10 = u_vec->gY;
-    z10 = u_vec->gZ;
-
-    // store elements of v difference vector as 20 warp differences.
-    x20 = v_vec->gX;
-    y20 = v_vec->gY;
-    z20 = v_vec->gZ;
-
-    // do warp matrix calculations
-    calc_warp_matrix2(upperleft, x10, x20, y10, y20, z10, z20, bm);
-
-    src = vp;
-    for (i = nverts; i > 0; i--) {
-        fix a, b;
-        fix blah1;
-        fix blah2;
-        fix blah3;
-
-        tempHand = *(src++);
-        a = fix_div(tempHand->gX, tempHand->gZ);
-        b = fix_div(tempHand->gY, tempHand->gZ);
-
-        blah1 = fix_mul(warp[0], a) + fix_mul(warp[1], b) + warp[2];
-        blah2 = fix_mul(warp[3], a) + fix_mul(warp[4], b) + warp[5];
-        blah3 = fix_mul(warp[6], a) + fix_mul(warp[7], b) + warp[8];
-
-        tempHand->uv.u = fix_div(blah1, blah3) >> 8;
-        tempHand->uv.v = fix_div(blah2, blah3) >> 8;
-        tempHand->p3_flags |= PF_U | PF_V;
-    }
-
-    return (draw_tmap_common(nverts, vp, bm));
-}
-
-int g3_check_and_draw_lmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
-    tmap_func = (void *)&h_umap;
-    ti.tmap_type = GRC_BILIN;
-    ti.flags = 0;
-    light_flag = 0;
-    return (do_check_tmap_quad_tile(vp, bm, width_count, height_count));
-}
-
-int g3_check_and_light_lmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
-    tmap_func = (void *)&h_umap;
-    ti.tmap_type = GRC_LIT_BILIN;
-    ti.flags = 0;
-    light_flag = 1;
-    return (do_check_tmap_quad_tile(vp, bm, width_count, height_count));
-}
-
-int g3_check_and_light_tmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
-    tmap_func = (void *)&per_umap;
-    ti.tmap_type = GRC_LIT_PER;
-    ti.flags = 0;
-    light_flag = 1;
-    return (do_check_tmap_quad_tile(vp, bm, width_count, height_count));
-}
 
 int g3_check_and_draw_tmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
     tmap_func = (void *)&per_umap;
@@ -410,33 +275,6 @@ int do_tmap(int n, g3s_phandle *vp, grs_bitmap *bm) {
         return CLIP_ALL;
 
     return (draw_tmap_common(n, vp, bm));
-}
-
-// draws a square texture map, where the corners of the 3d quad match the
-// corners of the bitmap
-// takes esi=ptr to points, edi=ptr to bitmap, eax=width count, ebx=height count
-int g3_draw_lmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
-    tmap_func = (void *)&h_umap;
-    ti.tmap_type = GRC_BILIN;
-    ti.flags = 0;
-    light_flag = 0;
-    return (do_tmap_quad_tile(vp, bm, width_count, height_count));
-}
-
-int g3_light_lmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
-    tmap_func = (void *)&h_umap;
-    ti.tmap_type = GRC_LIT_BILIN;
-    ti.flags = 0;
-    light_flag = 1;
-    return (do_tmap_quad_tile(vp, bm, width_count, height_count));
-}
-
-int g3_light_tmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
-    tmap_func = (void *)&per_umap;
-    ti.tmap_type = GRC_LIT_PER;
-    ti.flags = 0;
-    light_flag = 1;
-    return (do_tmap_quad_tile(vp, bm, width_count, height_count));
 }
 
 int g3_draw_tmap_quad_tile(g3s_phandle *vp, grs_bitmap *bm, int width_count, int height_count) {
@@ -628,29 +466,6 @@ int check_linear(int n) {
         return 1; // punt
     } else
         return 0; // use Z
-}
-
-// compute warp matrix with deltas already set.
-// arguments:
-//   deltas in x10,x20,y10,y20,z10,z20
-//   pointer to bitmap in bm_ptr
-//   esi=basis 0
-void calc_warp_matrix2(g3s_phandle upperleft, fix x10, fix x20, fix y10, fix y20, fix z10, fix z20, grs_bitmap *bm) {
-    fix x0 = upperleft->gX;
-    fix y0 = upperleft->gY;
-    fix z0 = upperleft->gZ;
-
-    // compute the actual matrix.
-
-    warp[0] = fix_mul(y20, z0) - fix_mul(y0, z20);
-    warp[1] = fix_mul(x0, z20) - fix_mul(x20, z0);
-    warp[2] = fix_mul(x20, y0) - fix_mul(x0, y20);
-    warp[3] = fix_mul(y0, z10) - fix_mul(y10, z0);
-    warp[4] = fix_mul(x10, z0) - fix_mul(x0, z10);
-    warp[5] = fix_mul(x0, y10) - fix_mul(x10, y0);
-    warp[6] = fix_mul(y10, z20) - fix_mul(y20, z10);
-    warp[7] = fix_mul(x20, z10) - fix_mul(x10, z20);
-    warp[8] = fix_mul(x10, y20) - fix_mul(x20, y10);
 }
 
 // ------------------------------------------------------------------------------------------------

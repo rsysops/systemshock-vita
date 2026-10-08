@@ -82,10 +82,8 @@ errtype uiMakeSlab(uiSlab* slab,LGRegion* cursor_reg, LGCursor* default_cursor);
 errtype uiSetCurrentSlab(uiSlab* slab);
 // Sets the current active slab.  
 
-errtype uiGetCurrentSlab(uiSlab** slab);
 // Gets the current active slab;
 
-errtype uiDestroySlab(uiSlab* slab);
 // shuts down a slab, freeing any satellite data. 
 
 

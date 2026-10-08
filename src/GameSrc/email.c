@@ -118,8 +118,6 @@ extern grs_canvas *pinv_canvas;
 #define EMAIL_INTERCEPT 0xFE
 #define EMAIL_DONE 0xFF
 
-uchar email_big_font = TRUE;
-
 char email_buffer[256];
 #define EMAIL_BUFSIZ (sizeof(email_buffer))
 ubyte next_text_line = EMAIL_DONE;

@@ -93,13 +93,3 @@ errtype array_dropelem(Array* a, int index)
    a->freehead = index;
    return OK;
 }
-
-errtype array_destroy(Array* a)
-{
-   a->elemsize = 0;
-   a->vecsize = 0;
-   a->freehead = FREELIST_EMPTY;
-   free(a->freevec);
-   free(a->vec);
-   return OK;
-}

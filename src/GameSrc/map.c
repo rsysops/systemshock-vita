@@ -110,10 +110,3 @@ void map_init(void) {
     FullMap *ourmap = map_create(DEFAULT_XSHF, DEFAULT_YSHF, DEFAULT_ZSHF, FALSE);
     map_set_default(ourmap);
 }
-
-void map_free(void) {
-    for (int i = 0; i < NUM_MAP_SCHEDULES; i++)
-        schedule_free(&global_fullmap->sched[i]);
-    free(fm_map(global_fullmap));
-    free(global_fullmap);
-}

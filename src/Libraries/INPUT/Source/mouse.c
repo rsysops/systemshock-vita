@@ -88,7 +88,6 @@ uchar  mouseLefty = FALSE; 				// is the user left-handed?
 mouse_callfunc mouseCall[NUM_MOUSE_CALLBACKS];
 void *mouseCallData[NUM_MOUSE_CALLBACKS];
 short mouseCalls = 0; // current number of mouse calls.
-short mouseCallSize = sizeof(mouse_callfunc);
 /*
 uchar mouse_installed = FALSE;					// was mouse found?
 
@@ -216,37 +215,6 @@ queue. short newin = mouseQueueIn, newout = mouseQueueOut; short in = newin; mou
 }
 
 #pragma require_prototypes on
-
-//	---------------------------------------------------------
-//	mouse_shutdown() terminates mouse handler.
-//	---------------------------------------------------------
-// For Mac version: do nothing.
-
-errtype mouse_shutdown(void) {
-    /*	union REGS regs;
-            struct SREGS segregs;
-
-            Spew(DSRC_MOUSE_Shutdown,("entering mouse_shutdown()\n"));
-
-
-            //	Shut down Microsoft mouse driver
-
-            if (mouse_installed)
-            {
-                    regs.x.eax = 0x000C;
-                    regs.x.ecx = 0;
-                    regs.x.edx = 0;
-                    segregs.es = 0;
-                    segregs.ds = 0;
-                    int386x(INT_MOUSE, &regs, &regs, &segregs);
-
-                    dpmi_unlock_lin_region(MouseHandler,mouseHandlerSize);
-            } */
-    //	RmvTime((QElemPtr)&pMousePollTask);							// Stop the mouse polling
-    //task 	DisposeRoutineDescriptor(pMousePollPtr);						// Dispose its UPP
-
-    return OK;
-}
 
 //	---------------------------------------------------------
 //	mouse_init() initializes mouse handler.  It does the following:
@@ -452,23 +420,6 @@ errtype mouse_set_callback(mouse_callfunc f, void *data, int *id) {
     //	Spew(DSRC_MOUSE_SetCallback,("mouse_set_callback(): *id = %d, mouseCalls = %d\n",*id,mouseCalls));
     mouseCall[*id] = f;
     mouseCallData[*id] = data;
-    return OK;
-}
-
-// -------------------------------------------------------
-//
-// mouse_unset_callback() un-registers a callback function
-// id = unique id of function to unset
-
-errtype mouse_unset_callback(int id) {
-    // Spew(DSRC_MOUSE_UnsetCallback,("entering mouse_unset_callback(%d)\n",id));
-    if (id >= mouseCalls || id < 0) {
-        // Spew(DSRC_MOUSE_UnsetCallback,("mouse_unset_callback(): id out of range \n"));
-        return ERR_RANGE;
-    }
-    mouseCall[id] = NULL;
-    while (mouseCalls > 0 && mouseCall[mouseCalls - 1] == NULL)
-        mouseCalls--;
     return OK;
 }
 

@@ -141,8 +141,6 @@ void palette_advance_all_fx(long timestamp)
    gr_set_pal(0, 256, local_smap);
 }
 
-uchar c_off_stack[3];
-
 void palette_advance_effect(byte id, int steps)
 {
    short e1, en, er;
@@ -440,29 +438,6 @@ errtype palette_remove_effect(byte id)
  * timestamp to the time of unfreezing.
  */
 
-errtype palette_freeze_effect(byte id)
-{
-   if (Palette_Effects_Table[id].status == EMPTY)  return ERR_RANGE;
-   if (Palette_Effects_Table[id].status == FROZEN) return ERR_NOEFFECT;
-   Palette_Effects_Table[id].status = FROZEN;
-   
-   num_active_effects--;
-   
-   return OK;
-}
-
-errtype palette_unfreeze_effect(byte id)
-{
-   if (Palette_Effects_Table[id].status == EMPTY)  return ERR_RANGE;
-   if (Palette_Effects_Table[id].status != FROZEN) return ERR_NOEFFECT;
-
-   Palette_Effects_Table[id].status = ACTIVE;
-   
-   num_active_effects++;
-   
-   return OK;
-}
-
 /*
  * QUERY and CHANGE_DELAY
  *
@@ -473,14 +448,6 @@ errtype palette_unfreeze_effect(byte id)
 PAL_STATUS palette_query_effect(byte id)
 {
    return Palette_Effects_Table[id].status;
-}
-
-void palette_change_delay(byte id, short delay)
-{
-   if (Palette_Effects_Table[id].status != EMPTY)
-      Palette_Effects_Table[id].dsteps = delay;
-
-   return;
 }
 
 /* Palette INITIALIZE and SHUTDOWN routines
@@ -524,13 +491,6 @@ void palette_initialize(short tbl_size)
  *
  * Call this at the end of your program to free up the effects table.
  */
-
-void palette_shutdown()
-{
-   free(Palette_Effects_Table);
-
-   return;
-}
 
 /*
  * SHADOWMAP and DELTA ARRAY routines

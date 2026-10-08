@@ -38,8 +38,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 ulong last_real_time = 0;
 char reflex_remainder = 0;
 
-long gNewShockTicks; // whyyyyyy
-
 #define MAX_DELTAT (CIT_CYCLE / MIN_FRAME_RATE)
 #define MIN_DELTAT (CIT_CYCLE / MAX_FRAME_RATE)
 

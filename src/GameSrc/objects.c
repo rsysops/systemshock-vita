@@ -77,9 +77,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // See objects.h and objapp.h for a description of global variables
 
-ObjLocState objLocStates[MAX_OBJS_CHANGING];
-uchar numObjLocStates;
-
 static void ObjRefRem(ObjRefID ref);
 static uchar ObjLinkMake(ObjRefID ref, ObjID obj);
 static ObjID ObjRefLinkDel(ObjRefID ref);

@@ -49,23 +49,10 @@ errtype render_run(void);
 // Globals
 extern LGRect *rendrect;
 
-extern uchar fr_texture;
-extern uchar fr_txt_walls;
-extern uchar fr_txt_floors;
-extern uchar fr_txt_ceilings;
 extern uchar fr_lighting, fr_play_lighting, fr_lights_out, fr_normal_lights;
-extern int fr_detail_value;
-extern int fr_drop[TM_SIZE_CNT];
-extern uchar fr_show_tilecursor;
-extern uchar fr_cont_tilecursor;
-extern uchar fr_show_all;
 extern int fr_qscale_crit, fr_qscale_obj;
-extern uchar fr_highlights;
 extern int fr_lite_rad1, fr_lite_base1, fr_lite_rad2, fr_lite_base2;
-extern int fr_normal_shf;
 extern fix fr_lite_slope, fr_lite_yint;
-extern int fr_detail_master;
-extern int fr_pseudo_spheres;
 
 #define MAX_CAMERAS_VISIBLE 2
 #define NUM_HACK_CAMERAS 8
@@ -75,7 +62,6 @@ extern int fr_pseudo_spheres;
 #define FIRST_CAMERA_TMAP 0x78
 
 errtype init_hack_cameras(void);
-errtype shutdown_hack_cameras(void);
 errtype do_screen_static(void);
 errtype render_hack_cameras(void);
 errtype hack_camera_takeover(int hack_cam);

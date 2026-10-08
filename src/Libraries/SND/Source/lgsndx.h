@@ -103,7 +103,6 @@ void  snd_setup(void *d_path, char *prefix);
 void  snd_shutdown(void);
 int   snd_set_midi_sequences(int chan_cnt);
 int   snd_start_digital(void);
-int   snd_stop_digital(void);
 int   snd_set_digital_channels(int chan_cnt);
 int   snd_start_midi(void);
 int   snd_stop_midi(void);

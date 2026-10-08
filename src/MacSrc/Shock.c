@@ -113,7 +113,6 @@ extern frc *svga_render_context;
 //--------------------
 extern void init_all(void);
 extern void inv_change_fullscreen(uchar on);
-extern void object_data_flush(void);
 extern errtype load_da_palette(void);
 
 // see Prefs.c
@@ -127,14 +126,6 @@ void OpenController()
         if (SDL_IsGameController(i)) {
             gameController = SDL_GameControllerOpen(i);
         }
-    }
-}
-
-void CloseController()
-{
-    if (SDL_GameControllerGetAttached(gameController)) {
-        SDL_GameControllerClose(gameController);
-        gameController = NULL;
     }
 }
 

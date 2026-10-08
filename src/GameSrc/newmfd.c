@@ -355,29 +355,6 @@ void mfd_change_fullscreen(uchar on) {
     }
 }
 
-// ---------------------------------------------------------------------------
-// keyboard_init_mfd()
-//
-// Tell the function keys that they're supposed to map to our button panels.
-// (Called from init_input() in input.c)
-
-void keyboard_init_mfd() {
-    /* KLC leave out F-keys and char codes.
-
-       hotkey_add(KEY_F1, DEMO_CONTEXT,mfd_button_callback_kb,0);
-       hotkey_add(KEY_F2, DEMO_CONTEXT,mfd_button_callback_kb,1);
-       hotkey_add(KEY_F3, DEMO_CONTEXT,mfd_button_callback_kb,2);
-       hotkey_add(KEY_F4, DEMO_CONTEXT,mfd_button_callback_kb,3);
-       hotkey_add(KEY_F5, DEMO_CONTEXT,mfd_button_callback_kb,4);
-       hotkey_add(KEY_F6, DEMO_CONTEXT,mfd_button_callback_kb,5);
-       hotkey_add(KEY_F7, DEMO_CONTEXT,mfd_button_callback_kb,6);
-       hotkey_add(KEY_F8, DEMO_CONTEXT,mfd_button_callback_kb,7);
-       hotkey_add(KEY_F9, DEMO_CONTEXT,mfd_button_callback_kb,8);
-       hotkey_add(KEY_F10,DEMO_CONTEXT,mfd_button_callback_kb,9);
-    */
-    install_keypad_hotkeys();
-}
-
 // --------------
 //    FROBBERS
 // --------------
@@ -1178,8 +1155,6 @@ void fullscreen_refresh_mfd(ubyte mfd_id) {
 // mfd_draw_button()
 //
 // Draws a button in a given color code depending on its status.
-
-uchar cyber_button_back_door = FALSE;
 
 void mfd_draw_button(ubyte mfd_id, ubyte b) {
     MFD *m;

@@ -81,11 +81,9 @@ extern char peril_bars;
 extern int new_theme;
 extern int new_x, new_y;
 extern int old_bore;
-extern short mai_override;
 
 extern int layer_danger;
 extern int layer_success;
-extern int layer_transition;
 extern int transition_count;
 extern char tmode_time;
 extern int actual_score;
@@ -93,7 +91,6 @@ extern uchar decon_count;
 extern uchar decon_time;
 extern uchar in_deconst, old_deconst;
 extern uchar in_peril;
-extern uchar just_started;
 extern int score_playing;
 extern short curr_ramp_time, curr_ramp;
 extern char curr_prioritize, curr_crossfade;
@@ -104,10 +101,8 @@ extern uchar mai_semaphor;
 
 extern uchar park_random;
 extern uchar park_playing;
-extern uchar access_random;
 
 extern ulong last_damage_sum;
-extern ulong last_vel_time;
 
 // Damage taken decay & quantity of decay
 extern int danger_hp_level;
@@ -119,25 +114,8 @@ extern int mai_damage_sum;
 // How long an attack keeps us in combat music mode
 extern int mai_combat_length;
 
-extern uchar bad_digifx;
-
-extern uchar mlimbs_semaphore;
-
-uchar run_asynch_music_ai = FALSE;
 uchar mai_semaphor = FALSE;
 
-
-void music_ai() {
-    //   mlimbs_semaphore = TRUE;
-    ai_cycle = TRUE;
-    //   if ((run_asynch_music_ai) && (!mai_semaphor))
-    if (!mai_semaphor) {
-        mai_semaphor = TRUE;
-        check_asynch_ai(FALSE);
-        mai_semaphor = FALSE;
-        ai_cycle = FALSE;
-    }
-}
 
 void grind_credits_music_ai(void) {
     int i;

@@ -63,28 +63,6 @@ long poly_index[] = {FIX_UPOLY, FIX_TLUC8_UPOLY, FIX_USPOLY, FIX_TLUC8_SPOLY, FI
 
 char gour_flag; // 0=normal,1=tluc_poly,2=spoly,3=tluc_spoly,4=cpoly
 
-// check if a list of point (as in a polygon) are on screen. returns codes
-// takes esi=list of points, ecx=codes, returns bx=codes.
-// trashes ebx,ecx,edx,esi
-g3s_codes g3_check_codes(int n_verts, g3s_phandle *p) {
-    int i;
-    g3s_codes retcode;
-    char andcode, orcode;
-
-    andcode = 0xff;
-    orcode = 0;
-
-    for (i = n_verts; i > 0; i--) {
-        andcode &= (*p)->codes;
-        orcode |= (*p)->codes;
-        p++;
-    }
-
-    retcode.or_ = orcode;
-    retcode.and_ = andcode;
-    return (retcode);
-}
-
 extern void g3_compute_normal_quick(g3s_vector *v, g3s_vector *v0, g3s_vector *v1, g3s_vector *v2);
 
 // takes 3 rotated points: eax,edx,ebx.
@@ -98,19 +76,8 @@ bool g3_check_poly_facing(g3s_phandle p0, g3s_phandle p1, g3s_phandle p2) {
     return (fix64_int(result) < 0);
 }
 
-// takes same input as draw_poly, but first checks if facing
-int g3_check_and_draw_cpoly(int n_verts, g3s_phandle *p) {
-    gour_flag = 4;
-    return (check_and_draw_common(0, n_verts, p));
-}
-
 int g3_check_and_draw_tluc_spoly(int n_verts, g3s_phandle *p) {
     gour_flag = 3;
-    return (check_and_draw_common(0, n_verts, p));
-}
-
-int g3_check_and_draw_spoly(int n_verts, g3s_phandle *p) {
-    gour_flag = 2;
     return (check_and_draw_common(0, n_verts, p));
 }
 
@@ -141,23 +108,6 @@ int check_and_draw_common(long c, int n_verts, g3s_phandle *p) {
 int g3_draw_cpoly(int n_verts, g3s_phandle *p) {
     gour_flag = 4;
     return draw_poly_common(0, n_verts, p);
-}
-
-// smooth poly
-int g3_draw_tluc_spoly(int n_verts, g3s_phandle *p) {
-    gour_flag = 3;
-    return draw_poly_common(0, n_verts, p);
-}
-
-// smooth poly
-int g3_draw_spoly(int n_verts, g3s_phandle *p) {
-    gour_flag = 2;
-    return draw_poly_common(0, n_verts, p);
-}
-
-int g3_draw_tluc_poly(long c, int n_verts, g3s_phandle *p) {
-    gour_flag = 1;
-    return draw_poly_common(c, n_verts, p);
 }
 
 int g3_draw_poly(long c, int n_verts, g3s_phandle *p) {
@@ -255,22 +205,6 @@ int draw_poly_common(long c, int n_verts, g3s_phandle *p) {
     return CLIP_NONE;
 }
 
-// draw a point in 3-space. takes esi=point. returns al=drew.
-// trashes eax,edx,esi and if must project, ecx
-int g3_draw_point(g3s_phandle p) {
-    int sx, sy;
-
-    if (p->codes)
-        return CLIP_ALL;
-
-    if ((p->p3_flags & PF_PROJECTED) == 0) // check if projected
-        g3_project_point(p);
-
-    sx = (p->sx + 0x08000) >> 16; // round & get int part
-    sy = (p->sy + 0x08000) >> 16; // round & get int part
-    return rastq_point(sx, sy);
-}
-
 // draws a line in 3-space. takes esi,edi=points
 
 // fixed 7/24 dc to have a common and have draw_line set gour_flag, not ignore
@@ -285,12 +219,6 @@ int g3_draw_cline(g3s_phandle p0, g3s_phandle p1) // rgb-space gouraud line
         draw_color = grd_ipal[gr_index_brgb(p0->rgb)];
         return (draw_line_common(p0, p1));
     }
-}
-
-int g3_draw_sline(g3s_phandle p0, g3s_phandle p1) // 2d-intensity gouraud line
-{
-    gour_flag = -1;
-    return (draw_line_common(p0, p1));
 }
 
 int g3_draw_line(g3s_phandle p0, g3s_phandle p1) {

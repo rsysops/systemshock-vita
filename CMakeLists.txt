@@ -138,7 +138,6 @@ set(GAME_SRC
 	src/GameSrc/gr2ss.c
 	src/GameSrc/grenades.c
 	src/GameSrc/hand.c
-	src/GameSrc/hflip.c
 	src/GameSrc/hkeyfunc.c
 	src/GameSrc/hud.c
 	src/GameSrc/hudkeep.c

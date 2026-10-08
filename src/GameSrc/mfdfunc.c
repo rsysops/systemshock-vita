@@ -122,8 +122,6 @@ static uchar in_or_out = FALSE;
 
 extern uchar full_game_3d;
 
-LGRegion *mfd_regions[NUM_MFDS];
-
 // ----------------
 // Local Prototypes
 // ----------------
@@ -135,7 +133,6 @@ errtype mfd_item_init(MFD_Func *mfd);
 void mfd_expose_blank(MFD *m, ubyte control);
 void mfd_item_expose(MFD *m, ubyte control);
 uchar mfd_item_handler(MFD *m, uiEvent *e);
-void mfd_item_micro_hires_expose(uchar full, int triple);
 
 void mfd_general_inv_expose(MFD *m, ubyte control, ObjID id, uchar full);
 uchar mfd_general_inv_handler(MFD *m, uiEvent *ev, int row);
@@ -146,9 +143,6 @@ errtype mfd_lanternware_init(MFD_Func *f);
 void mfd_lanternware_expose(MFD *mfd, ubyte control);
 
 void draw_ammo_button(int triple, short x, short y);
-
-errtype mfd_anim_init();
-void mfd_anim_expose(MFD *m, ubyte control);
 
 errtype mfd_weapon_init(MFD_Func *mfd);
 void mfd_weapon_expose(MFD *m, ubyte control);
@@ -292,7 +286,6 @@ void mfd_init_funcs() {
 #define MFD_BEAM_RECT_Y1 52
 #define MFD_BEAM_RECT_Y2 56
 
-LGRect MfdAmmoRectZone = {{0, AMMO_BUTTON_Y}, {MFD_VIEW_WID, AMMO_BUTTON_Y + AMMO_BUTTON_H}};
 LGRect MfdBeamStatusRect;
 
 #define NO_CONSTRAIN NUM_MFDS
@@ -996,33 +989,6 @@ void mfd_item_micro_expose(uchar full, int triple) {
 
 //--------------------------------------------------------------
 // Called by things that know they have hi-res art to display.
-
-void mfd_item_micro_hires_expose(uchar full, int triple) {
-    if (!full_game_3d) {
-        ss_safe_set_cliprect(0, 0, MFD_VIEW_WID, MFD_VIEW_HGT);
-        gr_bitmap(&mfd_background, 0, 0);
-    }
-    if (full) {
-        LGPoint siz;
-        int id;
-        short y = 2;
-        char buf[LNAME_BUFSIZE];
-
-        mfd_add_rect(0, 0, MFD_VIEW_WID, MFD_VIEW_HGT);
-        ss_safe_set_cliprect(0, 0, MFD_VIEW_WID, MFD_VIEW_HGT);
-
-        get_object_long_name(triple, buf, LNAME_BUFSIZE);
-        siz = mfd_draw_string(buf, X_MARGIN, y, GREEN_YELLOW_BASE, TRUE);
-        y += siz.y + 2;
-
-        id = mfd_bmap_id(triple);
-        if (RefIndexValid((RefTable *)ResGet(REFID(id)), REFINDEX(id)))
-            draw_hires_resource_bm(id, (SCONV_X(MFD_VIEW_WID) - res_bm_width(id)) / 2, SCONV_Y(y));
-        else
-            ResUnlock(REFID(id));
-    }
-    return;
-}
 
 // --------------------------------------------------------------------------
 // mfd_item_draw_grenade_setting_boxes()
@@ -2008,29 +1974,6 @@ void mfd_bioware_expose(MFD *m, ubyte control) {
 // * THE ANIMATION MFD
 // -------------------
 
-// ---------------------------------------------------------------------------
-// mfd_anim_init()
-//
-// Open the space station resource file for animation
-
-errtype mfd_anim_init() {
-
-    return OK;
-}
-
-// ---------------------------------------------------------------------------
-// mfd_anim_expose()
-//
-// Strictly temporary code.  Starts or stops the space station animation.
-
-void mfd_anim_expose(MFD *m, ubyte control) {
-    MFD *dummy;
-    ubyte dummy2;
-    dummy = m;
-    dummy2 = control;
-    return;
-}
-
 // SHODAN!!
 // Note this expects all appropriate 2d preparation to already be done!!
 
@@ -2410,13 +2353,6 @@ uchar keypad_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
         return TRUE;
     }
     return FALSE;
-}
-
-void install_keypad_hotkeys(void) {
-    int i;
-    for (i = 0; i < 10; i++)
-        // KLC      hotkey_add(('0'+i)|KB_FLAG_DOWN|KB_FLAG_2ND, DEMO_CONTEXT, keypad_hotkey_func, 0);
-        hotkey_add(('0' + i) | KB_FLAG_DOWN, DEMO_CONTEXT, keypad_hotkey_func, 0);
 }
 
 uchar mfd_keypad_handler(MFD *m, uiEvent *ev) {

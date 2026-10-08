@@ -130,12 +130,10 @@ errtype uiPushRegionCursor(LGRegion* r, LGCursor* c);
 errtype uiPopRegionCursor(LGRegion* r);
 // Pops the top cursor off of r's cursor stack
 
-errtype uiGetRegionCursor(LGRegion* r, LGCursor** c);
 // Gets the current cursor for region r.  *c will be NULL if 
 // there is no default cursor for r, and no cursors on the 
 // r's cursor stack.
 
-errtype uiShutdownRegionCursors(LGRegion* r);
 // Deletes the cursor stack and default cursor for region r.
 
 errtype uiSetGlobalDefaultCursor(LGCursor* c);
@@ -147,7 +145,6 @@ errtype uiPushGlobalCursor(LGCursor* c);
 errtype uiPopGlobalCursor(void);
 // Pops the top cursor off of the active slab's global cursor stack. 
 
-errtype uiGetGlobalCursor(LGCursor** c);
 // Gets the cursor on top of the active slab's global cursor stack,
 // or the global default cursor if the stack is empty.
 
@@ -160,7 +157,6 @@ errtype uiPushSlabCursor(uiSlab* slab, LGCursor* c);
 errtype uiPopSlabCursor(uiSlab* slab);
 // Pops the top cursor off of the specified slab's global cursor stack. 
 
-errtype uiGetSlabCursor(uiSlab* slab, LGCursor** c);
 // Gets the cursor on top of the specified slab's global cursor stack,
 // or the global default cursor if the stack is empty.
 
@@ -231,12 +227,10 @@ extern errtype uiGetSlabCursorStack(uiSlab* slab, uiCursorStack** cs);
 
 // note that there is not currently a uiSetSlabCursorStack
 
-extern errtype uiSetDefaultCursor(uiCursorStack* cs, LGCursor* c);
 // sets cs' default cursor to c.  if cs is the cursor stack of a slab, 
 // c will become the default global cursor when that slab is the current slab.  If
 // cs is the cursor stack of a region, c will become the default cursor for the region. 
 
-extern errtype uiGetDefaultCursor(uiCursorStack* cs, LGCursor** c);
 // sets *c to the default cursor for cs, or NULL if there is none.
 
 extern errtype uiPushCursor(uiCursorStack* cs, LGCursor* c);

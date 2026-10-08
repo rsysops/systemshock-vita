@@ -143,24 +143,6 @@ long RndRange(RndStream *prs, long low, long high)
 	return (rand() % (high - low + 1)) + low;
 }
 
-//	----------------------------------------------------------------
-//
-//	RndRangeFix() returns the next random value, scaled into fixed-point range.
-//
-//		prs  = ptr to random stream
-//		low  = low value of fixed-point range
-//		high = high value of fixed-point range
-//
-//	Returns: next random value scaled into range low->high
-
-fix RndRangeFix(RndStream *prs, fix low, fix high)
-{
-	// HAX HAX HAX should use this library instead of using the std lib random
-	float flow = fix_float(low);
-	float fhigh = fix_float(high);
-	return fix_from_float((float)rand()/(float)(RAND_MAX/(fhigh - flow)) + flow);
-}
-
 //	-----------------------------------------------------------------
 //		RANDOM GENERATORS
 //	-----------------------------------------------------------------

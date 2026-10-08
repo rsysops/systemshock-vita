@@ -137,7 +137,6 @@ int get_player_ware_version(int waretype, int num);
 // of a ware in the player's inventory.  zero means
 // the player doesn't have it.
 
-void wares_init();
 // sets up the wares system
 
 void wares_update();
@@ -175,14 +174,12 @@ void lamp_set_vals_with_offset(byte offset);
 void lamp_turnon(uchar visible, uchar real_start);
 void lamp_change_setting(byte offset);
 void lamp_turnoff(uchar visible, uchar real_stop);
-uchar lantern_change_setting_hkey(ushort keycode, uint32_t context, intptr_t data);
 
 //--------------------------
 // SHIELD WARE
 //--------------------------
 void shield_set_absorb(void);
 void shield_toggle(uchar visible, uchar real);
-uchar shield_change_setting_hkey(ushort keycode, uint32_t context, intptr_t data);
 
 // -------
 // Globals

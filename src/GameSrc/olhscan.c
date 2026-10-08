@@ -65,17 +65,6 @@ void olh_init_single_scan(fauxrend_context **outxt, fauxrend_context *intxt) {
     fr_set_callbacks(*outxt, NULL, NULL, NULL);
 }
 
-/*KLC - no longer used
-void olh_init_scan(void)
-{
-   olh_init_single_scan(&olh_full_context, (fauxrend_context *)full_game_fr_context);
-}
-*/
-void olh_free_scan(void) {
-    if (olh_full_context)
-        fr_free_view(olh_full_context);
-}
-
 fix x_mul = fix_make(1, 0), y_mul = fix_make(1, 0);
 void olh_svga_deal(void) {
     if (olh_full_context)

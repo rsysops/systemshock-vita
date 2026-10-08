@@ -155,32 +155,8 @@ void EDMS_startup(EDMS_data *D) {
     //	=====
 }
 
-//////////////////////////////
-//
-// Tells EDMS what space to use for A
-//
-void EDMS_set_workspace(void *place) { A = (EDMS_Argblock_Pointer)place; }
-
 //	Although this seems a very stupid way to do this, it's actually not...
 //	======================================================================
-
-//	Autodestruct gets turned on...
-//	==============================
-void EDMS_set_autodestruct(physics_handle ph) {
-    if (ph > -1) {
-        int32_t object = ph2on[ph];
-        I[object][38] = 1;
-    }
-}
-
-//	Autodestruct gets turned off...
-//	===============================
-void EDMS_defuse_autodestruct(physics_handle ph) {
-    if (ph > -1) {
-        int object = ph2on[ph];
-        I[object][38] = 0;
-    }
-}
 
 // I am death incarnate.  666. So there.
 // =====================================
@@ -342,20 +318,6 @@ void EDMS_make_robot_antisocial(physics_handle ph) {
     } // You suck...
 }
 
-//      Turns collisions ON for a given robot, useful in a variety of household chores...
-//      =================================================================================
-void EDMS_make_robot_social(physics_handle ph) {
-    int32_t on = 0;
-
-    // Do you suck...
-    // --------------
-    if (ph > -1) {
-        on = ph2on[ph];
-        if (I[on][30] == ROBOT)
-            I[on][5] = 0;
-    } // You suck...
-}
-
 // Here is a routine that will attempt to settle an object to the local b/c.  It is NOT intended for
 // online use.  A negative return value indicates a badly placed or unphysical model...
 // =================================================================
@@ -373,22 +335,6 @@ int32_t EDMS_settle_object(physics_handle ph) {
     // -----------
     return return_value;
 }
-
-//      Prints out a state vector...
-//      ============================
-void EDMS_mprint_state(physics_handle ph) {
-    int32_t on = ph2on[ph];
-
-    mprint_state(on);
-}
-
-//	Here is the beginning of an EDMS diagnostic statistics tool...
-//	==============================================================
-void EDMS_inventory_and_statistics(int32_t show_sleepers) { inventory_and_statistics(show_sleepers); }
-
-//	Here is the sanity checker, but you already can read that, can't you...
-//	=======================================================================
-int32_t EDMS_sanity_check() { return sanity_check(); }
 
 //	Here are the bridge routines to the "default" EDMS models, others are segregates(d)...
 //	======================================================================================
@@ -412,15 +358,6 @@ void EDMS_get_robot_parameters(physics_handle ph, Robot *m) {
     m->mass = I[on][IDOF_ROBOT_MASS].to_fix();
     m->gravity = I[on][IDOF_ROBOT_GRAVITY].to_fix();
     m->cyber_space = I[on][IDOF_CYBERSPACE].to_int();
-}
-
-//	And the compression test for terrain "traps..."
-//	===============================================
-fix EDMS_get_robot_damage(physics_handle ph) {
-    int32_t object;
-
-    object = ph2on[ph]; // As stupid as it gets...
-    return (I[object][14]).to_fix();
 }
 
 //	In flux (Thrust, attitude and JumpJets)...
@@ -590,36 +527,12 @@ void EDMS_set_robot_parameters(physics_handle ph, Robot *m) {
 //	Bridge routines to the solvers!!
 //	================================
 
-//	4th order and very stable...
-//	----------------------------
-void EDMS_soliton(fix timestep) {
-    Q temp;
-    temp.fix_to(timestep);
-    soliton(temp);
-}
-
-//	2nd order and needs some attention...
-//	-------------------------------------
-void EDMS_soliton_lite(fix timestep) {
-    Q temp;
-    temp.fix_to(timestep);
-    soliton_lite(temp);
-}
-
 //	Efficient and unstoppable...
 //	----------------------------
 void EDMS_soliton_vector(fix timestep) {
     Q temp;
     temp.fix_to(timestep);
     soliton_vector(temp);
-}
-
-//	Won't allow objects to collide w/one another...
-//	-----------------------------------------------
-void EDMS_soliton_vector_holistic(fix timestep) {
-    Q temp;
-    temp.fix_to(timestep);
-    soliton_vector_holistic(temp);
 }
 
 //	This code here handles the mapping between the user's physics handles and the

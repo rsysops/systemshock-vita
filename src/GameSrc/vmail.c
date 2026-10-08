@@ -95,7 +95,6 @@ ubyte vmail_len[NUM_VMAIL] = {
 //
 
 extern grs_canvas *anim_offscreen;
-uchar copied_background = FALSE;
 grs_bitmap *vmail_background = NULL;
 
 #pragma disable_message(202)
@@ -406,19 +405,6 @@ errtype play_vmail(byte vmail_no)
 }
 #pragma enable_message(202)
 
-byte test_vmail = 0;
 #pragma disable_message(202)
-uchar shield_test_func(short keycode, ulong context, void* data)
-{
-   int   i;
-   vmail_wait_for_input = FALSE;
-   for (i=0;i<5; i++)
-   {
-      play_vmail(test_vmail);
-      test_vmail = (test_vmail+1)%NUM_VMAIL;
-   }
-   vmail_wait_for_input = TRUE;
-   return(TRUE);
-}
 #pragma enable_message(202)
 

@@ -292,10 +292,7 @@ typedef struct _Player {
 errtype init_player(Player *pplr);
 errtype player_tele_to(int x, int y);
 errtype player_create_initial(void);
-errtype player_startup(void);
-errtype player_shutdown(void);
 ubyte set_player_energy_spend(ubyte new_val);
-bool IsFullscreenWareOn(void);
 
 // Globals
 extern Player player_struct;

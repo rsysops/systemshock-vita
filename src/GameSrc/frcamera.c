@@ -145,14 +145,6 @@ int fr_camera_update(cams *cam, uintptr_t arg1, int whicharg, uintptr_t arg2) {
     return TRUE;
 }
 
-void fr_camera_setone(cams *cam, int which, int newone) {
-    _cam_top(cam);
-    if (_cam->type & CAMBIT_OBJ)
-        fr_objslew_setone(which, newone);
-    else
-        _cam->coor[which] = newone;
-}
-
 void fr_camera_slewone(cams *cam, int which, int how) {
     uchar cv[3] = {0, 2, 1};
     _cam_top(cam);

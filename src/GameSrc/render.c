@@ -70,27 +70,8 @@ ObjID hack_cam_surrogates[NUM_HACK_CAMERAS];
 #define FRAME_SKIP_MASK 0x03
 #define FRAME_PARITY_SHF 2 // skip every 4 frames when rendering screen images
 
-uchar fr_texture = TRUE;
-uchar fr_txt_walls = TRUE;
-uchar fr_txt_floors = TRUE;
-uchar fr_txt_ceilings = TRUE;
-uchar fr_lights_out = FALSE;
-uchar fr_lighting = TRUE;
-uchar fr_play_lighting = FALSE;
-uchar fr_normal_lights = TRUE;
-int fr_detail_value = 100;
-int fr_drop[TM_SIZE_CNT] = {1, 4, 10};
-uchar fr_show_tilecursor = FALSE;
-uchar fr_cont_tilecursor = FALSE;
-uchar fr_show_all = TRUE;
-int fr_qscale_obj = 2;
-int fr_qscale_crit = 2;
-uchar fr_highlights = FALSE;
-int fr_normal_shf = 2;
 int fr_lite_rad1 = 0, fr_lite_base1 = 10, fr_lite_rad2 = 7, fr_lite_base2 = 0;
 fix fr_lite_slope = (-fix_make(2, 0) + fix_make(0, 0x5000)), fr_lite_yint = fix_make(12, 0x2000);
-int fr_detail_master = 3; /* 0-3 master detail */
-int fr_pseudo_spheres = 0;
 
 uchar hack_cameras_needed = 0;
 char curr_hack_cam = 0;
@@ -150,15 +131,6 @@ errtype init_hack_cameras() {
         hack_cam_surrogates[i] = OBJ_NULL;
     }
 
-    return (OK);
-}
-
-errtype shutdown_hack_cameras() {
-    int i;
-    for (i = 0; i < MAX_CAMERAS_VISIBLE; i++) {
-        fr_free_view(hack_cam_frcs[i]);
-        free(hack_cam_bitmaps[i]->bits);
-    }
     return (OK);
 }
 

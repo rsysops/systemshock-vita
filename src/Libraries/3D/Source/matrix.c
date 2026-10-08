@@ -395,24 +395,6 @@ void g3_transpose(g3s_matrix *m) // transpose in place
     SwapFix(m->m6, m->m8);
 }
 
-// transpose the matrix at esi into matrix at edi
-// trashes eax
-void g3_copy_transpose(g3s_matrix *dest, g3s_matrix *src) // copy and transpose
-{
-    dest->m1 = src->m1;
-    dest->m5 = src->m5;
-    dest->m9 = src->m9;
-
-    dest->m2 = src->m4;
-    dest->m4 = src->m2;
-
-    dest->m3 = src->m7;
-    dest->m7 = src->m3;
-
-    dest->m6 = src->m8;
-    dest->m8 = src->m6;
-}
-
 // MLA- oh no I've got LookingGlass disease, I'm making multi-line #defines!
 // No worries, WH comes to help!
 fix mxm_mul(fix s1_1, fix s1_2, fix s1_3, fix s2_1, fix s2_2, fix s2_3) {

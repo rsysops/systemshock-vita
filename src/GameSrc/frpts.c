@@ -71,10 +71,6 @@ int fr_pts_frame_start(void) {
     _fr_ret;
 }
 
-int fr_pts_freemem(void) {
-    _fr_ret;
-}
-
 //#pragma disable_message(202)
 int fr_pts_resize(int x, int y) // x, y
 {

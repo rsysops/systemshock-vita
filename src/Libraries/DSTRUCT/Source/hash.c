@@ -122,18 +122,6 @@ errtype hash_init(Hashtable* h, int elemsize, int vecsize, Hashfunc hfunc, Equfu
    return OK;
 }
 
-errtype hash_copy(Hashtable* t, Hashtable* s)
-{
-   *t = *s;
-   t->statvec = malloc(t->size);
-   if (t->statvec == NULL) return ERR_NOMEM;
-   t->vec = malloc(t->elemsize*t->size);
-   if (t->vec == NULL) return ERR_NOMEM;
-   LG_memcpy(t->vec,s->vec,t->size*t->elemsize);
-   LG_memcpy(t->statvec,s->statvec,t->size);
-   return OK;
-}
-
 static uchar find_elem(Hashtable* h, void* elem, int* idx)
 {
    uchar found = FALSE;
@@ -204,20 +192,6 @@ static errtype grow(Hashtable* h, int newsize)
    return OK;
 }
 
-errtype hash_set(Hashtable* h, void* elem)
-{
-   int i;
-//   Spew(DSRC_DSTRUCT_Hash,("hash_set(%x,%x)\n",h,elem));
-   if (h->fullness*100/h->size > FULLNESS_THRESHHOLD_PERCENT)
-      grow(h,h->size*2);
-   if (!find_elem(h,elem,&i))
-      i = find_index(h,elem);
-   LG_memcpy(ELEM(h,i),elem,h->elemsize);
-   h->statvec[i] = HASH_FULL;
-   h->fullness++;
-   return OK;
-}
-
 errtype hash_insert(Hashtable* h, void* elem)
 {
    int i;
@@ -232,18 +206,6 @@ errtype hash_insert(Hashtable* h, void* elem)
 }
 
 
-errtype hash_delete(Hashtable* h, void* elem)
-{
-   int i;
-//   Spew(DSRC_DSTRUCT_Hash,("hash_delete(%x,%x)\n",h,elem));
-   if (find_elem(h,elem,&i))
-   {
-      h->statvec[i] = HASH_TOMBSTONE;
-      return OK;
-   }
-   return ERR_NOEFFECT;
-}
-
 
 errtype hash_lookup(Hashtable* h, void* elem, void** result)
 {
@@ -255,37 +217,6 @@ errtype hash_lookup(Hashtable* h, void* elem, void** result)
    }
    else *result = NULL;
 //   Spew(DSRC_DSTRUCT_Hash,("hash_lookup(): value is %x\n",*result));
-   return OK;
-}
-
-errtype hash_iter(Hashtable* h, HashIterFunc ifunc, void* data)
-{
-   int i;
-   for (i = 0; i < h->size; i++)
-      if (h->statvec[i] == HASH_FULL)
-         if (ifunc(ELEM(h,i),data))
-            break;
-   return OK;
-}
-
-errtype hash_step(Hashtable *h, void **result, int *index)
-{
-   while ((h->statvec[*index] != HASH_FULL) && (*index < h->size))
-      (*index)++;
-   if (*index == h->size)
-      *result = NULL;
-   else
-      *result = ELEM(h,*index);
-   (*index)++;
-   return(OK);
-}
-
-errtype hash_destroy(Hashtable* h)
-{
-   h->size = 0;
-   h->fullness = 0;
-   free(h->statvec);
-   free(h->vec);
    return OK;
 }
 

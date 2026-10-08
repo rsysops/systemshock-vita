@@ -48,7 +48,6 @@ uchar fr_objslew_tele_to(Obj *cobj, int x, int y);
 uchar fr_objslew_allowed(Obj *cobj, int32_t *eye);
 uchar fr_objslew_moveone(Obj *objp, ObjID objnum, int which, int how, uchar conform);
 uchar fr_objslew_go_real_height(Obj *cobj, int32_t *eye);
-uchar fr_objslew_setone(int which, int l_new);
 
 extern int32_t eye_mods[3];
 extern uchar slew_conform_to_terrain, slew_full_3d;

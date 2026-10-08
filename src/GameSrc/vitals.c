@@ -148,11 +148,6 @@ void status_vitals_start() {
         simple_load_res_bitmap(&status_arrows[i], REF_IMG_bmStatusAngle1 + i);
 }
 
-void status_vitals_end() {
-    int i;
-    for (i = 0; i < NUM_STATUS_ARROWS; i++)
-        free(status_arrows[i].bits);
-}
 #define VITALS_MAX 23
 
     // ---------------------------------------------------------------------------

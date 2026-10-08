@@ -104,7 +104,6 @@ typedef void (*mouse_callfunc)(ss_mouse_event *e, void *data);
 errtype mouse_init(short xsize, short ysize);
 
 // shutdown mouse system
-errtype mouse_shutdown(void);
 
 // Tell the mouse library where to get timestamps from.
 // errtype mouse_set_timestamp_register(ulong *tstamp);
@@ -137,7 +136,6 @@ errtype mouse_generate(ss_mouse_event e);
 errtype mouse_set_callback(mouse_callfunc f, void *data, int *id);
 
 // Remove an interrupt callback
-errtype mouse_unset_callback(int id);
 
 // Constrain the mouse coordinates
 errtype mouse_constrain_xy(short xl, short yl, short xh, short yh);

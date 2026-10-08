@@ -39,8 +39,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // prototypes
 int gri_per_umap_setup (int n, grs_vertex **vplist, grs_per_setup *ps);
 
-grs_per_context *grd_per_context=NULL;  /* perspective mapping context */
-
 /*int fix_mul_16_32_20(int one, int two) {
    return one * two;
 }

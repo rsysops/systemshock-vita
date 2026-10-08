@@ -87,7 +87,6 @@ typedef struct {
 
 extern void palette_initialize(short table_size);
 extern void palette_set_rate(short time_units_per_step);
-extern void palette_shutdown();
 extern void palette_init_smap(short first, short last, uchar *from, uchar *to,
                               short num_steps);
 
@@ -101,12 +100,9 @@ extern byte palette_install_effect(PAL_TYPE type,
                                    uchar *ptr2);     	// to     --     --
 
 extern errtype palette_remove_effect(byte id);
-extern errtype palette_freeze_effect(byte id);
-extern errtype palette_unfreeze_effect(byte id);
 extern void palette_advance_effect(byte id, int steps); // DON'T call this
 extern void palette_advance_all_fx(long timestamp);  // Call this, rather...
 extern PAL_STATUS palette_query_effect(byte id);
-extern void palette_change_delay(byte id, short delay);
 extern void palette_swap_shadow(int s, int n, int d);
 
 extern void palette_print_table();

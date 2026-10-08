@@ -36,8 +36,6 @@ static struct
 #define bitstream kapsi.epsilon
 #define d4x4_kappa kapsi.kappa
 
-static ushort grd_bank = 0; // FIXME: not needed in modern video modes anymore
-
 static int d4x4_iota;
 static uchar* d4x4_hufftab;
 static uchar* d4x4_colorset;
@@ -46,8 +44,6 @@ static void* d4x4_beta;
 
 static uchar** d4x4_eptr = &bitstream; // FIXME: should be ptr to something
 static int* d4x4_gptr = &d4x4_gamma; // FIXME: should be ptr to something
-
-static uchar d4x4_omega[20];  // should be int*
 
 // Reimann: FIXME: hack to prevent using SVGA banks. Should alter the code instead of using this hack
 #define grd_mode 0

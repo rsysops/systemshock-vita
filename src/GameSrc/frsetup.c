@@ -235,12 +235,6 @@ void fr_startup(void) {
     fr_tfunc_grab_start();
 }
 
-// lets hit the fucking road
-void fr_shutdown(void) {
-    _fr_free_all_tmaps();
-    g3_shutdown();
-}
-
 // you taught me everything about a poison apple
 void fr_set_cluts(uchar *base, uchar *bwclut, uchar *greenclut, uchar *amberclut) {
     _fr_clut_list[0] = base;
@@ -284,34 +278,6 @@ int fr_free_view(frc *view) {
     _fr_ret;
 }
 
-int fr_mod_cams(frc *fr, void *v_cam, int mod_fac) {
-    cams *cam = (cams *)v_cam;
-
-    _fr_top(fr);
-    _fr->viewer_zoom = fix_mul(_fr->viewer_zoom, mod_fac);
-    if (_fr->viewer_zoom == 0)
-        _fr->viewer_zoom = 1;
-    if ((unsigned long)_fr->viewer_zoom > 0x7fffffff)
-        _fr->viewer_zoom = 0x7fffffff;
-    if ((long)cam != -1) {
-        if (cam == NULL)
-            _fr->camptr = fr_camera_getdef();
-        else
-            _fr->camptr = cam;
-    }
-    _fr_ret;
-}
-// we put
-// eachother
-// down
-int fr_context_mod_flag(frc *fr, int pflags_on, int pflags_off) // change flags
-{
-    _fr_top(fr);
-    _fr->flags &= ~pflags_off;
-    _fr->flags |= pflags_on;
-    _fr_ret;
-}
-
 #if _fr_defdbg(ALTCAM)
 extern int _fr_altcamx, _fr_altcamy;
 int fr_mod_xtracam(frc *fr, void *v_xtra_cam) {
@@ -326,20 +292,6 @@ int fr_mod_xtracam(frc *fr, void *v_xtra_cam) {
 int fr_global_mod_flag(int flags_on, int flags_off) {
     _fr_glob_flags &= ~flags_off;
     _fr_glob_flags |= flags_on;
-    _fr_ret;
-}
-
-// we are all bigots
-// so filled with hatred
-// we release our poisons
-int fr_mod_size(frc *view, int xc, int yc, int wid, int hgt) // move us around
-{
-    int detail;
-    _fr_top(view);
-    // should leard to deal with built zoom and such, so on
-    detail = _fr->detail;
-    fr_place_view(_fr, _fr->camptr, NULL, _fr->flags, _fr->axis, _fr->fov, xc, yc, wid, hgt);
-    _fr->detail = detail;
     _fr_ret;
 }
 
@@ -439,45 +391,6 @@ frc *fr_place_view(frc *view, void *v_cam, void *cnvs, int pflags, char axis, in
 void fr_use_global_detail(frc *view) {
     if (view != NULL)
         ((fauxrend_context *)view)->detail = FR_USE_GLOBAL_DETAIL;
-}
-
-int fr_view_resize(frc *view, int wid, int hgt) {
-    int nw, nh, nxt, nyt;
-    int detail;
-    _fr_top(view);
-    nw = _fr->xwid;
-    nh = _fr->ywid;
-    nxt = _fr->xtop;
-    nyt = _fr->ytop; /* get base new coors */
-    if ((nw + nxt <= wid) && (nh + nyt <= hgt))
-        ; /* all ok... */
-    else {
-        if (nw < wid)
-            nxt = (wid - nw) / 2;
-        else {
-            nw = wid;
-            nxt = 0;
-        } /* either center old size, or fill new */
-        if (nh < hgt)
-            nyt = (hgt - nh) / 2;
-        else {
-            nh = hgt;
-            nyt = 0;
-        } /* either center old size, or fill new */
-    }
-    detail = _fr->detail;
-    fr_place_view(_fr, _fr->camptr, NULL, _fr->flags, _fr->axis, _fr->fov, nxt, nyt, nw, nh);
-    _fr->detail = detail;
-    _fr_ret;
-}
-
-int fr_view_full(frc *view, int wid, int hgt) {
-    int detail;
-    _fr_top(view);
-    detail = _fr->detail;
-    fr_place_view(_fr, _fr->camptr, NULL, _fr->flags, _fr->axis, _fr->fov, 0, 0, wid, hgt);
-    _fr->detail = detail;
-    _fr_ret;
 }
 
 void *fr_get_canvas(frc *view) {
@@ -731,9 +644,6 @@ int fr_start_view(void) {
 
 //#define JUST_SHOW_THE_THING
 
-/* send the actual frame out a here.... */
-// you're so kind when it serves you well
-uchar smooth_double = FALSE;
 g3s_vector zvec = {0, 0, 0};
 
 extern uchar view360_is_rendering;

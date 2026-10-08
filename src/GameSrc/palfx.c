@@ -100,18 +100,6 @@ byte palfx_start_fade_up(uchar *new_pal) {
 }
 
 //-------------------------------------
-void palfx_fade_up(uchar do_now) {
-
-    FadeStartTicks = SDL_GetTicks();
-
-    // ppall is defined as the main shadow palette in init.c
-    pal_fade_id = palfx_start_fade_up(ppall);
-
-    if (do_now)
-        finish_pal_effect(pal_fade_id);
-}
-
-//-------------------------------------
 void palfx_init() {
     palette_initialize(8); // 1 time unit per frame, 8 effects max
     palette_set_rate(1);

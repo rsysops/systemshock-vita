@@ -202,7 +202,6 @@ void stop_terrain_elevator_sound(short sem)
   }
 }
 
-uchar sfx_volume_levels[] = {0, 0x9, 0xF};
 #define ALWAYS_QUEUE_TOLERANCE 2
 #define NO_GAIN_THRESHOLD 0x6A
 #define HARSH_GAIN_THRESHOLD 0xBA

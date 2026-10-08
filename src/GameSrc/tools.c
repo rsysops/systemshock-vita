@@ -53,7 +53,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //------------
 //  PROTOTYPES
 //------------
-void simple_text_button(char *text, int xc, int yc, int col);
 void Rect_gr_rect(LGRect *r);
 void Rect_gr_box(LGRect *r);
 char *itoa_2_10(char *s, int val);
@@ -128,14 +127,6 @@ void draw_hires_resource_bm(Ref id, int x, int y) {
     if (f == NULL)
         critical_error(CRITERR_MEM | 9);
     gr_bitmap(&f->bm, x, y);
-    RefUnlock(id);
-}
-
-void draw_hires_halfsize_bm(Ref id, int x, int y) {
-    FrameDesc *f = RefLock(id);
-    if (f == NULL)
-        critical_error(CRITERR_MEM | 9);
-    gr_scale_bitmap(&f->bm, x, y, (f->bm.w >> 1), (f->bm.h >> 1));
     RefUnlock(id);
 }
 
@@ -290,14 +281,6 @@ void text_button(char *text, int xc, int yc, int col, int shad, int w, int h) {
     }
     // some text, eh?
     ss_string(text, xc - (tw >> 1), yc - (th >> 1));
-}
-
-// ok, the easy case...
-// centered at xc,yc, color base, auto-shadowed, size out setting
-void simple_text_button(char *text, int xc, int yc, int col) {
-    short w, h;
-    gr_string_size(text, &w, &h);
-    text_button(text, xc, yc, col, 4, w + 12, h + 8);
 }
 
 void Rect_gr_rect(LGRect *r) { ss_rect(r->ul.x, r->ul.y, r->lr.x, r->lr.y); }
@@ -500,11 +483,6 @@ errtype message_clear_check() {
         errtype retval = message_info("");
         return retval;
     }
-    return (OK);
-}
-
-errtype message_box(char *box_text) {
-    message_info(box_text);
     return (OK);
 }
 

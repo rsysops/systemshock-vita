@@ -44,8 +44,6 @@ void add_mix_chunk(int snd_ref, Mix_Chunk* mix_chunk)
     cached_chunks[free_index].mix_chunk = mix_chunk;
 }
 
-static Mix_Chunk *samples_by_channel[SND_MAX_SAMPLES];
-
 extern struct MusicDevice *MusicDev;
 
 extern void MusicCallback(void *userdata, Uint8 *stream, int len);
@@ -155,8 +153,6 @@ void snd_sample_reload_parms(snd_digi_parms *sdp) {
     Mix_SetPanning(channel, 254 - right, right);
 }
 
-int is_playing = 0;
-
 int MacTuneLoadTheme(char *theme_base, int themeID) {
     char filename[40];
     FILE *f;
@@ -207,4 +203,3 @@ void MacTuneKillCurrentTheme(void) { StopTheMusic(); }
 // Unimplemented sound stubs
 
 void snd_startup(void) {}
-int snd_stop_digital(void) { return 1; }

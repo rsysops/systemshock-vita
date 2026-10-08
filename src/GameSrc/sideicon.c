@@ -74,8 +74,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // ----------------
 
 uchar side_icon_mouse_callback(uiEvent *e, LGRegion *r, intptr_t udata);
-void zoom_side_icon_to_mfd(int icon, int waretype, int wnum);
-uchar side_icon_hotkey_func(ushort keycode, uint32_t context, intptr_t i);
 void side_icon_draw_bm(LGRect *r, ubyte icon, ubyte art);
 
 // ----------
@@ -219,17 +217,6 @@ void screen_init_side_icons(LGRegion *root) {
 // ----------------------------------------------------------------
 // select_side_icon() selects a given side icon.
 
-void zoom_side_icon_to_mfd(int icon, int waretype, int wnum) {
-    extern ubyte waretype2invtype[];
-
-    int mfd;
-
-    mfd = mfd_grab_func(MFD_EMPTY_FUNC, MFD_ITEM_SLOT);
-    mfd_zoom_rect(&side_icons[icon].r, mfd);
-    set_inventory_mfd(waretype2invtype[waretype], wnum, TRUE);
-    mfd_change_slot(mfd, MFD_ITEM_SLOT);
-}
-
 // ---------------------------------------------------------------------------
 // side_icon_mouse_callback()
 //
@@ -294,16 +281,6 @@ uchar side_icon_mouse_callback(uiEvent *e, LGRegion *r, intptr_t udata) {
     }
 
     return retval;
-}
-
-uchar side_icon_hotkey_func(ushort keycode, uint32_t context, intptr_t i) {
-    int type = icon_data[i].waretype;
-    int num = IDX_OF_TYPE(type, icon_data[i].waretrip);
-    if ((!global_fullmap->cyber) || (i == 1)) {
-        if (type >= 0)
-            use_ware(type, num);
-    }
-    return TRUE;
 }
 
 // ========

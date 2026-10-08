@@ -141,13 +141,10 @@ void *RefGet(Ref ref);   // get ptr to item in comp. res (dangerous!)
 
 RefTable *ResReadRefTable(Id id);        // alloc & read ref table
 void ResFreeRefTable(void *ptr);         // free ref table
-int32_t ResExtractRefTable(Id id, RefTable *prt,
-                           int32_t size);             // extract reftable
 
 #define RefIndexValid(prt, index) ((index) < (prt)->numRefs)
 
 // returns the number of refs in a resource, extracting if necessary.
-int32_t ResNumRefs(Id id);
 
 #define REFTABLESIZE(numrefs) (offsetof(RefTable, entries) + ((numrefs) * sizeof(RefTableEntry)))
 
@@ -377,7 +374,6 @@ extern char resFileSignature[16]; // magic header
 
 void ResSetComment(int32_t filenum, char *comment); // set comment
 int32_t ResWrite(Id id);                            // write resource to file
-void ResKill(Id id);                                // delete resource & remove from file
 int32_t ResPack(int32_t filenum);                   // remove empty entries
 
 //#define ResAutoPackOn(filenum) (resFile[filenum].pedit->flags |= RFF_AUTOPACK)

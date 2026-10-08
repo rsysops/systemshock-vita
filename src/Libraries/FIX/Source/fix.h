@@ -290,8 +290,6 @@ fix fix_div(fix a, fix b);
 #ifdef VITA_PROFILE
 int fix_div_selfcheck(unsigned n, unsigned *checked);
 #endif
-fix fix_div_int(fix a, fix b);
-fix fix_div_safe_cint(fix a, fix b);
 fix fix_mul_div(fix m0, fix m1, fix d);
 fix fast_fix_mul_int(fix a, fix b);
 #define fast_fix_mul fix_mul
@@ -311,7 +309,6 @@ fix fix_fast_pyth_dist(fix a, fix b);
 
 // pyth_dist with less fear of overflow.  Either number
 // can be up to 0x2fffffff.
-fix fix_safe_pyth_dist(fix a, fix b);
 
 // Now in FIX_SQRT.C
 // Returns 0 if x < 0
@@ -403,7 +400,6 @@ typedef int64_t fix64;
  * @param b divisor
  * @return int32_t result of division
  */
-extern int32_t fix64_div(int64_t a, int32_t b);
 
 /**
  * Multiply two numbers.

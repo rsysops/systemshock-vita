@@ -210,7 +210,6 @@ void rastq_line(int shaded, long color, const grs_vertex *v0, const grs_vertex *
 int rastq_point(short x, short y);
 // For a view the GPU is kept out of: has the view that rastq_begin starts
 // next count, in gpu_kinds and gpu_whys, what the GPU could draw of it.
-void rastq_gpu_survey(void);
 
 // Pixels that don't change between a draw call and the end of its pass.
 void rastq_stable_pixels(const uchar *pixels, size_t size);

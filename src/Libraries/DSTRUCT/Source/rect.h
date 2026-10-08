@@ -127,15 +127,11 @@ typedef struct {
 //	These are the functional versions of the above macros
 
 int RectTestSect(LGRect *pr1, LGRect *pr2);
-void RectUnion(LGRect *pr1, LGRect *pr2, LGRect *prunion);
-int RectEncloses(LGRect *pr1, LGRect *pr2);
 int RectTestPt(LGRect *prect, LGPoint pt);
 void RectMove(LGRect *pr, LGPoint delta);
-void RectOffsettedRect(LGRect *pr, LGPoint delta, LGRect *proff);
 
 //	These functions have no macro counterparts
 int RectSect(LGRect *pr1, LGRect *pr2, LGRect *prsect);
-int RectClipCode(LGRect *prect, LGPoint pt);
 
 // guess why this isnt a macro        // hah, you cant
 //Point MakePoint(short x, short y);  // Guess what this does. 

@@ -63,8 +63,5 @@ void MacTuneShutdown(void);
 int MacTuneLoadTheme(char *theme, int themeID);
 void MacTuneStartCurrentTheme(void);
 void MacTuneKillCurrentTheme(void);
-void MacTunePurgeCurrentTheme(void);
-void MacTunePlayTune(int tune);
 void MacTuneQueueTune(int tune);
-void MacTunePrimeTimer(void);
 void MacTuneUpdateVolume(void);

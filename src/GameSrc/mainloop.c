@@ -74,12 +74,8 @@ uint _static_change = 0; /* current static changes */
 short _new_mode = 0;     /* mode to change to, if any */
 short _last_mode = 0;    /* last mode, if you want to change back to it */
 uchar time_passes = TRUE;
-uchar saves_allowed = FALSE;
 uchar physics_running = TRUE;
-uchar ai_on = TRUE;
 uchar anim_on = TRUE;
-uchar player_invulnerable = FALSE;
-uchar player_immortal = FALSE;
 uchar always_render = FALSE;
 uchar pal_fx_on = TRUE;
 
@@ -111,11 +107,6 @@ void loopmode_switch(short *cmode) {
     if (wrapper_screenmode_hack) {
         wrapper_start(screenmode_screen_init);
     }
-}
-
-void loopmode_exit(short loopmode) {
-    if (exit_modes[loopmode])
-        (*exit_modes[loopmode])();
 }
 
 void loopmode_enter(short loopmode) { (*enter_modes[loopmode])(); }

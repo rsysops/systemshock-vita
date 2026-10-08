@@ -147,51 +147,6 @@ errtype region_create(LGRegion *parent, LGRegion *ret, LGRect *r, int z, int eve
    return(OK);
 }
 
-errtype region_destroy(LGRegion *reg, uchar draw)
-{
-   LGRegion *curp, *lastp, *nextp;
-   extern errtype uiShutdownRegionHandlers(LGRegion* r);
-
-   // Make us disappear
-   region_remove(reg,draw);
-
-   // First, we kill our children...all of them!!
-   curp = reg->sub_region;
-   while (curp != NULL)
-   {
-      nextp = curp->next_region;;
-      region_destroy(curp,draw);
-      curp = nextp;
-   }
-
-   // Then, we make our siblings / parent forget about us!
-   if (reg->parent != NULL)
-   {
-      curp = (reg->parent)->sub_region;
-      lastp = NULL;
-     while (curp != reg)
-      {
-         lastp = curp;
-         curp = curp->next_region;
-      }
-      if (lastp != NULL)
-         lastp->next_region = curp->next_region;
-      else
-         (reg->parent)->sub_region = curp->next_region;
-   }
-
-   // Shutdown handlers
-   uiShutdownRegionHandlers(reg);
-   
-   // Then, we kill OURSELVES!!!!!!!!!!!!
-   if (AUTODESTROY_FLAG & reg->status_flags)
-   {
-      free(reg->r);
-      free(reg);
-   }
-   return(OK);
-}
-
 errtype region_move(LGRegion *reg, int new_x, int new_y, int new_z)
 {
    int delta_x, delta_y;
@@ -261,20 +216,6 @@ errtype region_move(LGRegion *reg, int new_x, int new_y, int new_z)
    }
 
    /* trigger the "placing down" callbacks */
-   region_place(reg);
-   return(OK);
-}
-
-errtype region_resize(LGRegion *reg, int new_x_size, int new_y_size)
-{
-   int delta_x, delta_y;
-
-   delta_x = new_x_size - RectWidth(reg->r);
-   delta_y = new_y_size - RectHeight(reg->r);
-
-   (reg->r)->lr.x += delta_x;
-   (reg->r)->lr.y += delta_y;
-
    region_place(reg);
    return(OK);
 }
@@ -362,43 +303,6 @@ int region_traverse_rect(LGRegion *reg, LGRect *target, TravRectCallback fn, int
    {
       // Spew (DSRC_UI_Traversal, ("TOP_TO_BOTTOM, root case\n"));
       retval = fn(reg, &inter, data);
-   }
-   return (retval);
-}
-
-int region_traverse(LGRegion *reg, TravCallback fn, int order, void *data)
-{
-   LGRegion *curp;
-   int retval = 0;
-
-   // Spew(DSRC_UI_Traversal, ("r_traverse -- %s\n",GD_NAME(reg)));
-   if ((reg->status_flags & INVISIBLE_FLAG) != 0)
-      return FALSE;
-   if (order == BOTTOM_TO_TOP)
-   {
-      // Spew (DSRC_UI_Traversal, ("BOTTOM_TO_TOP, root case\n"));
-      retval = fn(reg, data);
-   }
-   curp = trav_get_first(reg, order);
-/*
-   if (curp)
-   {
-      Spew(DSRC_UI_Traversal,("before while, curp = %s\n",GD_NAME(curp)));
-   }
-   else
-   {
-      Spew(DSRC_UI_Traversal,("before while, curp = NULL\n"));
-   }
-*/
-   while (!retval && curp)
-   {
-      retval = region_traverse(curp,  fn, order, data);
-      curp = trav_get_next(curp,order);
-   }
-   if ((order == TOP_TO_BOTTOM) && (!retval))
-   {
-      // Spew (DSRC_UI_Traversal, ("TOP_TO_BOTTOM, root case\n"));
-      retval = fn(reg, data);
    }
    return (retval);
 }
@@ -798,21 +702,6 @@ int region_obscured(LGRegion *reg, LGRect *obs_rect)
    return(retval);
 }
 
-int foreign_region_obscured(LGRegion *reg, LGRect *obs_rect)
-{
-   int retval = UNOBSCURED;
-   LGRect newr;
-   LGRegion *rr;
-     
-   obsc_region = reg;
-   region_found = FALSE;
-   region_convert_to_root(reg, &rr, obs_rect, &newr);
-   ignore_children = TRUE;
-   if (reg != NULL)
-      region_traverse_rect(rr, &newr, &region_obscured_callback, BOTTOM_TO_TOP, &retval);
-   return(retval);
-}
-
 errtype region_begin_sequence()
 {
    region_in_sequence += 1;
@@ -955,12 +844,6 @@ errtype region_set_invisible(LGRegion* reg, uchar invis)
       reg->status_flags |= INVISIBLE_FLAG;
    else
       reg->status_flags &= ~INVISIBLE_FLAG;
-   return OK;
-}
-
-errtype region_get_invisible(LGRegion* reg, uchar* invis)
-{
-   *invis = (reg->status_flags & INVISIBLE_FLAG) != 0;
    return OK;
 }
 

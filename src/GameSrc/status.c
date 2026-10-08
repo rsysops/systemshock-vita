@@ -159,8 +159,6 @@ uchar bio_data_buffer[NUM_BIO_TRACKS * sizeof(bio_data_block)];
 
 bio_data_block *bio_data;
 
-int bio_time_id;
-
 int curr_bio_x, curr_bio_y;
 int curr_bio_w, curr_bio_h;
 short curr_bio_mode;
@@ -737,11 +735,6 @@ void draw_lower_tracks(int track_number, int location) {
 ulong time1 = 0;
 ulong time2 = 0;
 ulong time3 = 0;
-ulong time4 = 0;
-ulong time5 = 0;
-ulong time6 = 0;
-ulong time7 = 0;
-int bio_delta = 1;
 extern int diff_sum;
 extern int curr_ll;
 

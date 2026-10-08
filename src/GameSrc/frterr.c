@@ -145,7 +145,6 @@ int _fr_terr_prim = 1;
 
 // Internal prototypes (for Mac version)
 void _fr_figure_pt(g3s_phandle tmp, int pt_code);
-fix get_light(fix dist_to);
 int _fr_do_light_val(int which, fix dist_val);
 int _obj_do_light(int which, fix dist);
 void _fr_do_cspace(g3s_phandle wrk, int which);
@@ -226,20 +225,6 @@ void _fr_figure_pt(g3s_phandle tmp, int pt_code) {
     case FRMODNONE:
         break;
     }
-}
-
-fix get_light(fix dist_to) // , fix dot_prod)
-{
-    //   if (fr_normal_lights)
-    //	   dist_to+=fix_mul(dist_to>>fr_normal_shf,fix_make(1,0)-dot_prod);      // 1/(1<<norm_shf) *
-    //dist_to*(anti_dot_prod)
-    //   Spew(DSRC_TESTING_Test1,("v%s",fix_sprint(ft,dist_to)));
-    // wow, fix this up, make fixes in frp, so on
-    if (dist_to < fix_make((int)_frp.lighting.rad[0], 0))
-        return fix_make((int)_frp.lighting.base[0], 0);
-    if (dist_to > fix_make((int)_frp.lighting.rad[1], 0))
-        return fix_make((int)_frp.lighting.base[1], 0);
-    return fix_mul(dist_to, _frp.lighting.slope) + _frp.lighting.yint;
 }
 
 #define get_light_t(targ, dist_to)                             \
@@ -1861,37 +1846,6 @@ uchar edge_get_fandc(MapElem *mp, int c_edge, char *e_list) {
 }
 
 char edge_vals[3];
-// returns left and right heights for a map edge
-// ceil_p is 1 if it is the ceiling you care about
-char *map_get_edge(void *omp, int edge, int ceil_p) {
-    uchar *mmptr, fo, p, in_fo;
-    MapElem *mp = (MapElem *)omp;
-
-    p = me_param(mp);
-    in_fo = face_obstruct[me_tiletype(mp)][edge];
-
-    if (p == 0) {
-        if (ceil_p)
-            edge_vals[0] = edge_vals[1] = MAX_HGT - me_height_ceil(mp);
-        else
-            edge_vals[0] = edge_vals[1] = me_height_flr(mp);
-    } else {
-        mmptr = (uchar *)mmask_facelet[me_bits_mirror(mp)];
-        if (ceil_p) {
-            edge_vals[0] = edge_vals[1] = MAX_HGT - me_height_ceil(mp);
-            fo = (in_fo ^ mmptr[2]) & mmptr[3];
-            p = -p;
-        } else {
-            edge_vals[0] = edge_vals[1] = me_height_flr(mp);
-            fo = (in_fo ^ mmptr[0]) & mmptr[1];
-        }
-        if (fo & FO_L_PARM)
-            edge_vals[0] += p;
-        if (fo & FO_R_PARM)
-            edge_vals[1] += p;
-    }
-    return edge_vals;
-}
 
 // 0 and 1 will be ceiling, 2 and 3 will be floor for internal, +4 for other
 

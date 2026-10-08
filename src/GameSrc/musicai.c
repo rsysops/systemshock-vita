@@ -57,12 +57,10 @@ char peril_bars = 0;
 int new_theme = 0;
 int new_x, new_y;
 int old_bore;
-short mai_override = 0;
 uchar cyber_play = 255;
 
 int layer_danger = 0;
 int layer_success = 0;
-int layer_transition = 0;
 int transition_count = 0;
 char tmode_time = 0;
 int actual_score = 0;
@@ -70,7 +68,6 @@ uchar decon_count = 0;
 uchar decon_time = 8;
 uchar in_deconst = FALSE, old_deconst = FALSE;
 uchar in_peril = FALSE;
-uchar just_started = TRUE;
 int score_playing = 0;
 short curr_ramp_time, curr_ramp;
 char curr_prioritize, curr_crossfade;
@@ -81,7 +78,6 @@ int current_score, current_zone, current_mode, random_flag;
 int current_transition, last_score;
 int boring_count;
 int mlimbs_boredom;
-int *output_table;
 uchar wait_flag;
 int next_mode, ai_cycle;
 int cur_digi_channels = 4;
@@ -92,10 +88,8 @@ extern uchar mai_semaphor;
 
 uchar park_random = 75;
 uchar park_playing = 0;
-uchar access_random = 45;
 
 ulong last_damage_sum = 0;
-ulong last_vel_time = 0;
 
 // Damage taken decay & quantity of decay
 int danger_hp_level = 10;
@@ -106,8 +100,6 @@ int mai_damage_sum = 0;
 
 // How long an attack keeps us in combat music mode
 int mai_combat_length = 1000;
-
-uchar bad_digifx = FALSE;
 
 // KLC - no longer need this   Datapath music_dpath;
 
@@ -126,8 +118,6 @@ errtype musicai_shutdown() {
     MacTuneKillCurrentTheme();
     return (OK);
 }
-
-extern uchar run_asynch_music_ai;
 
 errtype musicai_reset(uchar runai) {
     if (runai) // Figure out if there is a theme to start with.
@@ -271,17 +261,6 @@ errtype mai_intro() {
     return (OK);
 }
 
-errtype mai_monster_nearby(int monster_type) {
-    if (music_on) {
-        mlimbs_monster = monster_type;
-        if (monster_type == NO_MONSTER) {
-            mlimbs_combat = 0;
-            mlimbs_peril = DEFAULT_PERIL_MIN;
-        }
-    }
-    return (OK);
-}
-
 errtype mai_monster_defeated() {
     if (music_on) {
         mlimbs_combat = 0;
@@ -348,14 +327,6 @@ errtype mai_transition(int new_trans) {
     message_info(msg);
     */
     return (OK);
-}
-
-int gen_monster(int monster_num) {
-    if (monster_num < 3)
-        return (0);
-    if (monster_num < 6)
-        return (1);
-    return (2);
 }
 
 int ext_rp = -1;

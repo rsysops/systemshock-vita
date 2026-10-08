@@ -23,7 +23,6 @@ void ss_scale_string(char *s, short x, short y);
 extern void ss_bitmap(grs_bitmap *bmp, short x, short y);
 // ss_bitmap for a small bitmap drawn again and again (see hudkeep.h): the same pixels
 extern void ss_kept_bitmap(grs_bitmap *bmp, short x, short y);
-extern void ss_ubitmap(grs_bitmap *bmp, short x, short y);
 extern void ss_scale_bitmap(grs_bitmap *bmp, short x, short y, short w, short h);
 extern void ss_noscale_bitmap(grs_bitmap *bmp, short x, short y);
 extern void ss_rect(short x1, short y1, short x2, short y2);
@@ -39,9 +38,7 @@ extern void ss_fix_line(fix x1, fix y1, fix x2, fix y2);
 extern void ss_thick_fix_line(fix x1, fix y1, fix x2, fix y2);
 extern void ss_get_bitmap(grs_bitmap *bmp, short x, short y);
 extern void ss_set_pixel(long color, short x, short y);
-extern void ss_set_thick_pixel(long color, short x, short y);
 extern void ss_clut_ubitmap(grs_bitmap *bmp, short x, short y, uchar *cl);
-extern void ss_recompute_zoom(frc *w, short oldm);
 extern void ss_mouse_convert(short *px, short *py, uchar down);
 extern void ss_mouse_convert_round(short *px, short *py, uchar down);
 extern void ss_point_convert(short *px, short *py, uchar down);
@@ -49,8 +46,6 @@ extern void ss_point_convert(short *px, short *py, uchar down);
 extern void gr2ss_register_init(char convert_type, short init_x, short init_y);
 extern void gr2ss_register_mode(char conv_mode, short nx, short ny);
 
-extern short ss_curr_mode_width(void);
-extern short ss_curr_mode_height(void);
 extern void ss_set_hack_mode(short new_m, short *tval);
 
 #define MAX_CONVERT_TYPES 4

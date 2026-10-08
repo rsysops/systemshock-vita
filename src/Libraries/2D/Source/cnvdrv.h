@@ -46,5 +46,4 @@ extern void (*modex_canvas_table[])();
 extern void (*bank8_canvas_table[])();
 extern void (*bank24_canvas_table[])();
 extern void (*span_canvas_table[])();
-extern void (*gen_canvas_table[])();
 #endif

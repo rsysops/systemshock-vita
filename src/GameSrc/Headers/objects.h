@@ -221,10 +221,8 @@ typedef struct ObjLocState {
 // extra state.  The list is terminated by an ObjRefState with a null bin.
 
 // Physics puts information about objects that have moved in objLocStates.
-extern ObjLocState objLocStates[MAX_OBJS_CHANGING];
 
 // numObjLocStates contains the number of entries of objLocStates that are valid.
-extern uchar numObjLocStates;
 
 //////////////////////////////
 //

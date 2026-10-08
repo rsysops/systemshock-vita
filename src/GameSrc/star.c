@@ -89,20 +89,6 @@ void star_set(int n, sts_vec *vlist, uchar *clist) {
     std_col = clist;
 }
 
-// allocates the necessary space for stars using alloc
-int star_alloc(int n) {
-    std_vec = (sts_vec *)malloc(n * sizeof(sts_vec) + n);
-    if (std_vec == NULL)
-        return -1;
-    std_col = (uchar *)(std_vec + n);
-    std_num = n;
-    return n;
-}
-
-// frees star space using free, only if you've used
-// alloc to allocate it
-void star_free(void) { free(std_vec); }
-
 // renders star field in the polygon defined by the vertex list
 // uses your 3d context, so make sure that's been set
 // what we do is render a zero polygon, which is black,
@@ -160,13 +146,6 @@ void star_empty(int n, g3s_phandle *vp) {
         if (m > std_max_rad)
             std_max_rad = m;
     }
-}
-
-// render stars to a sky-like thing,
-// no viewports, clips to half sphere
-void star_sky(void) {
-    std_min_z = 0;
-    std_max_rad = FIX_UNIT;
 }
 
 // render a single pixel of an anti-aliased star

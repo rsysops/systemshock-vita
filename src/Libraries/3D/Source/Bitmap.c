@@ -88,7 +88,6 @@ fix _g3d_bitmap_y_scale = 0x010000;
 // fix _g3d_bitmap_y_iscale = 0x010000;
 long _g3d_bitmap_u_anchor = 0;
 long _g3d_bitmap_v_anchor = 0;
-fix _g3d_roll_matrix[6];
 uchar *_g3d_bitmap_clut;
 int _g3d_light_flag;
 
@@ -118,20 +117,6 @@ void g3_set_bitmap_scale(fix u_scale, fix v_scale) {
     // _g3d_bitmap_y_iscale = fix64_div(fix64_make(1, 0), _g3d_bitmap_y_scale);
 }
 
-grs_vertex **g3_full_light_bitmap(grs_bitmap *bm, grs_vertex **p) {
-    _g3d_light_flag = 1;
-    _g3d_bitmap_poly = p;
-    return (do_bitmap(bm, (g3s_phandle)p));
-}
-
-grs_vertex **g3_full_light_anchor_bitmap(grs_bitmap *bm, grs_vertex **p, short u_anchor, short v_anchor) {
-    _g3d_light_flag = 1;
-    _g3d_bitmap_u_anchor = u_anchor;
-    _g3d_bitmap_v_anchor = v_anchor;
-    _g3d_bitmap_poly = p;
-    return (g3_bitmap_common(bm, (g3s_phandle)p));
-}
-
 grs_vertex **g3_light_anchor_bitmap(grs_bitmap *bm, g3s_phandle p, short u_anchor, short v_anchor) {
     _g3d_light_flag = 2;
     _g3d_bitmap_u_anchor = u_anchor;
@@ -144,20 +129,6 @@ grs_vertex **g3_light_anchor_bitmap(grs_bitmap *bm, g3s_phandle p, short u_ancho
 grs_vertex **g3_light_bitmap(grs_bitmap *bm, g3s_phandle p) {
     _g3d_light_flag = 2;
     _g3d_bitmap_clut = (p->i & 0x00ff00) + grd_screen->ltab;
-    _g3d_bitmap_poly = vpl;
-    return (do_bitmap(bm, p));
-}
-
-grs_vertex **g3_anchor_bitmap(grs_bitmap *bm, g3s_phandle p, short u_anchor, short v_anchor) {
-    _g3d_light_flag = 0;
-    _g3d_bitmap_u_anchor = u_anchor;
-    _g3d_bitmap_v_anchor = v_anchor;
-    _g3d_bitmap_poly = vpl;
-    return (g3_bitmap_common(bm, p));
-}
-
-grs_vertex **g3_bitmap(grs_bitmap *bm, g3s_phandle p) {
-    _g3d_light_flag = 0;
     _g3d_bitmap_poly = vpl;
     return (do_bitmap(bm, p));
 }

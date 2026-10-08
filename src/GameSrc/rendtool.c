@@ -143,8 +143,6 @@ grs_bitmap *game_fr_tmap_full(void);
 void game_rend_start(void);
 void game_fr_clip_start(uchar headnorth);
 
-void fauxrend_camera_setfunc(TileCamera *tc);
-
 // Note that I have fixed this so that the cursor does not flicker.
 // It just works.  Note its simplistic beauty.	I love this job.
 void rend_mouse_hide(void) {
@@ -450,8 +448,6 @@ void game_fr_startup(void) {
     std_alias_size = 400;
 }
 
-void game_fr_shutdown(void) {}
-
 //#pragma disable_message(202)
 void game_fr_reparam(int is_128s, int full_scrn, int show_all) {
     if (is_128s != -1)
@@ -488,14 +484,6 @@ void rendedit_process_tilemap(FullMap *fmap, LGRect *r, uchar newMap) {
     if (newMap)
         fr_compile_restart(fmap);
     fr_compile_rect(fmap, r->ul.x, r->ul.y, r->lr.x, r->lr.y, FALSE);
-}
-
-// lets move this to the tilemap, eh?
-void fauxrend_camera_setfunc(TileCamera *tc) {
-    tc->x = last_coor(EYE_X);
-    tc->y = last_coor(EYE_Y);
-    tc->theta = last_ang(EYE_H) - FIXANG_PI / 2;
-    tc->show = TRUE;
 }
 
 // Like fr_get_at, but takes real screen coordinates.

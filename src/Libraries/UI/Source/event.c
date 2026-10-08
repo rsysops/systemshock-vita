@@ -34,14 +34,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // ---------------------
 // INTERNAL PROTOTYPES
 // ---------------------
-void event_queue_add(uiEvent* e);
 uchar event_queue_next(uiEvent** e);
 uchar region_check_opacity(LGRegion* reg, ulong evmask);
 uchar event_dispatch_callback(LGRegion* reg, LGRect* r, void* v);
 void ui_set_last_mouse_region(LGRegion* reg, uiEvent* ev);
 uchar ui_try_region(LGRegion* reg, LGPoint pos, uiEvent* ev);
 uchar ui_traverse_point(LGRegion* reg, LGPoint pos, uiEvent* data);
-uchar send_event_to_region(LGRegion* r, uiEvent* ev);
 void ui_purge_mouse_events(void);
 void ui_flush_mouse_events(ulong timestamp, LGPoint pos);
 void ui_dispatch_mouse_event(uiEvent* mout);
@@ -159,19 +157,6 @@ errtype uiRemoveRegionHandler(LGRegion* r, int id)
 }
 
 
-errtype uiSetRegionHandlerMask(LGRegion* r, int id, int evmask)
-{
-   handler_chain *ch;
-   uiEventHandler* handlers;
-   // Spew(DSRC_UI_Handlers,("uiSetRegionHandlerMask(%x,%d,%x)\n",r,id,evmask));
-   if (r == NULL) return ERR_NULL;
-   ch = (handler_chain*)r->handler;
-   if (ch == NULL || id >= ch->chain.fullness || id < 0) return ERR_RANGE; 
-   handlers = (uiEventHandler*)(ch->chain.vec);
-   handlers[id].typemask = evmask;
-   return OK;
-}
-
 // -------
 // OPACITY
 // -------
@@ -187,28 +172,6 @@ ulong uiGetRegionOpacity(LGRegion* reg)
    }
    else
       return ch->opacity;
-}
-
-errtype uiSetRegionOpacity(LGRegion* reg,ulong mask)
-{
-   handler_chain *ch = (handler_chain*)(reg->handler);
-   if (ch == NULL)
-   {
-      // Spew(DSRC_UI_Handlers,("uiSetRegionOpacity(): creating new handler chain\n"));
-      ch = (handler_chain *)malloc(sizeof(handler_chain));
-      if (ch == NULL)
-      {
-         // Spew(DSRC_UI_Handlers,("uiSetRegionOpacity: out of memory\n"));
-         return ERR_NOMEM;
-      }
-      array_init(&ch->chain,sizeof(uiEventHandler),INITIAL_CHAINSIZE);
-      ch->front = CHAIN_END;
-      reg->handler = (void*)ch;
-      ch->opacity = mask;
-   }
-   else
-      ch->opacity = mask;
-   return OK;
 }
 
 // -------------------
@@ -331,28 +294,6 @@ static struct _eventqueue
    int size;
    uiEvent* vec;
 } EventQueue;
-
-void event_queue_add(uiEvent* e)
-{
-   if ((EventQueue.in + 1)%EventQueue.size == EventQueue.out)
-   {
-      // Queue is full, grow it.  
-      int i;
-      int out = EventQueue.out;
-      int newsize = EventQueue.size * 2;
-      uiEvent *newvec = (uiEvent *)malloc(sizeof(uiEvent)*newsize);
-      for(i = 0; out != EventQueue.in; i++, out = (out+1)%EventQueue.size)
-         newvec[i] = EventQueue.vec[out];
-      free(EventQueue.vec);
-      EventQueue.vec = newvec;
-      EventQueue.size = newsize;
-      EventQueue.in = i;
-      EventQueue.out = 0;
-   }
-   EventQueue.vec[EventQueue.in] = *e;
-   EventQueue.in++;
-   if (EventQueue.in >= EventQueue.size) EventQueue.in = 0;
-}
 
 uchar event_queue_next(uiEvent** e)
 {
@@ -484,12 +425,6 @@ uchar ui_traverse_point(LGRegion* reg, LGPoint pos, uiEvent* data)
    return TRAVERSE_MISS;
 }
 
-uchar send_event_to_region(LGRegion* r, uiEvent* ev)
-{
-   // Spew(DSRC_UI_Dispatch,("send_event_to_region(%x,%x)\n",r,ev));
-   return ui_traverse_point(r,ev->pos,ev) == TRAVERSE_HIT;
-}
-
 uchar uiDispatchEventToRegion(uiEvent* ev, LGRegion* reg)
 {
    LGPoint pos;
@@ -524,41 +459,6 @@ uchar uiDispatchEvent(uiEvent* ev)
          if (uiDispatchEventToRegion(ev,FCHAIN[i].reg)) return TRUE;
    }
    return FALSE;                                                                           
-}
-
-errtype uiQueueEvent(uiEvent* ev)
-{
-   // if this is a keyboard event, queue up earlier events.
-   if (ev->type == UI_EVENT_KBD_RAW || ev->type == UI_EVENT_KBD_COOKED)
-   {
-      kbs_event kbe;
-      for(kbe = kb_next(); kbe.code != KBC_NONE; kbe = kb_next())
-      {
-         uiEvent out;
-         mouse_get_xy(&out.pos.x,&out.pos.y);
-         out.type = UI_EVENT_KBD_RAW;
-         out.raw_key_data.scancode = kbe.code;
-         out.raw_key_data.action = kbe.state;
-         event_queue_add(&out);
-      }
-   }
-   if (ev->type == UI_EVENT_MOUSE || ev->type == UI_EVENT_MOUSE_MOVE)
-   {
-      ss_mouse_event mse;
-      errtype err = mouse_next(&mse);
-      for(;err == OK; err = mouse_next(&mse))
-      {
-         uiEvent out;
-         out.pos.x = mse.x;
-         out.pos.y = mse.y;
-         out.type = (mse.type == MOUSE_MOTION) ? UI_EVENT_MOUSE_MOVE :  UI_EVENT_MOUSE;
-         out.mouse_data.action = mse.type;
-         out.mouse_data.modifiers = mse.modifiers;
-         event_queue_add((uiEvent*)&out);
-      }
-   }
-   event_queue_add(ev);
-   return OK;
 }
 
 #define MOUSE_EVENT_FLUSHED UI_EVENT_MOUSE_MOVE 
@@ -895,14 +795,6 @@ errtype uiPoll(void)
    return OK;
 }
 
-errtype uiSetMouseMotionPolling(uchar poll)
-{
-   if (poll) mouseMask &= ~MOUSE_MOTION;
-   else mouseMask |= MOUSE_MOTION;
-   poll_mouse_motion = poll;
-   return OK;
-}
-
 
 
 errtype uiFlush(void)
@@ -978,24 +870,6 @@ errtype uiInit(uiSlab* slab)
    return OK;
 }
 
-void uiShutdown(void)
-{
-   extern errtype ui_shutdown_cursors(void);
-   ui_shutdown_cursors();
-   mouse_shutdown();
-   kb_close();
-}
-
-
-errtype uiShutdownRegionHandlers(LGRegion* r)
-{
-   errtype err = OK;
-   handler_chain *ch = (handler_chain*)(r->handler);
-   if (ch == NULL) return ERR_NOEFFECT;
-   err = array_destroy(&ch->chain);
-   free(ch);
-   return err;
-}
 
 errtype ui_init_focus_chain(uiSlab* slab)
 {

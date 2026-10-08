@@ -56,11 +56,6 @@ uchar vx_init(int max_depth)
    return TRUE;
 }
 
-void vx_close()
-{
-   free(zdxdz);
-}
-
 // Der, this could be a macro, and
 // maybe should be
 void vx_init_vox(vxs_vox *v,fix pix_dist,fix pix_size,int depth,grs_bitmap *col,grs_bitmap *ht)

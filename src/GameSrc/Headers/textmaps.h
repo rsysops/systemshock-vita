@@ -126,7 +126,6 @@ void load_textures();
 errtype load_alternate_textures();
 errtype load_master_texture_properties();
 errtype load_small_texturemaps(void);
-errtype bitmap_array_unload(int *num_bitmaps, grs_bitmap *arr[]);
 errtype Init_Lighting(void);
 errtype unload_master_texture_properties();
 errtype clear_texture_properties();

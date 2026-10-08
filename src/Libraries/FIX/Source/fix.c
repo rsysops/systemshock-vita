@@ -233,29 +233,6 @@ int fix_div_selfcheck(unsigned n, unsigned *checked) {
 }
 #endif
 
-// fix fix_div_int(fix a, fix b)
-//{
-//    return (fix)(((int64_t)(a) << 16) / (int64_t)(b));
-//}
-fix fix_div_int(fix a, fix b) {
-    int64_t r64 = ((int64_t)(a) << 16) / (int64_t)(b);
-    int32_t r32 = (int32_t)((r64 >> 16) & 0xFFFFFFFF);
-    return r32;
-}
-
-// fix fix_div_safe_cint(fix a, fix b)
-//{
-//    return (fix)(((int64_t)(a) << 16) / (int64_t)(b));
-//}
-fix fix_div_safe_cint(fix a, fix b) {
-    int64_t r64 = ((int64_t)(a) << 16) / (int64_t)(b);
-    int32_t r32 = (int32_t)((r64 >> 16) & 0xFFFFFFFF);
-    if ((r64 & 0xFFFF) != 0) {
-        return r32 + 1;
-    }
-    return r32;
-}
-
 //----------------------------------------------------------------------------
 // fix_div: Divide two fixed numbers.
 //----------------------------------------------------------------------------
@@ -321,48 +298,6 @@ fix fix_fast_pyth_dist(fix a, fix b) {
 // We can use the fix function because the difference in scale doesn't matter.
 //----------------------------------------------------------------------------
 int long_fast_pyth_dist(int a, int b) { return (fix_fast_pyth_dist(a, b)); }
-
-//----------------------------------------------------------------------------
-// This function is safer than the other fix_pyth_dist because we don't
-// have to worry about overflow.
-//
-// Uses algorithm from METAFONT involving reflecting (a,b) through
-// line from (0,0) to (a,b/2), which keeps a^2+b^2 invariant but
-// greatly reduces b.  When b reaches 0, a is the distance.
-//
-// Knuth credits it to Moler & Morrison, IBM Journal of Research and
-// Development 27 (1983).  Good for them.
-//----------------------------------------------------------------------------
-fix fix_safe_pyth_dist(fix a, fix b) {
-    fix tmp;
-
-    a = abs(a);
-    b = abs(b); // works fine since they're really longs
-    if (a < b) {
-        tmp = a;
-        a = b;
-        b = tmp;
-    } // now 0 <= b <= a
-    if (a > 0) {
-        if (a > 0x2fffffff) {
-            //			ssWarning (("Overflow in
-            // fix_safe_pyth_dist\n"));  DebugStr("\pOverflow in fix_safe_pyth_dist");
-            DEBUG("%s: Overflow in fix_safe_pyth_dist", __FUNCTION__);
-            return 0;
-        }
-        for (;;) {
-            // This is a quick way of doing the reflection
-            tmp = fix_div(b, a);
-            tmp = fix_mul(tmp, tmp);
-            if (tmp == 0)
-                break;
-            tmp = fix_div(tmp, tmp + fix_make(4, 0));
-            a += fix_mul(2 * a, tmp);
-            b = fix_mul(b, tmp);
-        }
-    }
-    return a;
-}
 
 //----------------------------------------------------------------------------
 // Computes sin and cos of theta
@@ -571,10 +506,6 @@ fix fix_pow(fix x, fix y) {
         yl = yl << 1;
     }
     return ans;
-}
-
-int32_t fix64_div(int64_t a, int32_t b) {
-    return (int32_t) (a / b);
 }
 
 int64_t fix64_mul(int32_t a, int32_t b) {

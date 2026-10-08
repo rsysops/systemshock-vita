@@ -73,20 +73,16 @@ LGRegion mv_region_data, msg_region_data, status_region_data;
 uiSlab main_slab;
 LGRegion *msg_region;
 
-uchar *default_font_buf;
 LGRegion *root_region, *mainview_region, *status_region, *inventory_region_game;
 LGRegion *pagebutton_region_game;
 LGCursor globcursor, wait_cursor, fire_cursor;
-frc *normal_game_fr_context;
 
 errtype _screen_init_mouse(LGRegion *r, uiSlab *slab, uchar do_init);
 errtype _screen_background(void);
 
-byte pal_shf_id;
 LGCursor vmail_cursor;
 
 LGRect fscrn_rect = {{0, 0}, {320, 200}};
-LGRect svga_rect = {{0, 0}, {1024, 768}};
 
 LGRegion root_region_data;
 LGRegion *root_region = &root_region_data;
@@ -297,16 +293,6 @@ errtype _screen_background(void) {
     Ref back_id = REF_IMG_bmGamescreenBackground;
     draw_raw_res_bm_temp(back_id, 0, 0);
     // draw_hires_resource_bm(REF_IMG_bmGamescreenBackground, 0, 0);
-    return (OK);
-}
-
-// Stop doing graphics things
-errtype screen_shutdown(void) {
-    region_destroy(status_region, FALSE);
-    region_destroy(msg_region, FALSE);
-    region_destroy(mainview_region, FALSE);
-
-    //   Free(status_rect); umm, see, now we point at it, so dont free it
     return (OK);
 }
 

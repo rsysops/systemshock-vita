@@ -155,9 +155,6 @@ int fr_pipe_resize(int x, int y, int z, void *mptr) {
     _fr_ret;
 }
 
-// currently all pipe memory is static, so this is easy
-int fr_pipe_freemem(void) { _fr_ret; }
-
 /* called at the beginning of every frame, sets up 3d variables for the world
  * also sets up the globals used in the clippers
  */

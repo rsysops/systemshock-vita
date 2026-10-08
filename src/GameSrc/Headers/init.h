@@ -28,7 +28,6 @@ extern void shock_alloc_ipal();
 
 errtype load_da_palette(void);
 
-void object_data_flush(void);
 errtype object_data_load(void);
 extern uchar objdata_loaded;
 

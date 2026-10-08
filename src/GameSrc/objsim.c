@@ -105,7 +105,6 @@ cams objmode_cam;
 uchar new_cyber_orient = TRUE;
 uchar ocp_settle_the_player = TRUE;
 
-uchar properties_changed = FALSE;
 uchar trigger_check = TRUE;
 ObjID physics_handle_id[MAX_OBJ];
 int physics_handle_max = -1;
@@ -677,19 +676,6 @@ char extract_object_special_color(ObjID id) {
         return (0);
         break;
     }
-}
-
-// Shutdown the object system and free up memory as appropriate
-errtype obj_shutdown() {
-    // Free the word-buffer bitmap
-    for (int i = 0; i < NUM_TEXT_BITMAPS; i++) {
-        if (text_bitmap_ptrs[i] != NULL)
-            free(text_bitmap_ptrs[i]);
-    }
-
-    obj_load_art(TRUE);
-
-    return (OK);
 }
 
 void spew_contents(ObjID id, int d1, int d2) {

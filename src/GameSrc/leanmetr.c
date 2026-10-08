@@ -80,11 +80,6 @@ static ubyte discrete_eye_height[DISCRETE_EYE_POSITIONS] = {
     10,
     18,
 };
-ubyte hires_eye_height[DISCRETE_EYE_POSITIONS] = {
-    8,
-    26,
-    45,
-};
 LGPoint shield_offsets[9] = {
     {2, 1}, // stand right
     {2, 1}, // stand
@@ -295,13 +290,6 @@ void player_set_eye(byte eyecntl) {
     if (theta < 0)
         theta += 2 * FIXANG_PI;
     eye_mods[1] = theta;
-}
-
-byte player_get_eye(void) {
-    int theta = eye_mods[1];
-    if (theta > FIXANG_PI)
-        theta -= 2 * FIXANG_PI;
-    return (byte)(theta * CONTROL_MAX_VAL / MAX_EYE_ANGLE);
 }
 
 void player_set_eye_fixang(int ang) {
