@@ -351,10 +351,13 @@ a discarded frame's counts are rolled back.
 changes between two seconds. Read it where the two ways part:
 
 ```c
-#if defined(VITA) && defined(VITA_PROFILE)
+#ifdef VITA_PROFILE
     use_new_way = vprof_variant != 0;
 #endif
 ```
+
+(in a file the PC tests also compile, such as `rastq.c`, test
+`defined(__vita__) && defined(VITA_PROFILE)` instead)
 
 and every log line says which was on. At present it is read in
 `profile_settings` in `src/Libraries/3D/Source/rastq.c`: 0 is three CPU

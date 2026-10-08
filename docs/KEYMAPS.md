@@ -89,7 +89,6 @@ Default bindings come from `HotKeyLookup[]` and `MoveKeybindsDefault[]` in
 | Turn / fast turn | `Z` / `C`, `←` / `→` (+ Shift) | Right stick / gyro |
 | Cyberspace dive | `X` | — (climb, thrust, bank and roll still work via left stick and D-pad) |
 | Cheats: give all / physics / level up / level down | `Ctrl+2` … `Ctrl+5` | — |
-| Toggle OpenGL | `Ctrl+G` | Not applicable (the OpenGL renderer is no longer in the tree) |
 
 ### Rebinding via keybinds.txt
 

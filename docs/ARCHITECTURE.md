@@ -2,7 +2,7 @@
 
 ## Overview
 
-This project is a **PS Vita port of Shockolate** ([Interrupt/systemshock](https://github.com/Interrupt/systemshock)), the SDL2-based cross-platform source port of *System Shock*, built from the original PowerPC Mac source Night Dive Studios released publicly. The codebase is primarily C (C99) with a handful of C++ (C++11) files, and it still carries a lot of the shape of the original Mac application — the port adapts it to Vita mainly by adding `#ifdef VITA` branches into the shared code rather than maintaining a separate platform tree.
+This project is a **PS Vita port of Shockolate** ([Interrupt/systemshock](https://github.com/Interrupt/systemshock)), the SDL2-based cross-platform source port of *System Shock*, built from the original PowerPC Mac source Night Dive Studios released publicly. The codebase is primarily C (C99) with a handful of C++ (C++11) files, and it still carries a lot of the shape of the original Mac application — the Vita code is written directly into the shared files rather than kept in a separate platform tree. The desktop branches, switches and build options it stood beside have been removed: the tree only builds for the Vita.
 
 At runtime the game requires the original System Shock data files (`DATA`/`SOUND`), which are not part of the repo and must be copied onto the device under `ux0:data/systemshock/res/`.
 
@@ -10,7 +10,7 @@ At runtime the game requires the original System Shock data files (`DATA`/`SOUND
 
 | Path | Purpose |
 |---|---|
-| `CMakeLists.txt` | Main build definition (Vita + desktop targets) |
+| `CMakeLists.txt` | Build definition (Vita only) |
 | `build.sh` | Vita build entry point (Docker) |
 | `src/` | All engine and game source (see below) |
 | `vita/` | Vita packaging/build glue: `Dockerfile`, `vita.cmake`, `sce_sys/` (icon/LiveArea assets) |
@@ -19,7 +19,7 @@ At runtime the game requires the original System Shock data files (`DATA`/`SOUND
 ## Source tree (`src/`)
 
 ### `src/MacSrc/` — application/platform layer
-Inherited from the original Mac codebase; hosts process entry and OS-facing glue: `Shock.c` (`main()`, SDL/vita2d init), `InitMac.c`, `Prefs.c` (settings/keybinds), `SDLSound.c`, `Modding.c` (fan-mission/mod loading), `OpenGL.h` (empty stand-ins for the PC port's removed OpenGL renderer), `Xmi.c`, `ShockBitmap.c`, `MacTune.c`.
+Inherited from the original Mac codebase; hosts process entry and OS-facing glue: `Shock.c` (`main()`, SDL/vita2d init), `InitMac.c`, `Prefs.c` (settings/keybinds), `SDLSound.c`, `Modding.c` (fan-mission/mod loading), `Xmi.c`, `ShockBitmap.c`, `MacTune.c`.
 
 ### `src/GameSrc/` — game logic (~100 files, built as `GAME_LIB`)
 Grouped by concern:
@@ -58,7 +58,7 @@ Each has its own CMake target, added via `add_subdirectory(src/Libraries/)`:
 
 ## Vita porting layer
 
-There is **no dedicated `src/vita/` platform tree** — the root `CMakeLists.txt` references `include_directories(src/vita)` and a `vita_SRCS` list, but that list is never populated, so it's effectively vestigial. Instead, Vita support is implemented as `#ifdef VITA` / `#ifdef VITA2D` blocks woven directly into shared files (~25 of them). The main concentrations are:
+There is **no dedicated platform tree**: the Vita code sits directly in the shared files, unconditionally, with no `VITA` switch. The only exception is the handful of files the PC tests in `tests/` also compile (`lgslot.c`, `fix.c`, `mode.c`, `rastq.c`, `rastqthr.c`, `vprof.h`, and the vendored `log.c`): they keep a PC branch, chosen with the compiler's built-in `__vita__`. The main concentrations of Vita code are:
 
 - **`src/MacSrc/Shock.c`** — Vita-specific `main()` prologue (`chdir` into `VITA_PATH`); `InitVita2D()` / `ClearVita2D()`, which create a paletted texture (`SCE_GXM_TEXTURE_FORMAT_P8_ABGR`) via **vita2d** (SceGxm-based) that SDL2's software renderer writes into; controller/gyro init (`OpenController()`, `OpenGyro()`); aspect-ratio letterboxing (`SetRenderRect()`).
 - **`src/GameSrc/gameloop.c`** — Vita heap size override and `sceClibMem*`-based `memcpy`/`memset`/`memmove`/`memcmp` for performance.
@@ -68,10 +68,12 @@ There is **no dedicated `src/vita/` platform tree** — the root `CMakeLists.txt
 
 ## Build system
 
-The root `CMakeLists.txt` sets C99/C++11 and exposes options for SDL2/SDL2_mixer/FluidSynth (`ON`/`BUNDLED`/`OFF`). When `VITA` is set, it:
-1. Adds `-DVITA -DVITA2D` and aggressive Cortex-A9/NEON compile flags (`-Ofast -mcpu=cortex-a9 -mfpu=neon`).
+The root `CMakeLists.txt` only builds for the Vita and expects the VitaSDK toolchain file. It sets C99/C++11, finds SDL2 and SDL2_mixer in the SDK, and:
+1. Sets aggressive Cortex-A9/NEON compile flags (`-Ofast -mcpu=cortex-a9 -mfpu=neon`).
 2. Sets `VITA_LIBS`, linking SDL2, vita2d, libjpeg/png/webp/z, vorbis/ogg, mikmod/modplug/xmp-lite, opus(file), FLAC, mpg123, and Vita system stub libraries (`SceCtrl`, `SceTouch`, `SceMotion`, `SceGxm`, `taihen`, etc.).
 3. Includes `vita/vita.cmake` to produce the `.vpk`.
+
+Its one option is `ENABLE_VITA_PROFILE`, which defines `VITA_PROFILE` for the profile build (`./build.sh profile`).
 
 It then adds `src/Libraries/`, defines the `MAC_SRC`/`GAME_SRC` file lists, and links the final `systemshock` executable against `GAME_LIB` and every library target.
 
