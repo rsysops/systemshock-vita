@@ -22,8 +22,6 @@ option(ENABLE_EXAMPLES "Enable example applications" OFF)
 add_feature_info(ENABLE_EXAMPLES ENABLE_EXAMPLES "Enable example application (can be broken!)")
 option(ENABLE_DEBUG_BLIT "Enable debugging blitter" OFF)
 add_feature_info(ENABLE_DEBUG_BLIT ENABLE_DEBUG_BLIT "Enable debugging blitter")
-option(ENABLE_OPENGL "Enable OpenGL support" ON)
-add_feature_info(ENABLE_OPENGL ENABLE_OPENGL "Enable OpenGL support")
 option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log (VITA only)" OFF)
 add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
 
@@ -47,16 +45,6 @@ if(ENABLE_DEBUG_BLIT)
 endif()
 
 add_compile_options(-fsigned-char -fno-strict-aliasing)
-
-# Find OpenGL
-if(ENABLE_OPENGL)
-	find_package(OpenGL REQUIRED)
-	add_definitions(-DUSE_OPENGL)
-	if(WIN32)
-		list(APPEND OPENGL_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/build_ext/built_glew/include)
-		list(APPEND OPENGL_LIBRARIES ${CMAKE_SOURCE_DIR}/build_ext/built_glew/lib/libglew32.dll.a winmm)
-	endif(WIN32)
-endif(ENABLE_OPENGL)
 
 if(ENABLE_SDL2 MATCHES "ON")
 	find_package(SDL2 REQUIRED)
@@ -102,7 +90,6 @@ include_directories(
 	${SDL2_INCLUDE_DIRS}
 	${SDL2_MIXER_INCLUDE_DIRS}
 	${FLUIDSYNTH_INCLUDE_DIRS}
-	${OPENGL_INCLUDE_DIRS}
 )
 
 if(NOT WIN32)
@@ -177,7 +164,6 @@ set(MAC_SRC
 	src/MacSrc/MacTune.c
 	src/MacSrc/SDLSound.c
 	src/MacSrc/Modding.c
-	src/MacSrc/OpenGL.cc
 	src/MacSrc/Xmi.c
 	src/MusicSrc/MusicDevice.c
 )
@@ -443,11 +429,5 @@ target_link_libraries(systemshock
 	${SDL2_LIBRARIES}
 	${SDL2_MIXER_LIBRARIES}
 	${FLUIDSYNTH_LIBRARIES}
-	${OPENGL_LIBRARIES}
 	${ALSA_LIBRARIES}
 )
-
-# Turn on address sanitizing if wanted
-set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/externals/sanitizers/cmake" ${CMAKE_MODULE_PATH})
-find_package(Sanitizers)
-add_sanitizers(systemshock)

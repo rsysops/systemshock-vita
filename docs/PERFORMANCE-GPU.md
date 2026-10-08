@@ -64,8 +64,9 @@ is an estimate; nothing here is measured yet.
 
 ### Why not the existing OpenGL renderer
 
-`src/MacSrc/OpenGL.cc` is the PC port's GPU renderer, and vitaGL could
-run something like it. It was not chosen:
+`src/MacSrc/OpenGL.cc` was the PC port's GPU renderer, and vitaGL could
+have run something like it. It was not chosen, and has since been removed
+from the tree (2026-10-08):
 
 - It draws in true colour with its own lighting (a brightness factor per
   vertex), so it looks like the PC's OpenGL mode, not like the software

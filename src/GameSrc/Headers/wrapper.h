@@ -100,14 +100,6 @@ extern char comments[NUM_SAVE_SLOTS + 1][SAVE_COMMENT_LEN];
     }
 
 enum TEMP_STR_ {
-    REF_STR_Renderer = 0x10000000,
-    REF_STR_Software,
-    REF_STR_OpenGL,
-
-    REF_STR_TextFilt = 0x10000010,
-    REF_STR_TFUnfil, // unfiltered
-    REF_STR_TFBilin, // bilinear
-
     REF_STR_MousLook = 0x11000000,
     REF_STR_MousNorm,
     REF_STR_MousInv,

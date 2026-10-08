@@ -33,7 +33,6 @@ docker run --rm \
         cd "$BUILD_DIR"
         cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake \
-            -DENABLE_OPENGL=OFF \
             -DVITA=true \
             -DENABLE_FLUIDSYNTH=OFF \
             -DENABLE_SDL2=ON \

@@ -18,7 +18,7 @@ The GPU renderer, which is the default, needs the shader compiler module `libsha
 ### Build
 ```
 mkdir build && cd build
-cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DENABLE_OPENGL=OFF -DVITA=true -DENABLE_FLUIDSYNTH=OFF -DENABLE_SDL2=ON -DCMAKE_BUILD_TYPE=None
+cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DVITA=true -DENABLE_FLUIDSYNTH=OFF -DENABLE_SDL2=ON -DCMAKE_BUILD_TYPE=None
 make
 ```
 
@@ -101,12 +101,7 @@ Find a list of [downloadable packages](https://github.com/Interrupt/systemshock/
 Prerequisites: 
 - [CMake](https://cmake.org/download/) installed
 
-Step 1. Build the dependencies:
-* Windows: `build_win32.sh` or `build_win64.sh` (Git Bash and MinGW recommended)
-* Linux/Mac: `build_deps.sh` or the CI build scripts in `osx-linux`
-* Other: `build_deps.sh` 
-
-Step 2. Build and run the game itself
+Build and run the game itself
 ```
 cmake .
 make systemshock
@@ -117,7 +112,6 @@ The following CMake options are supported in the build process:
 * `ENABLE_SDL2` - use system or bundled SDL2 (ON/BUNDLED, default BUNDLED)
 * `ENABLE_SOUND` - enable sound support (requires SDL2_mixer, ON/BUNDLED/OFF, default is BUNDLED)
 * `ENABLE_FLUIDSYNTH` - enable FluidSynth MIDI support (ON/BUNDLED/OFF, default is BUNDLED)
-* `ENABLE_OPENGL` - enable OpenGL support (ON/OFF, default ON)
 
 If you find yourself needing to modify the build script for Shockolate itself, `CMakeLists.txt` is the place to look into.
 

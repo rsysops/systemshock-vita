@@ -387,14 +387,6 @@ static struct {
     int num;
     char text[3][16];
 } custom_strings[] = {
-    {REF_STR_Renderer, {"Renderer", "Rendu", "Renderer"}},
-    {REF_STR_Software, {"Software", "Logiciel", "Software"}},
-    {REF_STR_OpenGL, {"OpenGL", "OpenGL", "OpenGL"}},
-
-    {REF_STR_TextFilt, {"Tex Filter", "Filtrage", "Texturfilter"}},
-    {REF_STR_TFUnfil, {"Unfiltered", "Aucun", "Ungefiltert"}},
-    {REF_STR_TFBilin, {"Bilinear", "Bilin\x82" "aire", "Bilinear"}},
-
     {REF_STR_MousLook, {"Mouselook", "Vue souris", "Mausblick"}},
     {REF_STR_MousNorm, {"Normal", "Normale", "Normal"}},
     {REF_STR_MousInv, {"Inverted", "Invers\x82" "e", "Invertiert"}},
@@ -2233,21 +2225,6 @@ void center_joy_pushbutton_func(uchar butid) {
     }
 }
 
-static void renderer_dealfunc(bool unused) {
-    uiHideMouse(NULL);
-    opanel_render_view();
-    if (full_game_3d) {
-        // update stored background bitmap and redraw menu
-        ss_get_bitmap(&inv_view360_canvas.bm, GAME_MESSAGE_X, GAME_MESSAGE_Y);
-        opanel_redraw(FALSE);
-    }
-    uiShowMouse(NULL);
-    // recalculate menu in case a button needs to be added or removed
-    video_screen_init();
-    // suppress compiler warning
-    (void)unused;
-}
-
 void detail_dealfunc(uchar det) {
 
     change_detail_level(det);
@@ -2500,16 +2477,6 @@ void video_screen_init(void) {
     opanel_screen_begin(video_screen_init, wrapper_init, PAGE_VIDEO, VIDEO_BUTTON);
     i = 0;
 
-#ifdef USE_OPENGL
-    // renderer
-    if(can_use_opengl()) {
-        standard_button_rect(&r, i);
-        multi_init(i, 'g', REF_STR_Renderer, REF_STR_Software, ID_NULL,
-                   sizeof(gShockPrefs.doUseOpenGL), &gShockPrefs.doUseOpenGL, 2, renderer_dealfunc, &r);
-        i++;
-    }
-#endif
-
 #ifdef SVGA_SUPPORT
     // video mode
     standard_button_rect(&r, i);
@@ -2536,16 +2503,6 @@ void video_screen_init(void) {
     if (!inp6d_headset)
         dim_pushbutton(HEADSET_BUTTON);
     i++;
-#endif
-
-#ifdef USE_OPENGL
-    // textre filter
-    if(can_use_opengl() && gShockPrefs.doUseOpenGL) {
-        standard_button_rect(&r, i);
-        multi_init(i, 't', REF_STR_TextFilt, REF_STR_TFUnfil, ID_NULL,
-                   sizeof(gShockPrefs.doTextureFilter), &gShockPrefs.doTextureFilter, 2, renderer_dealfunc, &r);
-        i++;
-    }
 #endif
 
     // return (fixed at position 5)

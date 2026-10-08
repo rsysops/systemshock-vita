@@ -10,18 +10,16 @@ At runtime the game requires the original System Shock data files (`DATA`/`SOUND
 
 | Path | Purpose |
 |---|---|
-| `CMakeLists.txt`, `CMakeLists.32bit.txt` | Main build definitions (Vita + desktop targets) |
-| `build.sh`, `build.bat`, `build_deps.sh`, `build_win32.sh`, `build_win64.sh` | Platform build entry points |
+| `CMakeLists.txt` | Main build definition (Vita + desktop targets) |
+| `build.sh` | Vita build entry point (Docker) |
 | `src/` | All engine and game source (see below) |
 | `vita/` | Vita packaging/build glue: `Dockerfile`, `vita.cmake`, `sce_sys/` (icon/LiveArea assets) |
-| `externals/sanitizers/` | Vendored CMake sanitizers module |
-| `shaders/`, `windows/`, `osx-linux/` | Desktop-only shader and packaging assets |
 | `build/` | Out-of-tree CMake build output (git-ignored) |
 
 ## Source tree (`src/`)
 
 ### `src/MacSrc/` — application/platform layer
-Inherited from the original Mac codebase; hosts process entry and OS-facing glue: `Shock.c` (`main()`, SDL/vita2d init), `InitMac.c`, `Prefs.c` (settings/keybinds), `SDLSound.c`, `Modding.c` (fan-mission/mod loading), `OpenGL.cc`, `Xmi.c`, `ShockBitmap.c`, `MacTune.c`.
+Inherited from the original Mac codebase; hosts process entry and OS-facing glue: `Shock.c` (`main()`, SDL/vita2d init), `InitMac.c`, `Prefs.c` (settings/keybinds), `SDLSound.c`, `Modding.c` (fan-mission/mod loading), `OpenGL.h` (empty stand-ins for the PC port's removed OpenGL renderer), `Xmi.c`, `ShockBitmap.c`, `MacTune.c`.
 
 ### `src/GameSrc/` — game logic (~100 files, built as `GAME_LIB`)
 Grouped by concern:
@@ -70,7 +68,7 @@ There is **no dedicated `src/vita/` platform tree** — the root `CMakeLists.txt
 
 ## Build system
 
-The root `CMakeLists.txt` sets C99/C++11 and exposes options for OpenGL/SDL2/SDL2_mixer/FluidSynth (`ON`/`BUNDLED`/`OFF`). When `VITA` is set, it:
+The root `CMakeLists.txt` sets C99/C++11 and exposes options for SDL2/SDL2_mixer/FluidSynth (`ON`/`BUNDLED`/`OFF`). When `VITA` is set, it:
 1. Adds `-DVITA -DVITA2D` and aggressive Cortex-A9/NEON compile flags (`-Ofast -mcpu=cortex-a9 -mfpu=neon`).
 2. Sets `VITA_LIBS`, linking SDL2, vita2d, libjpeg/png/webp/z, vorbis/ogg, mikmod/modplug/xmp-lite, opus(file), FLAC, mpg123, and Vita system stub libraries (`SceCtrl`, `SceTouch`, `SceMotion`, `SceGxm`, `taihen`, etc.).
 3. Includes `vita/vita.cmake` to produce the `.vpk`.
