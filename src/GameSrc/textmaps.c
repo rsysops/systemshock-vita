@@ -39,7 +39,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "tpolys.h"
 #include "statics.h"
 
-#include "OpenGL.h"
 #include "rastq.h"
 
 
@@ -230,8 +229,6 @@ void load_textures(void) {
                     //                              gr_bitmap(cur_bm, 0, 0);
                     //               });
                 }
-                if(can_use_opengl())
-                    opengl_cache_wall_texture(c, n, cur_bm);
             }
         }
     }

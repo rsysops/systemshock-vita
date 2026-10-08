@@ -46,7 +46,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "faketime.h"
 #include "cit2d.h"
 
-#include "OpenGL.h"
 #include "Shock.h"
 #include "VitaGpu.h"
 #include "hudkeep.h"
@@ -692,11 +691,6 @@ void ZoomDrawProc(int erase)
   int c = gr_get_fcolor();
   gr_set_fill_type(FILL_XOR);
   gr_set_fcolor(WHITE);
-
-  // make the zoom rectanle visible in OpenGL as well
-  if(full_game_3d && use_opengl()) {
-    gr_set_fcolor(0x1);
-  }
 
   short ulx = INTERP(ZoomStart.ul.x, ZoomEnd.ul.x, ZoomI);
   short uly = INTERP(ZoomStart.ul.y, ZoomEnd.ul.y, ZoomI);

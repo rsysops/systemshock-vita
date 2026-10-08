@@ -54,11 +54,6 @@ typedef struct {
     short doDetail;     // 0 - Min, 1-Low, 2-High, 3-Max
     short doGamma;
     bool doUseQD;
-    bool doUseOpenGL;
-    // 0 => unfiltered
-    // 1 => bilinear
-    // TODO: add trilinear, anisotropic?
-    short doTextureFilter;
 
     bool gyroAiming;
     short gyroAimingSpeed;

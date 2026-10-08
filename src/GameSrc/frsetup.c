@@ -138,7 +138,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "hudobj.h"
 #include "olhext.h"
 
-#include "OpenGL.h"
 #include "VitaGpu.h"
 #include "vprof.h"
 #include "rastq.h"
@@ -573,10 +572,6 @@ int fr_start_view(void) {
     int detail;
     uchar *gpu_bits = NULL; // the GPU's canvas, if this view is drawn into one
 
-    if(should_opengl_swap()) {
-        opengl_start_frame();
-    }
-
     // A frame the GPU will draw goes into a GPU canvas, not the view's own
     // memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only the
     // main view: not the help scan, the security cameras or the 360 view.
@@ -630,14 +625,7 @@ int fr_start_view(void) {
         detail = _fr_global_detail;
     else
         detail = _fr->detail;
-    if (use_opengl()) {
-        _fr_per_func = _fr_floor_func = _fr_wall_func = opengl_draw_tmap;
-        _fr_lit_per_func = _fr_lit_floor_func = _fr_lit_wall_func = opengl_light_tmap;
-        extern int (*g3_tmap_func)(int n, g3s_phandle *vp, grs_bitmap *bm);
-        g3_tmap_func = opengl_light_tmap;
-
-        opengl_set_viewport(_fr->xtop, _fr->ytop, _fr->xwid, _fr->ywid);
-    } else if (detail != 0) {
+    if (detail != 0) {
         /* check viewer orientation.  Use wall/floor/full perspective texture maps accordingly. */
         _fr_lit_per_func = g3_light_tmap;
         _fr_per_func = g3_draw_tmap;
@@ -771,7 +759,6 @@ int fr_send_view(void) {
     // no stars in this scene it simply returns
     // spin it, spin it more when reactor blown
     // rotation every 20 minutes, every 1 minute after explosion
-    // with OpenGL, the starts have already been rendered before everything else
 
     VPROF_MARK_BEGIN(VPROF_STARS);
     g3_start_object_angles_y(&zvec, QUESTBIT_GET(0x14) ? player_struct.game_time * 3 : player_struct.game_time / 5);
@@ -801,10 +788,6 @@ int fr_send_view(void) {
             gr_set_canvas(canvas);
         }
         rastq_gpu_finish();
-    }
-
-    if(should_opengl_swap()) {
-        opengl_end_frame();
     }
 
     // stereo support - closedown ??

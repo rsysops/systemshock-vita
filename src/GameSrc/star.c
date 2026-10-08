@@ -43,7 +43,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdlib.h>
 #include "star.h"
 
-#include "OpenGL.h"
 
 //#define  STAR_SPEW
 
@@ -136,17 +135,9 @@ fix mag2_point(g3s_phandle p) {
 // and it should work, assuming the two
 // polygons are similar enough
 void star_poly(int n, g3s_phandle *vp) {
-    if(use_opengl()) {
-        // Stencil out this area where we want stars to draw
-        opengl_set_stencil(0xFF);
-        opengl_draw_poly(0x00, n, vp, 0);
-        opengl_set_stencil(0x00);
-    }
-    else {
-        // draw star poly in color zero (note that 255 is hacked black).  This part very
-        // important, if not zero, won't work.
-        g3_draw_poly(0xff, n, vp);
-    }
+    // draw star poly in color zero (note that 255 is hacked black).  This part very
+    // important, if not zero, won't work.
+    g3_draw_poly(0xff, n, vp);
 
     star_empty(n, vp); //fix disappearing stars; std_min_z was not being set below its max value,
                        //which caused star_render() to abort
@@ -248,10 +239,6 @@ void star_render(void) {
         return;
     }
 
-    if(use_opengl()) {
-        opengl_begin_stars();
-    }
-
     if (std_min_z < 0)
         std_min_z = 0;
 
@@ -272,11 +259,6 @@ void star_render(void) {
             x = fix_rint(s->sx);
             y = fix_rint(s->sy);
 
-            if(use_opengl()) {
-                opengl_draw_star(s->sx, s->sy, std_col[i], anti_alias);
-                continue;
-            }
-
             if (std_size <= 1) {
                 if (anti_alias) {
                     do_aa_star(s->sx, s->sy, std_col[i]);
@@ -295,10 +277,6 @@ void star_render(void) {
         }
 
         g3_free_point(s);
-    }
-
-    if(use_opengl()) {
-        opengl_end_stars();
     }
 
     // reset min z and max rad

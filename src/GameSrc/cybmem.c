@@ -36,7 +36,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Shock.h"
 #include "sideicon.h"
 #include "criterr.h"
-#include "OpenGL.h"
 
 uint32_t loadcount = 0;
 
@@ -122,8 +121,6 @@ errtype load_dynamic_memory(int mask) {
 
         loadcount |= mask;
     }
-
-    opengl_clear_texture_cache();
 
     return (OK);
 }

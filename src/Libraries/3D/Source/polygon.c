@@ -28,7 +28,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "3d.h"
 #include "GlobalV.h"
 #include "lg.h"
-#include "OpenGL.h"
 #include "rastq.h"
 
 // prototypes
@@ -167,11 +166,6 @@ int g3_draw_poly(long c, int n_verts, g3s_phandle *p) {
 }
 
 int draw_poly_common(long c, int n_verts, g3s_phandle *p) {
-    if (use_opengl()) {
-        extern int opengl_draw_poly(long, int, g3s_phandle *, char);
-        return opengl_draw_poly(c, n_verts, p, gour_flag);
-    }
-
     char andcode, orcode;
     g3s_phandle *old_p;
     int i;

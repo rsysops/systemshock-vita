@@ -72,7 +72,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "weapons.h"
 #include "mouselook.h"
 
-#include "OpenGL.h"
 
 #define CHECK_FOR_A_PACKET
 
@@ -538,11 +537,6 @@ uchar MacHelpFunc(ushort keycode, uint32_t context, intptr_t data) {
 }
 */
 
-uchar toggle_opengl_func(ushort keycode, uint32_t context, intptr_t data) {
-    toggle_opengl();
-    return TRUE;
-}
-
 //most of original init_input() is now either commented out or done elsewhere, so do what's left here
 //and comment out original function below
 void init_input(void) {
@@ -724,7 +718,6 @@ void init_input(void) {
     hotkey_add(CONTROL('H'), DEMO_CONTEXT, toggle_olh_func, 0);
     hotkey_add(ALT('o'), DEMO_CONTEXT, olh_overlay_func, &olh_overlay_on);
     hotkey_add(ALT('O'), DEMO_CONTEXT, olh_overlay_func, &olh_overlay_on);
-    hotkey_add(CONTROL('g'), EVERY_CONTEXT, toggle_opengl_func, 0);
     //
     //   // take these ifdefs out if memory bashing on shippable
     ////   hotkey_add(ALT(CONTROL(KEY_F4)),EVERY_CONTEXT,texture_annihilate_func,0);

@@ -59,7 +59,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Prefs.h"
 #include "VitaGpu.h"
 
-#include "OpenGL.h"
 
 
 #include "audiolog.h"
@@ -2346,7 +2345,7 @@ void screenmode_screen_init(void) {
     int i;
     char *keys;
 
-    if (wrapper_screenmode_hack && !(can_use_opengl() && gShockPrefs.doUseOpenGL)) {
+    if (wrapper_screenmode_hack) {
         uiHideMouse(NULL);
         render_run();
         uiShowMouse(NULL);

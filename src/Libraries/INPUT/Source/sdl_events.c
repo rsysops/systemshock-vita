@@ -28,7 +28,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "mouse.h"
 #include <stdlib.h>
 #include <SDL.h>
-#include <OpenGL.h>
+#include <3d.h>
 
 extern SDL_Window *window;
 extern SDL_Renderer *renderer;
@@ -1496,11 +1496,6 @@ void pump_events(void) {
 
         case SDL_WINDOWEVENT:
             switch (ev.window.event) {
-            case SDL_WINDOWEVENT_SIZE_CHANGED:
-                if (can_use_opengl())
-                    opengl_resize(ev.window.data1, ev.window.data2);
-                break;
-
             case SDL_WINDOWEVENT_MOVED:
             case SDL_WINDOWEVENT_RESIZED:
                 break;

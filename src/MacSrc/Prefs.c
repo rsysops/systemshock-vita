@@ -78,8 +78,6 @@ static const char *PREF_ALOG_VOL = "alog-volume";
 static const char *PREF_VIDEOMODE = "video-mode";
 static const char *PREF_HALFRES = "half-resolution";
 static const char *PREF_DETAIL = "detail";
-static const char *PREF_USE_OPENGL = "use-opengl";
-static const char *PREF_TEX_FILTER = "texture-filter";
 static const char *PREF_ONSCR_HELP = "onscreen-help";
 static const char *PREF_GAMMA = "gamma";
 static const char *PREF_MSG_LENGTH = "message-length";
@@ -125,8 +123,6 @@ void SetDefaultPrefs(void) {
     gShockPrefs.renderer = VITA_RENDERER_GPU;
     gShockPrefs.doResolution = 0; // High-res.
     gShockPrefs.doDetail = 3;     // Max detail.
-    gShockPrefs.doUseOpenGL = false;
-    gShockPrefs.doTextureFilter = 0; // unfiltered
     gShockPrefs.goOnScreenHelp = true;
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
     gShockPrefs.goMsgLength = 0; // Normal
@@ -216,12 +212,6 @@ int16_t LoadPrefs(void) {
             int detail = atoi(value);
             if (detail >= 0 && detail <= 3)
                 gShockPrefs.doDetail = detail;
-        } else if (strcasecmp(key, PREF_USE_OPENGL) == 0) {
-            gShockPrefs.doUseOpenGL = is_true(value);
-        } else if (strcasecmp(key, PREF_TEX_FILTER) == 0) {
-            int mode = atoi(value);
-            if (mode >= 0 && mode <= 1)
-                gShockPrefs.doTextureFilter = (short)mode;
         } else if (strcasecmp(key, PREF_ONSCR_HELP) == 0) {
             gShockPrefs.goOnScreenHelp = is_true(value);
         } else if (strcasecmp(key, PREF_GAMMA) == 0) {
@@ -297,8 +287,6 @@ int16_t SavePrefs(void) {
     fprintf(f, "%s = %d\n", PREF_VIDEOMODE, mode_id);
     fprintf(f, "%s = %s\n", PREF_HALFRES, DoubleSize ? "yes" : "no");
     fprintf(f, "%s = %d\n", PREF_DETAIL, _fr_global_detail);
-    fprintf(f, "%s = %s\n", PREF_USE_OPENGL, gShockPrefs.doUseOpenGL ? "yes" : "no");
-    fprintf(f, "%s = %d\n", PREF_TEX_FILTER, gShockPrefs.doTextureFilter);
     fprintf(f, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
     fprintf(f, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
     fprintf(f, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
@@ -530,7 +518,6 @@ extern uchar toggle_music_func(ushort keycode, uint32_t context, intptr_t data);
 extern uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data);
 extern uchar cycle_weapons_func(ushort keycode, uint32_t context, intptr_t data);
 extern uchar MacDetailFunc(ushort keycode, uint32_t context, intptr_t data);
-extern uchar toggle_opengl_func(ushort keycode, uint32_t context, intptr_t data);
 extern uchar arm_grenade_hotkey(ushort keycode, uint32_t context, intptr_t data);
 extern uchar use_drug_hotkey(ushort keycode, uint32_t context, intptr_t data);
 extern uchar hud_color_bank_cycle(ushort keycode, uint32_t context, intptr_t data);
@@ -584,7 +571,6 @@ HOTKEYLOOKUP HotKeyLookup[] = {
     {"\"cycle_weapons 1\"", DEMO_CONTEXT, cycle_weapons_func, 1, 0, TAB_KEY, 0},
     {"\"cycle_weapons -1\"", DEMO_CONTEXT, cycle_weapons_func, -1, 0, S_TAB_KEY, 0},
     {"\"cycle_detail\"", DEMO_CONTEXT, MacDetailFunc, 0, 0, CTRL('1'), 0},
-    {"\"toggle_opengl\"", EVERY_CONTEXT, toggle_opengl_func, 0, 0, CTRL('g'), 0},
     // remap Vita hotkeys to something simpler, since I haven't figured out complex key combination emulation yet
     {"\"arm_grenade\"", DEMO_CONTEXT, arm_grenade_hotkey, 0, 0, DOWN('u'), 0},
     {"\"use_drug\"", DEMO_CONTEXT, use_drug_hotkey, 0, 0, DOWN('o'), 0},

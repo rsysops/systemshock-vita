@@ -32,7 +32,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "InitMac.h"
 #include "Modding.h"
-#include "OpenGL.h"
 #include "Prefs.h"
 #include "Shock.h"
 #include "ShockBitmap.h"
@@ -458,7 +457,7 @@ void SetSDLPalette(int index, int count, uchar *pal) {
     static bool gammalut_init = 0;
     static uchar gammalut[100 - 10 + 1][256];
     if (!gammalut_init) {
-        double factor = (can_use_opengl() ? 1.0 : 2.2); // OpenGL uses 2.2
+        double factor = 2.2;
         int i, j;
         for (i = 10; i <= 100; i++) {
             double gamma = (double)i * 1.0 / 100;
@@ -499,8 +498,6 @@ void SetSDLPalette(int index, int count, uchar *pal) {
     SDL_SetSurfacePalette(drawSurface, sdlPalette);
     SDL_SetSurfacePalette(offscreenDrawSurface, sdlPalette);
 
-    if (should_opengl_swap())
-        opengl_change_palette();
     uint32_t palette32Bit[256u];
 
     if (!surface) {

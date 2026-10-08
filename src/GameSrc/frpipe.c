@@ -72,7 +72,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "refstuf.h"
 
-#include "OpenGL.h"
 
 // tell me tell me what you're after
 // cause i just want to get there faster
