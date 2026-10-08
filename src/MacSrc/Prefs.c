@@ -30,9 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //--------------------
 #include "Shock.h"
 #include "Prefs.h"
-#ifdef VITA
 #include "rastq.h"
-#endif
 
 #include "popups.h"
 #include "olhext.h"
@@ -88,14 +86,12 @@ static const char *PREF_MSG_LENGTH = "message-length";
 static const char *PREF_ALOG_SETTING = "alog-setting";
 static const char *PREF_MIDI_BACKEND = "midi-backend";
 static const char *PREF_MIDI_OUTPUT = "midi-output";
-#ifdef VITA
 static const char *VITA_GYRO = "vita-gyro";
 static const char *VITA_GYRO_SPEED = "vita-gyro-speed";
 static const char *VITA_CONTROLLER_SPEED = "vita-controller-speed";
 static const char *VITA_CURSOR = "vita-cursor";
 static const char *VITA_MULTICORE = "vita-multicore"; // before there was a choice of three
 static const char *VITA_RENDERER = "vita-renderer";
-#endif
 
 static void SetShockGlobals(void);
 
@@ -108,11 +104,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.prefPlayIntro = 1; // First time through, play the intro
     gShockPrefs.goPopupLabels = true;
     gShockPrefs.soBackMusic = true;
-#ifdef USE_FLUIDSYNTH
-    gShockPrefs.soMidiBackend = 2; // default to fluidsynth when available
-#else
     gShockPrefs.soMidiBackend = 0; // default to adlmidi
-#endif
     gShockPrefs.soMidiOutput = 0; // default to zero
     gShockPrefs.soSoundFX = true;
     gShockPrefs.doUseQD = false;
@@ -125,16 +117,12 @@ void SetDefaultPrefs(void) {
     gShockPrefs.soMusicVolume = 75;
     gShockPrefs.soSfxVolume = 100;
     gShockPrefs.soAudioLogVolume = 100;
-#ifdef VITA
     gShockPrefs.doVideoMode = 0;
     gShockPrefs.gyroAiming = 1;
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;
     gShockPrefs.showCursor = false;
     gShockPrefs.renderer = VITA_RENDERER_GPU;
-#else
-    gShockPrefs.doVideoMode = 3;
-#endif
     gShockPrefs.doResolution = 0; // High-res.
     gShockPrefs.doDetail = 3;     // Max detail.
     gShockPrefs.doUseOpenGL = false;
@@ -155,13 +143,7 @@ static char *GetPrefsPathFilename(void) {
         fclose(f);
         strcpy(filename, PREFS_FILENAME);
     } else {
-#ifdef VITA
         snprintf(filename, sizeof(filename), "%s%s", VITA_PATH, PREFS_FILENAME);
-#else
-        char *p = SDL_GetPrefPath("Interrupt", "SystemShock");
-        snprintf(filename, sizeof(filename), "%s%s", p, PREFS_FILENAME);
-        SDL_free(p);
-#endif
     }
 
     return filename;
@@ -266,7 +248,6 @@ int16_t LoadPrefs(void) {
             if (mo >= 0)
                 gShockPrefs.soMidiOutput = (short)mo;
         }
-#ifdef VITA
         else if (strcasecmp(key, VITA_GYRO) == 0) {
             gShockPrefs.gyroAiming = is_true(value);
         } else if (strcasecmp(key, VITA_GYRO_SPEED) == 0) {
@@ -288,7 +269,6 @@ int16_t LoadPrefs(void) {
             if (renderer >= 0 && renderer < VITA_RENDERERS)
                 gShockPrefs.renderer = (unsigned char)renderer;
         }
-#endif
     }
 
     fclose(f);
@@ -325,13 +305,11 @@ int16_t SavePrefs(void) {
     fprintf(f, "%s = %d\n", PREF_ALOG_SETTING, audiolog_setting);
     fprintf(f, "%s = %d\n", PREF_MIDI_BACKEND, gShockPrefs.soMidiBackend);
     fprintf(f, "%s = %d\n", PREF_MIDI_OUTPUT, gShockPrefs.soMidiOutput);
-#ifdef VITA
     fprintf(f, "%s = %d\n", VITA_GYRO, gShockPrefs.gyroAiming);
     fprintf(f, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
     fprintf(f, "%s = %d\n", VITA_RENDERER, gShockPrefs.renderer);
-#endif
     fclose(f);
     return 0;
 }
@@ -353,12 +331,9 @@ static void SetShockGlobals(void) {
     DoubleSize = (gShockPrefs.doResolution == 1); // Set this True for low-res.
     SkipLines = gShockPrefs.doUseQD;
     _fr_global_detail = gShockPrefs.doDetail;
-#ifdef VITA
     VitaApplyRenderer();
-#endif
 }
 
-#ifdef VITA
 void VitaApplyRenderer(void) {
     int recorded = gShockPrefs.renderer != VITA_RENDERER_1_CORE;
 
@@ -367,7 +342,6 @@ void VitaApplyRenderer(void) {
     rastq_set_min_rows(RASTQ_SMALL_VIEW_ROWS);
     rastq_use_gpu(gShockPrefs.renderer == VITA_RENDERER_GPU);
 }
-#endif
 
 //************************************************************************************
 
@@ -541,9 +515,7 @@ static void LowerCaseInPlace(char *p) {
 // Also handles fire keybinds
 //*********************************
 
-#ifdef AUDIOLOGS
 extern uchar audiolog_cancel_func(ushort keycode, uint32_t context, intptr_t data);
-#endif
 extern uchar posture_hotkey_func(ushort keycode, uint32_t context, intptr_t data);
 extern uchar toggle_mouse_look(ushort keycode, uint32_t context, intptr_t data);
 extern uchar change_mode_func(ushort keycode, uint32_t context, intptr_t data);
@@ -590,9 +562,7 @@ typedef struct HOTKEYLOOKUP_STRUCT {
 
 HOTKEYLOOKUP HotKeyLookup[] = {
 //  name                    contexts      func                    state           used  default key 1,2
-#ifdef AUDIOLOGS
     {"\"audiolog_cancel\"", DEMO_CONTEXT, audiolog_cancel_func, 0, 0, CTRL('.'), 0},
-#endif
     {"\"stand\"", DEMO_CONTEXT, posture_hotkey_func, 0, 0, DOWN('t'), SHIFT('t')},
     {"\"crouch\"", DEMO_CONTEXT, posture_hotkey_func, 1, 0, DOWN('g'), SHIFT('g')},
     {"\"prone\"", DEMO_CONTEXT, posture_hotkey_func, 2, 0, DOWN('b'), SHIFT('b')},
@@ -615,14 +585,9 @@ HOTKEYLOOKUP HotKeyLookup[] = {
     {"\"cycle_weapons -1\"", DEMO_CONTEXT, cycle_weapons_func, -1, 0, S_TAB_KEY, 0},
     {"\"cycle_detail\"", DEMO_CONTEXT, MacDetailFunc, 0, 0, CTRL('1'), 0},
     {"\"toggle_opengl\"", EVERY_CONTEXT, toggle_opengl_func, 0, 0, CTRL('g'), 0},
-#ifdef VITA
     // remap Vita hotkeys to something simpler, since I haven't figured out complex key combination emulation yet
     {"\"arm_grenade\"", DEMO_CONTEXT, arm_grenade_hotkey, 0, 0, DOWN('u'), 0},
     {"\"use_drug\"", DEMO_CONTEXT, use_drug_hotkey, 0, 0, DOWN('o'), 0},
-#else
-    {"\"arm_grenade\"", DEMO_CONTEXT, arm_grenade_hotkey, 0, 0, ALT('\''), 0},
-    {"\"use_drug\"", DEMO_CONTEXT, use_drug_hotkey, 0, 0, ALT(';'), 0},
-#endif
     {"\"hud_color\"", DEMO_CONTEXT, hud_color_bank_cycle, 0, 0, ALT('h'), 0},
     {"\"showhelp\"", DEMO_CONTEXT, olh_overlay_func, (intptr_t)&olh_overlay_on, 0, ALT('o'), 0},    
     {"\"bio scan\"", DEMO_CONTEXT, hw_hotkey_callback, 5, 0, 49, 0},
@@ -678,13 +643,7 @@ static char *GetKeybindsPathFilename(void) {
         fclose(f);
         strcpy(filename, KEYBINDS_FILENAME);
     } else {
-#ifdef VITA
         snprintf(filename, sizeof(filename), "%s%s", VITA_PATH, KEYBINDS_FILENAME);
-#else
-        char *p = SDL_GetPrefPath("Interrupt", "SystemShock");
-        snprintf(filename, sizeof(filename), "%s%s", p, KEYBINDS_FILENAME);
-        SDL_free(p);
-#endif
     }
 
     return filename;

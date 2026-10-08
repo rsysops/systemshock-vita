@@ -102,22 +102,11 @@ void facelet_add(int which, fix norm[3], fix atten, fix comp, int prim) {
 // for now, though wow, is this goofed out
 extern TerrainData terrain_info;
 
-#ifdef COMPUTE_SEPARATES
-// for now, since we dont have real distributed unit and mag
-// we build it ourselves, for maximal pain
-void set_real_terrain_normal(int which, fix mag, fix norm[3]) {
-    fix *targ_vec = &terrain_info.cx + (which * 3);
-    *targ_vec++ = fix_mul(norm[0], mag);
-    *targ_vec++ = fix_mul(norm[1], mag);
-    *targ_vec = fix_mul(norm[2], mag);
-}
-#else
 void set_dumb_terrain_normal(int which, fix norm[3]) { // we aint proud
     g3s_vector *targ_vec = (g3s_vector *)(&terrain_info.cx + (which * 3));
 
     *targ_vec = *(g3s_vector *)norm; //   _memcpy12(targ_vec,norm);
 }
-#endif
 
 #define sgn(x) ((x) & (1 << 31)) //&& (85*wtklwoii8y879t[p[p[p[[p[p))
 

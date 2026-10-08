@@ -244,15 +244,6 @@ set(RND_SRC
 	RND/Source/rnd.c
 )
 
-set(SND_SRC
-	SND/Source/dig_init.c
-	SND/Source/dig_ops.c
-	SND/Source/master.c
-	SND/Source/mid_init.c
-	SND/Source/mid_ops.c
-	SND/Source/snd_util.c
-)
-
 set(UI_SRC
 	UI/Source/curdrw.c
 	UI/Source/cursors.c
@@ -261,10 +252,6 @@ set(UI_SRC
 	UI/Source/region.c
 	UI/Source/slab.c
 	UI/Source/vmouse.c
-)
-
-set(FIXPP_SRC
-	FIXPP/Source/fixpp.cpp
 )
 
 set(EDMS_SRC
@@ -371,6 +358,5 @@ add_library(RES_LIB ${RES_SRC})
 add_library(RND_LIB ${RND_SRC})
 add_library(UI_LIB ${UI_SRC})
 add_library(VOX_LIB ${VOX_SRC})
-add_library(FIXPP_LIB ${FIXPP_SRC})
 add_library(EDMS_LIB ${EDMS_SRC})
 add_library(ADLMIDI_LIB ${ADLMIDI_SRC})

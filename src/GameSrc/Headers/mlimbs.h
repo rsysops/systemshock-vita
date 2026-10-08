@@ -50,7 +50,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MLIMBS_REF 0xFF0000
 #define mrefBuild(themeid, seq) (MLIMBS_REF | (themeid << 16) | seq)
 
-#define CALLBACK_ON
 
 /* XMIDI_info contains 'permanent' information about a given piece. */
 struct mlimbs_piece_info {

@@ -63,11 +63,7 @@ typedef struct {
  *
  */
 
-#ifdef __INLINE_FUNCTIONS__
-#define kb_state(code) (kbd_lowmem_start[KBD_ARRAY_START + code] & KBA_STATE)
-#else
 extern uchar kb_state(uchar code);
-#endif
 
 #define kb_init kb_startup
 #define kb_close kb_shutdown

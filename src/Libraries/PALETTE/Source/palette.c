@@ -57,10 +57,8 @@ short num_active_effects = 0;
 
 byte num_installed_shifts = 0;
 
-#ifndef REAL_PAL_SWAP_SHAD
 // should really do a warning here for so people to understand a problem, she has happened
 #define palette_swap_shadow(s,n,d)
-#endif
 
 /*
  * ROUTINES
@@ -583,31 +581,3 @@ void palette_init_smap(short first, short last, uchar *from, uchar *to,
  * Does a cycle bank on the shadow map and the delta map.
  */
 
-#ifdef REAL_PAL_SWAP_SHAD
-void palette_swap_shadow(int s, int n, int d)
-{
-   // used to be static, too big, what to do, what to do.... what to do...
-   fix Shadow_smap[768];
-   fix Shadow_dmap[768];
-   int i;
-   
-   // Copy the originals to the shadow maps
-
-   for (i = 3*s; i < (s+d)*3; i++) {
-      Shadow_smap[i] = Shadow_Fixed_Cmap[i];
-      Shadow_dmap[i] = Delta_Cmap[i];
-   }
-
-   for (i = 3*s; i < (s+n-d)*3; i++) {
-      Shadow_Fixed_Cmap[i] = Shadow_Fixed_Cmap[(d*3)+i];
-      Delta_Cmap[i] = Delta_Cmap[(d*3)+i];
-   }
-
-   for (i = (s+n-d)*3; i < (s+n)*3; i++) {
-      Shadow_Fixed_Cmap[i] = Shadow_smap[i-((n-d)*3)];
-      Delta_Cmap[i] = Shadow_dmap[i-((n-d)*3)];
-   }
-   
-   return;
-}
-#endif

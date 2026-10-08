@@ -46,14 +46,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "OpenGL.h"
 
 //#define  STAR_SPEW
-#define STARS_ANTI_ALIAS
-
-#ifdef STEREO_ON
-extern uchar g3d_stereo;
-extern fix g3d_eyesep_raw;
-extern uchar *g3d_rt_canv_bits;
-extern uchar *g3d_lt_canv_bits;
-#endif
 
 // globals for state
 sts_vec *std_vec;
@@ -65,7 +57,6 @@ fix std_max_rad = 0;
 
 int std_size = 1;
 
-#ifdef STARS_ANTI_ALIAS
 // The canvas must be more than <std_alias_size> pixels wide
 // for us to anti-alias the stars (which makes them bigger,
 // hence the size restriction)
@@ -80,7 +71,6 @@ int std_color_base, std_color_range;
 
 // gamma-correct star colors
 uchar std_alias_color_table[256];
-#endif
 
 extern g3s_vector _matrix_scale;
 extern g3s_phandle _vbuf2;
@@ -125,11 +115,6 @@ void star_free(void) { free(std_vec); }
 // per tmap hack
 
 extern g3s_vector view_position;
-
-#ifdef STAR_SPEW
-extern int star_num_behind;
-extern int star_num_projected;
-#endif
 
 // for the love of god, I hate 3d scaling.
 fix mag2_point(g3s_phandle p) {
@@ -193,7 +178,6 @@ void star_sky(void) {
     std_max_rad = FIX_UNIT;
 }
 
-#ifdef STARS_ANTI_ALIAS
 // render a single pixel of an anti-aliased star
 void do_aa_star_pixel(int x, int y, int fx, int fy, int c) {
     int q;
@@ -247,8 +231,6 @@ void star_init_alias_table(void) {
         std_alias_color_table[i] = a + fix_int(fix_mul(b, fix_pow(fix_make(i, 0) / 255, gamma)));
 }
 
-#endif
-
 // Has the frame under way drawn a star field somewhere visible? Then
 // star_render has stars to put into the pixels the field left.
 uchar star_field_seen(void) { return std_min_z != 0x7fffffff; }
@@ -259,28 +241,10 @@ void star_render(void) {
     int x, y;
     int x1, y1;
     g3s_vector v;
-#ifdef STEREO_ON
-    uchar old_stereo;
-#endif
-#ifdef STARS_ANTI_ALIAS
     int anti_alias = grd_bm.w >= std_alias_size;
-#endif
-
-#ifdef STAR_SPEW
-    star_num_behind = 0;
-    star_num_projected = 0;
-#endif
-
-#if defined(STARS_ANTI_ALIAS) && defined(STEREO_ON)
-    if (g3d_stereo)
-        anti_alias = 0;
-#endif
 
     // exit if no one every drew a star field anywhere visible
     if (std_min_z == 0x7fffffff) {
-#ifdef STAR_SPEW
-        mprintf("ignored\n");
-#endif
         return;
     }
 
@@ -288,24 +252,11 @@ void star_render(void) {
         opengl_begin_stars();
     }
 
-#ifdef STAR_SPEW
-    mprintf("max_rad = %x min_z = %x\n", fix_sqrt(star_max_rad), star_min_z);
-#endif
     if (std_min_z < 0)
         std_min_z = 0;
 
 // scale by max radius
-#ifndef STEREO_ON
     g3_scale_object(fix_sqrt(std_max_rad));
-#else
-    // add in eyesep raw cause that's as much bigger it could be
-    g3_scale_object(fix_sqrt(std_max_rad) + (g3d_stereo ? g3d_eyesep_raw : 0));
-#endif
-
-#ifdef STEREO_ON
-    old_stereo = g3d_stereo;
-    g3d_stereo = 0;
-#endif
 
     for (i = 0; i < std_num; ++i) {
         // in theory if codes aren't set it's on the screen
@@ -327,11 +278,9 @@ void star_render(void) {
             }
 
             if (std_size <= 1) {
-#ifdef STARS_ANTI_ALIAS
                 if (anti_alias) {
                     do_aa_star(s->sx, s->sy, std_col[i]);
                 } else
-#endif
                     if (gr_get_pixel(x, y) == 0xff)
                     gr_set_pixel(std_col[i], x, y);
             } else {
@@ -343,25 +292,6 @@ void star_render(void) {
                 }
             }
 
-#ifdef STEREO_ON
-            if (old_stereo) {
-                // switch canvases quickly
-                grd_bm.bits = g3d_rt_canv_bits;
-                if (std_size <= 1) {
-                    if (gr_get_pixel(x, y) == 0xff)
-                        gr_set_pixel(std_col[i], x, y);
-                } else {
-                    for (x1 = x; x1 < x + std_size; ++x1) {
-                        for (y1 = y; y1 < y + std_size; ++y1) {
-                            if (gr_get_pixel(x1, y1) == 0xff)
-                                gr_set_pixel(std_col[i], x1, y1);
-                        }
-                    }
-                }
-                // switch back
-                grd_bm.bits = g3d_lt_canv_bits;
-            }
-#endif
         }
 
         g3_free_point(s);
@@ -370,14 +300,6 @@ void star_render(void) {
     if(use_opengl()) {
         opengl_end_stars();
     }
-
-#ifdef STEREO_ON
-    g3d_stereo = old_stereo;
-#endif
-
-#ifdef STAR_SPEW
-    mprintf("stars = %d behind = %d proj = %d\n", st_num, star_num_behind, star_num_projected);
-#endif
 
     // reset min z and max rad
     std_min_z = 0x7fffffff;
@@ -393,13 +315,11 @@ void star_rand(uchar col, uchar range) {
     sts_vec *s;
     fix m;
 
-#ifdef STARS_ANTI_ALIAS
     // SYSTEM SHOCK HACK!
     std_color_base = 208; // col;
     std_color_range = 16; // range;
 
     star_init_alias_table();
-#endif
 
     for (i = 0; i < std_num; ++i) {
         s = &std_vec[i];

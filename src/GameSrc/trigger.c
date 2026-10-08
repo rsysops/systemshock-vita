@@ -80,12 +80,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "setploop.h"
 #include "cutsloop.h"
 
-#ifdef OLD_TELEPORT_BETWEEN_LEVELS
-#include <gamewrap.h>
-#include <gamerend.h>
-#include <render.h>
-#endif
-
 // As far as I can tell, these NEVER GET USED.  So I thought I'd move them out of the file
 // to remove a dependency problem.
 
@@ -263,9 +257,7 @@ uchar comparator_check(int comparator, ObjID obj, uchar *special_code) {
             long_bark(obj, FIRST_SHODAN_MUG + shodan_amt, SHODAN_FAILURE_STRING, 0x4c);
         } else {
             string_message_info(REF_STR_TrapZeroMessage + fail_code);
-#ifdef AUDIOLOGS
             audiolog_bark_play(fail_code);
-#endif
         }
     }
 
@@ -365,16 +357,6 @@ errtype trap_transmogrify_func(int p1, int p2, int p3, int p4) {
                 }
             }
             break;
-#ifdef TWO_WAY_TRANSMOGGING
-        case FORCE_BRIJ_TRIPLE:
-        case FORCE_BRIJ2_TRIPLE:
-            if (dest == NON_BRIDGE_TRIPLE) {
-                remove_obj_from_animlist(p1);
-                objs[p1].info.current_frame = 0;
-                objBigstuffs[objs[p1].specID].cosmetic_value = MAX_BRIDGE_FRAME;
-                add_obj_to_animlist(p1, FALSE, FALSE, FALSE, 16, 0, 0, 0);
-            }
-#endif
         }
     }
     slam_posture_meter_state();
@@ -858,9 +840,6 @@ errtype trap_lighting_func(uchar floor, int p1, int p2, int p3, int p4) {
         delta = (targ2 - targ1) / (y2 - y1);
         break;
     }
-#ifdef OLD_LIGHT
-    setme = targ1 - otarg1;
-#endif
     setme = targ1;
     for (j = y1; j <= y2; j++) {
         for (i = x1; i <= x2; i++) {
@@ -882,30 +861,8 @@ errtype trap_lighting_func(uchar floor, int p1, int p2, int p3, int p4) {
             }
 
             if (floor) {
-#ifdef OLD_LIGHT
-                //               if ((setme + me_templight_flr(pme) > 0xF) || (me_templight_flr(pme) - setme < 0))
-                //                  Spew(DSRC_GAMESYS_Traps, ("pegged lights at 0x%x, 0x%x -- %d + %d = %d\n",
-                //                     i,j,setme,me_templight_flr(pme),setme+me_templight_flr(pme)));
-                new_val = me_templight_flr(pme) + setme;
-                if (newval > 0xF)
-                    newval = 0xF;
-                else if (newval < 0)
-                    newval = 0;
-                me_templight_flr_set(pme, newval);
-#endif
                 me_templight_flr_set(pme, setme);
             } else {
-#ifdef OLD_LIGHT
-                //               if ((setme + me_templight_ceil(pme) > 0xF) || (me_templight_ceil(pme) - setme < 0))
-                //                  Spew(DSRC_GAMESYS_Traps, ("pegged lights at 0x%x, 0x%x -- %d + %d = %d\n",
-                //                     i,j,setme,me_templight_ceil(pme),setme+me_templight_ceil(pme)));
-                new_val = me_templight_ceil(pme) + setme;
-                if (newval > 0xF)
-                    newval = 0xF;
-                else if (newval < 0)
-                    newval = 0;
-                me_templight_ceil_set(pme, newval);
-#endif
                 me_templight_ceil_set(pme, setme);
             }
             if (p3 == LIGHT_EW_SMOOTH) {
@@ -1159,17 +1116,13 @@ errtype trap_questbit_func(int p1, int p2, int p3, int p4) {
     if (qdata_get(p1)) {
         if (qdata_get(p3)) {
             message_info(get_string(REF_STR_TrapZeroMessage + qdata_get(p3), message_buf, 80));
-#ifdef AUDIOLOGS
             audiolog_bark_play(qdata_get(p3));
-#endif
             *trap_use_message = TRUE;
         }
     } else {
         if (qdata_get(p4)) {
             message_info(get_string(REF_STR_TrapZeroMessage + qdata_get(p4), message_buf, 80));
-#ifdef AUDIOLOGS
             audiolog_bark_play(qdata_get(p4));
-#endif
             *trap_use_message = TRUE;
         }
     }
@@ -1806,9 +1759,7 @@ errtype trap_destroy_object_func(int p1, int p2, int p3, int p4) {
     do_destroy(p3);
     if (p4 > 0) {
         message_info(get_string(REF_STR_TrapZeroMessage + p4, message_buf, 80));
-#ifdef AUDIOLOGS
         audiolog_bark_play(p4);
-#endif
         *trap_use_message = TRUE;
     }
     return (OK);
@@ -1819,10 +1770,8 @@ errtype trap_plot_clock_func(int p1, int p2, int p3, int p4) { return (OK); }
 errtype trap_email_func(int mung, int time, int p3, int p4) {
     void add_email_datamunge(short mung, uchar select);
 
-#ifdef DOOM_EMULATION_MODE
     if (QUESTVAR_GET(MISSION_DIFF_QVAR) == 0)
         return (OK);
-#endif
     if (time == 0) {
         add_email_datamunge(mung, TRUE);
         *trap_use_message = TRUE;
@@ -1955,9 +1904,7 @@ errtype trap_bark_func(int speaker, int strnum, int color, int hud_bark) {
     if (hud_bark) {
         // just message_info for now
         string_message_info(string_id);
-#ifdef AUDIOLOGS
         audiolog_bark_play(string_id - REF_STR_TrapZeroMessage);
-#endif
     } else if (special) {
         int mug;
 

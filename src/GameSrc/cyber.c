@@ -125,12 +125,8 @@ errtype enter_cyberspace_stuff(char dest_lev) {
 
         // Set timer for Avatar O'SHODAN
 //   Warning(("player_struct.csp_time_base = %d\n",player_struct.cspace_time_base));
-#ifdef STUPID_HACK
-    player_struct.cspace_time_base = CIT_CYCLE * 3;
-#else
     if (player_struct.cspace_time_base > CSPACE_MAX_TIME)
         player_struct.cspace_time_base = CSPACE_MAX_TIME;
-#endif
     time_until_shodan_avatar = player_struct.game_time + player_struct.cspace_time_base;
 
     // Clear effect timers
@@ -160,11 +156,6 @@ errtype enter_cyberspace_stuff(char dest_lev) {
     mfd_change_slot(MFD_LEFT, MFD_INFO_SLOT);
     mfd_change_slot(MFD_RIGHT, MFD_INFO_SLOT);
 
-#ifdef STEREO_SUPPORT
-    if (convert_use_mode == 5)
-        full_visible = FULL_R_MFD_MASK | FULL_INVENT_MASK;
-    else
-#endif
         full_visible |= FULL_R_MFD_MASK | FULL_INVENT_MASK;
     hardware_closedown(TRUE);
     drug_closedown(TRUE);

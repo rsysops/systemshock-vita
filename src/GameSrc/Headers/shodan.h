@@ -21,18 +21,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define CREATURE_SHODODMETER
 
-#ifdef CREATURE_SHODOMETER
-#define CYBORG_DRONE_TRIPLE_VALUE   2
-#define WARRIOR_TRIPLE_VALUE        4
-#define ASSASSIN_TRIPLE_VALUE       4
-#define CYBERBABE_TRIPLE_VALUE      8
-#define ELITE_GUARD_TRIPLE_VALUE   20
-#define CORTEX_REAVER_TRIPLE_VALUE 16
-#define MUTANT_BORG_TRIPLE_VALUE   10
-#define SECURITY_BOT1_TRIPLE_VALUE  5
-#define SECURITY_BOT2_TRIPLE_VALUE 22
-#define EXECBOT_TRIPLE_VALUE        6
-#endif
 #define CAMERA_TRIPLE_VALUE         5
 #define SMALL_CPU_TRIPLE_VALUE     10
 #define LARGCPU_TRIPLE_VALUE       50

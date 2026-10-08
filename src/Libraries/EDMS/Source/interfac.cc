@@ -29,10 +29,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #pragma require_prototypes off // Added by KC for this file for Mac version.
 
-#ifdef EDMS_SHIPPABLE
-//#include "mout.h"
-#endif
-
 //	Here we need include files for each and every model that we'll be using...
 //	=====================================================
 #include "robot.h"
@@ -234,10 +230,6 @@ void EDMS_get_state(physics_handle ph, State *s) {
         s->gamma_dot = S[on][5][1].to_fix();
     }
 
-#ifdef EDMS_SHIPPABLE
-    else
-        cout << "Hey, EDMS_get_state sez: physics_handle " << ph << " is nonexistant!!\n";
-#endif
 }
 
 //	This does exactly what it looks like it does.  It is up to the caller to make sure
@@ -413,11 +405,6 @@ int32_t EDMS_sanity_check() { return sanity_check(); }
 void EDMS_get_robot_parameters(physics_handle ph, Robot *m) {
     int32_t on = physics_handle_to_object_number(ph);
 
-#ifdef EDMS_SHIPPABLE
-    if (I[on][IDOF_MODEL] != ROBOT)
-        mout << "You are trying to get ROBOT parameters for an " << I[on][IDOF_MODEL] << "!\n";
-#endif
-
     // mout << "RD: " << I[on][IDOF_ROBOT_ROLL_DRAG] << " : M:" << I[on][IDOF_ROBOT_MASS] << "\n";
     m->pep = (I[on][IDOF_ROBOT_ROLL_DRAG] / (1.5 * I[on][IDOF_ROBOT_MASS])).to_fix();
     m->size = I[on][IDOF_ROBOT_RADIUS].to_fix();
@@ -444,11 +431,6 @@ void EDMS_control_robot(physics_handle ph, fix T, fix A, fix J) {
         AA, // attitude jets
         JJ; // jump jets
 
-#ifdef EDMS_SHIPPABLE
-    if (ph < 0)
-        mout << "Hey, you are an idiot...";
-#endif
-
     TT.fix_to(T);
     AA.fix_to(A);
     JJ.fix_to(J);
@@ -466,11 +448,6 @@ void EDMS_ai_control_robot(physics_handle ph, fix D_H, fix D_S, fix S_S, fix U, 
         UU, // urgency
         TU, // there yet?
         DD; // distance
-
-#ifdef EDMS_SHIPPABLE
-    if (ph < 0)
-        mout << "Hey, you are and idiot...";
-#endif
 
     DH.fix_to(D_H);
     DS.fix_to(D_S);
@@ -557,11 +534,6 @@ physics_handle EDMS_make_robot(Robot *m, State *s) {
 
     ph = EDMS_bind_object_number(on);
 
-#ifdef EDMS_SHIPPABLE
-    if (params[OFFSET(IDOF_ROBOT_MOI)] == 0)
-        mout << "object " << on << " got 0 size or mass\n";
-#endif
-
     return ph;
 }
 
@@ -579,11 +551,6 @@ void EDMS_set_robot_parameters(physics_handle ph, Robot *m) {
     cyber_space = m->cyber_space;
 
     int32_t on = physics_handle_to_object_number(ph);
-
-#ifdef EDMS_SHIPPABLE
-    if (I[on][IDOF_MODEL] != ROBOT)
-        mout << "You are trying to set ROBOT parameters for an " << I[on][30] << "!\n";
-#endif
 
     //	mout << "Set Robot " << on << "\n";
     //	mout << "	mass: " << mass << "\n";

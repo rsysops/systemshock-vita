@@ -257,13 +257,6 @@ void partition_sort(void) {
         ; // KLC      Warning(("Dual partitions\n"));
     else {
         int mloc;
-#ifdef COW_COW
-        if (cur_obj_num == partition_loc[0])
-            sort_section(draw_last_cnt, cur_obj_num - 1);
-        else if (draw_last_cnt == partition_loc[0])
-            sort_section(draw_last_cnt + 1, cur_obj_num);
-        else
-#endif // __FEAR__ the COW COW
         {
             mloc = do_part_sort(partition_type, draw_last_cnt, cur_obj_num, partition_loc[0]);
             sort_section(draw_last_cnt, mloc - 1);

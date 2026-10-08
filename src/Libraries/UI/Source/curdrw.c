@@ -55,9 +55,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 void cursor_draw_callback(ss_mouse_event* e, void* data)
 {
    LGPoint pos;
-#ifndef NO_DUMMIES
    void *dummy; dummy = (void *)e; dummy = data;
-#endif
 
    if (MouseLock > 0) return;
    MouseLock++;
@@ -104,22 +102,16 @@ void cursor_draw_callback(ss_mouse_event* e, void* data)
 static grs_canvas* old_canvas = NULL;
 bool	doubleUndraw = FALSE;
 
-#ifdef VITA
 // sdl_events.c: the cursor isn't drawn in menus unless the Vita option shows it. The save-under
 // is still taken, so undrawing just puts back the same pixels.
 extern bool VitaMenuCursorHidden(void);
 #define CURSOR_BLIT_HIDDEN() VitaMenuCursorHidden()
-#else
-#define CURSOR_BLIT_HIDDEN() FALSE
-#endif
 
 //-----------------------------------------------------------
 void bitmap_cursor_drawfunc(int cmd, LGRegion* r, LGCursor* c, LGPoint pos)
 {
 	grs_bitmap* bm = (grs_bitmap*)(c->state);
-#ifndef NO_DUMMIES
 	LGRegion *dummy; dummy = r;
-#endif
 	
 	// set up screen canvas
 	old_canvas = grd_canvas;

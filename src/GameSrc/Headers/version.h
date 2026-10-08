@@ -22,10 +22,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // C is for cookie, it's good enough for me.
 
-#ifdef SVGA_SUPPORT
 #define SS_FLAG_LETTER "C" // for CD ship
-#else
-#define SS_FLAG_LETTER "S" // for ship
-#endif                     // SVGA_SUPPORT
 
 #define SYSTEM_SHOCK_VERSION "v" SS_GREEK_LETTER SS_VERSION_NUM SS_FLAG_LETTER

@@ -65,11 +65,7 @@ int gri_flat8_mask_bitmap(grs_bitmap *bm, short x, short y, grs_stencil *sten) {
         for (; y < yf; y++) {
             int xi = x, xf = x + bm->w;
             grs_sten_elem *s;
-#ifdef NEW_STENCILS
-            s = &(sten[y]);
-#else
             s = &((sten->elem)[y]);
-#endif
             for (; s->r <= xi;) {
                 s = s->n;
                 if (s == NULL)
@@ -117,11 +113,7 @@ int gri_flat8_mask_fill_clut_bitmap(grs_bitmap *bm, short x, short y, grs_stenci
         for (; y < yf; y++) {
             int xi = x, xf = x + bm->w;
             grs_sten_elem *s;
-#ifdef NEW_STENCILS
-            s = &(sten[y]);
-#else
             s = &((sten->elem)[y]);
-#endif
             for (; s->r <= xi;) {
                 s = s->n;
                 if (s == NULL)

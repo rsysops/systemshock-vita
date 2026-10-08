@@ -142,9 +142,7 @@ void cutscene_start(void)
 {
   DEBUG("Cutscene start");
 
-#ifdef SVGA_SUPPORT
   change_svga_screen_mode();
-#endif
 
   generic_reg_init(TRUE, &cutscene_root_region, NULL, &cutscene_slab, cutscene_key_handler, cutscene_mouse_handler);
 

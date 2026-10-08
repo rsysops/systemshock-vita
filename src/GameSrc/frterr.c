@@ -44,7 +44,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "rendtool.h"
 #include "textmaps.h" // pain, sadness
 
-#define FLIP_BITS
 
 // for the game system to grab and deparse for distance and all
 int _game_fr_tmap;
@@ -127,12 +126,7 @@ static void (*_fr_render_walls)(int which, int cnt);
 static void (*_fr_parse_obj)(void);
 
 // in rendtool.c
-#define TIM_WERE_AWAKE
-#ifdef TIM_WERE_AWAKE
 #define IsTpropNotStars() (textprops[_game_fr_tmap].force_dir == 0)
-#else
-#define IsTpropNotStars() (_game_fr_tmap >= 4)
-#endif
 #define quik_draw_tmap_p(ptcnt) ((IsTpropNotStars()) || (draw_tmap_p(ptcnt)))
 //#define quik_draw_tmap_p(ptcnt) (TRUE)
 
@@ -256,7 +250,6 @@ fix get_light(fix dist_to) // , fix dot_prod)
     else                                                       \
         targ = (fix_mul(dist_to, _frp.lighting.slope) + _frp.lighting.yint) >> 8
 
-#ifndef NEW_WAY
 #define set_terr_light(our_mp, which)                                    \
     if (which == FRPTSZCEIL_DN)                                          \
         i = (int)me_light_ceil(our_mp) - (int)me_templight_ceil(our_mp); \
@@ -264,20 +257,6 @@ fix get_light(fix dist_to) // , fix dot_prod)
         i = (int)me_light_flr(our_mp) - (int)me_templight_flr(our_mp);   \
     if (i < 0)                                                           \
     i = 0
-#else
-#define set_terr_light(our_mp, which)           \
-    {                                           \
-        int j;                                  \
-        if (which == FRPTSZCEIL_DN) {           \
-            i = (int)me_light_ceil(our_mp);     \
-            j = (int)me_templight_ceil(our_mp); \
-        } else {                                \
-            i = (int)me_light_flr(our_mp);      \
-            j = (int)me_templight_flr(our_mp);  \
-        }                                       \
-        i = min(i, j);                          \
-    }
-#endif
 
 // should redo these to setup sfix with punch in not shift
 // for now hack with which to get stuff running
@@ -398,22 +377,10 @@ void flip_setup(int wall_code) {
         lflags &= ~MAP_FLIP_FNCY_MASK;                                        /* mod 1 within the bit field */
     }
     _fdt_flip = ((lflags & MAP_FLIP_MASK) >> MAP_FLIP_SHF);
-#ifdef FLIP_SPEW
-    if (_fdt_me_flags & MAP_FLIP_MASK)
-        mprintf("Flip now set to %x from %x,%x at %x %x t %x\n", _fdt_flip, lflags, _fdt_me_flags, _fdt_x, _fdt_y,
-                wall_code);
-    else if (_fdt_flip)
-        mprintf("Hey, flip set, huh? %x %x %x\n", _fdt_x, _fdt_y, wall_code);
-#endif
 }
 
-#ifdef FLIP_BITS
 #define WALL_L_SET(pt) pt->uv.u = (_fdt_flip) << 8
 #define WALL_R_SET(pt) pt->uv.u = ((1 + _fdt_flip) & 1) << 8
-#else
-#define WALL_L_SET(pt) pt->uv.u = 0 << 8
-#define WALL_R_SET(pt) pt->uv.u = 1 << 8
-#endif
 
 // uv for a wall
 /// ARRRGH, sfix points suck.. make this a look up through _fdt_hgts+vhold?
@@ -439,18 +406,8 @@ void flip_setup(int wall_code) {
 
     // if ((pt_num+1)&2) tmp->u=0; else tmp->u=1<<8;
 
-#ifndef PARTIAL_TILES
 #define EXT_WALL_L_SET(pt) WALL_L_SET(pt)
 #define EXT_WALL_R_SET(pt) WALL_R_SET(pt)
-#else
-#ifdef FLIP_BITS
-#define EXT_WALL_L_SET(pt) pt->uv.u = (fix_flip + (flip_sign)*hgt_data[0]) >> 8
-#define EXT_WALL_R_SET(pt) pt->uv.u = (fix_flip + (flip_sign)*hgt_data[0]) >> 8
-#else
-#define EXT_WALL_L_SET(pt) pt->uv.u = hgt_data[0] >> 8
-#define EXT_WALL_R_SET(pt) pt->uv.u = hgt_data[0] >> 8
-#endif
-#endif
 
 // really, these could use 0 and 1<<8 for u coordinates, since why not without partial tiles
 #define ext_wall_uv_l(tmp, hgt_data)                                \
@@ -492,29 +449,7 @@ static void _fr_flat_int_wall(int wall_id) {
     _fr_sdbg(STATS, _frp.stats.int_wall++);
 }
 
-#ifdef FLAT_SUPPORT
-static void _fr_flat_lit_int_wall(int wall_id) {
-    WallsToPts *wpt = &wall_pts[wall_id];
-    // need to have face_code set and be ready with flip and hold and all that jazz
-    _fr_figure_pt(_fdt_tmppts[0], wpt->ul);
-    _fr_pt_light(_fdt_tmppts[0]);
-    _fdt_tmppts[0]->p3_flags |= PF_I;
-    _fr_figure_pt(_fdt_tmppts[1], wpt->ur);
-    _fr_pt_light(_fdt_tmppts[1]);
-    _fdt_tmppts[1]->p3_flags |= PF_I;
-    _fr_figure_pt(_fdt_tmppts[2], wpt->lr);
-    _fr_pt_light(_fdt_tmppts[2]);
-    _fdt_tmppts[2]->p3_flags |= PF_I;
-    _fr_figure_pt(_fdt_tmppts[3], wpt->ll);
-    _fr_pt_light(_fdt_tmppts[3]);
-    _fdt_tmppts[3]->p3_flags |= PF_I;
-    gr_set_fcolor((*fr_get_idx)());
-    _fr_ndbg(NO_REND, g3_draw_spoly(4, _fdt_tmppts));
-    _fr_sdbg(STATS, _frp.stats.int_wall++);
-}
-#else
 #define _fr_flat_lit_int_wall _fr_tmap_lit_int_wall
-#endif
 
 static void _fr_tmap_int_wall(int wall_id) {
     WallsToPts *wpt = &wall_pts[wall_id];
@@ -603,32 +538,7 @@ static void _fr_flat_ext_wall(
     _fr_sdbg(STATS, _frp.stats.ext_wall++);
 }
 
-#ifdef FLAT_SUPPORT
-static void _fr_flat_lit_ext_wall(fix pt_list[4][2]) {
-    g3_replace_add_delta_y(*_fdt_lcore, _fdt_tmppts[0], -pt_list[0][1]);
-    _fdt_hgt_val = -pt_list[0][1];
-    _fr_do_light(_fdt_tmppts[0], dlC);
-    _fdt_tmppts[0]->p3_flags |= PF_I;
-    g3_replace_add_delta_y(*_fdt_lcore, _fdt_tmppts[3], -pt_list[3][1]);
-    _fdt_hgt_val = -pt_list[3][1];
-    _fr_do_light(_fdt_tmppts[3], dlF);
-    _fdt_tmppts[3]->p3_flags |= PF_I;
-    _fdt_pbase = _fdt_rbase;
-    g3_replace_add_delta_y(*_fdt_rcore, _fdt_tmppts[1], -pt_list[1][1]);
-    _fdt_hgt_val = -pt_list[1][1];
-    _fr_do_light(_fdt_tmppts[1], dlC);
-    _fdt_tmppts[1]->p3_flags |= PF_I;
-    g3_replace_add_delta_y(*_fdt_rcore, _fdt_tmppts[2], -pt_list[2][1]);
-    _fdt_hgt_val = -pt_list[2][1];
-    _fr_do_light(_fdt_tmppts[2], dlF);
-    _fdt_tmppts[2]->p3_flags |= PF_I;
-    gr_set_fcolor((*fr_get_idx)());
-    _fr_ndbg(NO_REND, g3_draw_spoly(4, _fdt_tmppts));
-    _fr_sdbg(STATS, _frp.stats.ext_wall++);
-}
-#else
 #define _fr_flat_lit_ext_wall _fr_tmap_lit_ext_wall
-#endif
 
 static void _fr_tmap_ext_wall(fix pt_list[4][2]) {
     g3_replace_add_delta_y(*_fdt_lcore, _fdt_tmppts[0], -pt_list[0][1]);
@@ -749,30 +659,7 @@ static void _fr_flat_flr(void) {
     _fr_sdbg(STATS, _frp.stats.flr++);
 }
 
-#ifdef FLAT_SUPPORT
-static void _fr_flat_lit_flr(void) {
-    uchar *ptdat = _fdt_ttf->data, *pt_merge_mask;
-    int i, pt_code, loopcnt;
-    g3s_phandle *pb;
-
-    loopcnt = _fdt_ttf->flags >> FRFLRSHF_2ELEM; // 0 or 1
-    pt_merge_mask = merge_masks[me_bits_mirror(_fdt_mptr)][FDT_LK_FLR];
-    gr_set_fcolor((*fr_get_idx)());
-    do {
-        for (pb = &_fdt_tmppts[0], i = 0; i < _fdt_ttf->ptsper; i++) {
-            pt_code = *ptdat++;
-            pt_code = (pt_code ^ pt_merge_mask[0]) & pt_merge_mask[1];
-            _fr_figure_pt(*pb, pt_code);
-            _fr_pt_light(*pb);
-            (*pb++)->p3_flags |= PF_I;
-        }
-        _fr_ndbg(NO_REND, g3_draw_spoly(_fdt_ttf->ptsper, &_fdt_tmppts));
-    } while (loopcnt-- > 0);
-    _fr_sdbg(STATS, _frp.stats.flr++);
-}
-#else
 #define _fr_flat_lit_flr _fr_tmap_lit_flr
-#endif
 
 static void _fr_tmap_flr(void) {
     uchar nrm_mask = fr_fnorm_list[_fdt_tt];
@@ -894,31 +781,7 @@ static void _fr_flat_ceil(void) {
     _fr_sdbg(STATS, _frp.stats.ceil++);
 }
 
-#ifdef FLAT_SUPPORT
-static void _fr_flat_lit_ceil(void) {
-    int i, pt_code, loopcnt = 1;
-    g3s_phandle *pb;
-    uchar *ptdat = _fdt_ttf->data, *pt_merge_mask;
-
-    if (_fdt_ttf->flags & FRFLRFLG_NOTOP)
-        return;
-    pt_merge_mask = merge_masks[me_bits_mirror(_fdt_mptr)][FDT_LK_CEIL];
-    do {
-        for (pb = (&_fdt_tmppts[0]) + _fdt_ttf->ptsper - 1, i = 0; i < _fdt_ttf->ptsper; i++) {
-            pt_code = *ptdat++;
-            pt_code = (pt_code ^ pt_merge_mask[0]) & pt_merge_mask[1];
-            _fr_figure_pt(*pb, pt_code);
-            _fr_pt_light(*pb);
-            (*pb--)->p3_flags |= PF_I;
-        }
-        gr_set_fcolor((*fr_get_idx)());
-        _fr_ndbg(NO_REND, g3_draw_spoly(_fdt_ttf->ptsper, _fdt_tmppts));
-    } while ((_fdt_ttf->flags & FRFLRFLG_2ELEM) && (loopcnt-- > 0));
-    _fr_sdbg(STATS, _frp.stats.ceil++);
-}
-#else
 #define _fr_flat_lit_ceil _fr_tmap_lit_ceil
-#endif
 
 static void _fr_tmap_ceil(void) {
     uchar nrm_mask = fr_fnorm_list[_fdt_tt];
@@ -1148,13 +1011,6 @@ static fix *use_outer_wall; // pointer to the outer wall area to really use
 
 fix tf_diag_walls[4][2] = {{0, fix_make(4, 0)}, {fix_make(1, 0), fix_make(4, 0)}, {fix_make(1, 0), 0}, {0, 0}};
 static fix diag_norms[3] = {0, 0, 0};
-
-#ifdef HACK_SHOW
-void hack_show(fix edward[4][2]) {
-    mprintf(" %8.8x %8.8x   %8.8x %8.8x\n", edward[0][0], edward[0][1], edward[1][0], edward[1][1]);
-    mprintf(" %8.8x %8.8x   %8.8x %8.8x\n", edward[3][0], edward[3][1], edward[2][0], edward[2][1]);
-}
-#endif
 
 // renders icnt of final_walls
 void _render_3d_walls(int which, int cnt) {
@@ -1388,21 +1244,6 @@ static void _fr_parse_wall(int which) {
         }
         (*_fr_render_walls)(which, fcnt);
 
-#ifdef HACK_SHOW
-        {
-            int i;
-            mprintf("%d outer (%d) are:\n", useocnt, me_tiletype(oth_mptr));
-            for (i = 0; i < useocnt; i++)
-                hack_show(use_outer_wall + (i * 8));
-            mprintf("%d inner (%d) are:\n", icnt, me_tiletype(_fdt_mptr));
-            for (i = 0; i < icnt; i++)
-                hack_show(inner_wall[i]);
-            mprintf("%d final walls be:\n", fcnt);
-            for (i = 0; i < fcnt; i++)
-                hack_show(final_wall[i]);
-        }
-#endif
-
     } else
         fcnt = 0;
     if (fcnt == 0) {
@@ -1481,21 +1322,6 @@ void fr_draw_tile(void) {
     if (_fdt_icnt) {
         flip_setup(4); // 4 is secret internal face code
         switch (_fdt_icnt) {
-#ifdef USE_OCT
-        case 6:
-            _fdt_cur_parm = FROCTNUM; // recompute wacky prm stuff
-            _fdt_hgts[FDT_PT_FPRM] = me_height_flr(_fdt_mptr) + me_param(_fdt_mptr);
-            // this cant be done yet
-            // _fdt_hgts[FDT_PT_CPRM]=MAX_HGT-me_height_ceil(_fdt_mptr)-me_param(_fdt_mptr);
-            // _fdt_hgts[FDT_PT_PARM]=me_param(_fdt_mptr);
-            _fr_terr_int_wall(_fdt_ttw.wallbase + 5); // or hmm.. a temp
-        case 5:
-            _fr_terr_int_wall(_fdt_ttw.wallbase + 4); //  variable and then
-        case 4:
-            _fr_terr_int_wall(_fdt_ttw.wallbase + 3); //  increment it in
-        case 3:
-            _fr_terr_int_wall(_fdt_ttw.wallbase + 2); //  each case??
-#endif
         case 2:
             _fr_terr_int_wall(_fdt_ttw.wallbase + 1);
         case 1:
@@ -1504,9 +1330,6 @@ void fr_draw_tile(void) {
             break;
         }
     }
-#ifdef USE_OCT // in case it was overloaded by FROCTNUM, not needed if no oct tiles
-    _fdt_cur_parm = _fdt_fix_parm;
-#endif
     _game_fr_tmap = me_tmap_flr(_fdt_mptr);
     _fr_terr_flr();
     _game_fr_tmap = me_tmap_ceil(_fdt_mptr);
@@ -1516,9 +1339,7 @@ void fr_draw_tile(void) {
     // FIXME HAX HAX HAX why does this segfault?
     _fr_parse_obj();
 
-#ifdef CLEAR_AS_WE_GO
     me_subclip_set(_fdt_mptr, SUBCLIP_OUT_OF_CONE); // sure, deal with it...
-#endif
     //   mprintf("-");
 }
 
@@ -1628,9 +1449,7 @@ void fr_set_cursor(int x, int y) {
 }
 #endif
 
-#define TF_DIRECT
 
-#ifdef TF_DIRECT
 #include "tfdirect.h"
 #include "ss_flet.h"
 // this is a direct render <-> tfunc connection
@@ -2004,30 +1823,14 @@ void fr_tfunc_grab_fast(int mask) {
     fr_draw_tile();
     //   me_subclip_set(_fdt_mptr,SUBCLIP_OUT_OF_CONE);
 }
-#endif // TFUNC_SUPPORT
-
-#ifdef WHOSE_MUMP
-
-// add to everything.... arrrrgghgh
-#ifndef SHIP
-#define CheckRendWallBt(btid) ((me_bits_rend4(c_t) & btid) == 0)
-#define CheckRendOthBt(btid) ((me_bits_rend3(c_t) & btid) == 0)
-#else
-#define CheckRendWallBt(btid) (TRUE)
-#define CheckRendOthBt(btid) (TRUE)
-#endif
-
-#endif
 
 //==============================================================================
 //  Edge-finding routines.
 //==============================================================================
 uchar edge_get_fandc(MapElem *mp, int c_edge, char *e_list);
 
-#define EDGE_GET
 
 #include "fredge.h"
-#ifdef EDGE_GET
 
 uchar edge_get_fandc(MapElem *mp, int c_edge, char *e_list) {
     uchar *mmptr, fo, p = me_param(mp), in_fo;
@@ -2133,4 +1936,3 @@ int get_edge_code(void *omp, int edge) {
         return MEDGE_SMALL_STEP;
     return MEDGE_NO_TILE;
 }
-#endif

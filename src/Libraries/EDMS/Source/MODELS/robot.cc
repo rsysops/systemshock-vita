@@ -353,11 +353,6 @@ void robot_set_control(int32_t robot, Q thrust_lever, Q attitude_jet, Q jump) {
 
     sincos(S[robot][3][0], &object0, &object1);
 
-#ifdef EDMS_SHIPPABLE
-    if (I[robot][30] != ROBOT)
-        mout << "You are an idiot: I'm not a ROBOT!\n";
-#endif
-
     //	Here's the thrust of the situation...
     //	-------------------------------------
     I[robot][18] = thrust_lever * object1 * I[robot][IDOF_ROBOT_MASS];
@@ -379,11 +374,6 @@ void robot_set_ai_control(int32_t robot, Q desired_heading, Q desired_speed, Q s
                           Q distance) {
 
     const Q one_by_pi = 0.31830, pi = 3.14159, two_pi = 6.28318;
-
-#ifdef EDMS_SHIPPABLE
-    if (I[robot][30] != ROBOT)
-        mout << "Hey, don't call control_robot on non-robots!\n";
-#endif
 
     if (desired_heading > two_pi)
         desired_heading -= two_pi;

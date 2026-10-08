@@ -79,9 +79,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "map.h"
 
-#define OLD_MAP
-
-#ifdef OLD_MAP
 
 // for mirror bits, which control how the cieling and floor behave
 #define OLD_MAP_MATCH   0
@@ -189,8 +186,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
     (ome_flags_set(me_ptr, (ome_flags(me_ptr) & ~OLD_MAP_MIRROR_MASK) | (v) << OLD_MAP_MIRROR_SHF))
 #define ome_bits_seen_set(me_ptr) (ome_flags(me_ptr) |= OLD_MAP_SEEN_MASK)
 #define ome_bits_seen_clear(me_ptr) (ome_flags(me_ptr) &= ~OLD_MAP_SEEN_MASK)
-
-#endif
 
 // FLAG 1
 // for mirror bits, which control how the cieling and floor behave

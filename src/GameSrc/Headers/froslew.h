@@ -40,11 +40,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define __FROSLEW_H
 
 #include "frcamera.h"
-#ifndef __RENDTEST__
 #include "objects.h"
-#else
-//¥¥#include <rtestobj.h>
-#endif
 
 int32_t *fr_objslew_obj_to_fix(int32_t *flist, Obj *cobj, int count);
 Obj *fr_objslew_fix_to_obj(int32_t *flist, Obj *cobj, int count);

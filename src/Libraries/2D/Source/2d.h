@@ -229,14 +229,8 @@ extern grt_function_table *grd_function_fill_table;
 #endif
 extern int gr_init (void);
 extern int gr_close (void);
-#define GR_TEMP_USE_MEMSTACK
-#ifdef GR_TEMP_USE_MEMSTACK
 #define gr_alloc_temp temp_malloc
 #define gr_free_temp temp_free
-#else 
-extern void *gr_alloc_temp (int n);
-extern void gr_free_temp (void *p);
-#endif 
 extern grs_context grd_defgc;
 extern void gr_set_canvas (grs_canvas *c);
 extern int gr_push_canvas (grs_canvas *c);
@@ -320,21 +314,11 @@ extern void gri_set_fill_globals(long *fill_type_ptr, long fill_type,
    "mov  [esi],ebx" \
    "mov  [edi],ecx" \
    parm [edx] [eax] [esi] [ebx] [edi] [ecx];*/
-#ifdef OPTIMAL_BUT_BROKEN
-#define gr_set_fill_type(__ft)  \
-do {                            \
-   long fill_type=__ft;         \
-   gri_set_fill_globals(&(grd_canvas->gc.fill_type),fill_type,                      \
-                        &grd_function_table,(*grd_function_fill_table)[fill_type],  \
-                        &grd_uline_fill_vector,(*grd_uline_fill_table)[fill_type]); \
-} while (0)
-#else
 #define gr_set_fill_type(type)       \
 do {                                 \
    grd_canvas->gc.fill_type=(type);  \
    gr_set_canvas(grd_canvas);        \
 } while (0)                               
-#endif
 #define gr_get_fill_type() (grd_canvas->gc.fill_type)
 #define gr_set_fill_parm(parm) \
    (grd_canvas->gc.fill_parm=(intptr_t)(parm))
@@ -781,9 +765,7 @@ extern int gen_fill_pixel(long color, short x, short y);
 #define gr_flat8_per_map \
    ((void (*)(grs_bitmap *bm,int n,grs_vertex **vpl)) \
    grd_canvas_table[FLAT8_PER_MAP])
-#ifndef _FL8PS_C
 extern grs_per_context *grd_per_context;
-#endif
    
 #define gr_clut_ubitmap(bm,x,y,cl) \
    ((void (*)(grs_bitmap *_bm,short _x,short _y, uchar *_cl)) \

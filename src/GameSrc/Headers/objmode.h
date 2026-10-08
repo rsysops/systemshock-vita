@@ -104,17 +104,9 @@ uchar object_find_func(int highlight_num);
 void object_mode_brush(MapElem *paint, FullMap *map, LGRect *r, LGPoint square, void *brushdata);
 
 // Globals
-#ifdef __OBJMODE_SRC
-ObjRefID current_ref = OBJ_REF_NULL;
-int curr_x = 0, curr_y = 0;
-ubyte curr_z = 0;
-int curr_int = 0, curr_class = 0, curr_subclass = 0;
-Point current_loc = {0, 0};
-#else
 extern ObjRefID current_ref;
 extern int curr_x, curr_y;
 extern ubyte curr_z;
 extern int curr_int, curr_class, curr_subclass;
-#endif
 
 #endif // __OBJMODE_H

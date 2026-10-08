@@ -209,42 +209,4 @@ int32_t are_you_there(int32_t object) {
 //
 // This is now a macro in edms_int.h called check_for_hit_mac
 
-#ifdef NOPE
-//	Subtract out the bit representing the calling object, then compare notes...
-//	===========================================================================
-int check_for_hit(int other_object) {
-    // unsigned int	test_bit = data[ (hash_scale*A[object][DOF_X][0]).to_int() ][
-    // (hash_scale*A[object][DOF_Y][0]).to_int() ];
-
-    return clean_test_bit & object_bit(other_object);
-
-    //	return 	( test_bit & ~( object_bit( object ) ) )
-    //		& check_object( object, other_object );
-}
-#endif
-
 // Won't get compiled in unless you specifically turn it on here
-#ifdef DEBUGGING
-
-extern "C" {
-
-void spew_collision_table() {
-    int i, j;
-
-    for (i = 0; i < collision_max; i++) {
-        for (j = 0; j < collision_max; j++) {
-            if (data[i][j]) {
-                int bit, mask;
-
-                for (bit = 0, mask = 1; bit < 32; bit++, mask <<= 1) {
-                    if (data[i][j] & mask) {
-                        //                  Spew (DSRC_EDMS_Collide, ("[%d %d]: on %d ph %d\n", i, j, bit, on2ph[bit]));
-                    }
-                }
-            }
-        }
-    }
-}
-}
-
-#endif

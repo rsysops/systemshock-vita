@@ -249,16 +249,8 @@ int32_t LzwExpand(void (*f_SrcCtrl)(intptr_t srcLoc, LzwCtrl ctrl),   // func to
 #define LzwExpandBuff2User(psrc, f_destCtrl, f_destPut, destLoc, destSkip, destSize) \
     LzwExpand(LzwBuffSrcE(psrc), f_destCtrl, f_destPut, destLoc, destSkip, destSize)
 
-#ifdef OPTIMIZED_LZW_EXPAND_FD2BUFF
-
-int32_t LzwExpandFd2Buff(int32_t fdSrc, uint8_t *pdest, int32_t destSkip, int32_t destSize);
-
-#else
-
 #define LzwExpandFd2Buff(fdSrc, pdest, destSkip, destSize) \
     LzwExpand(LzwFdSrcE(fdSrc), LzwBuffDestE(pdest, destSkip, destSize))
-
-#endif
 
 #define LzwExpandFd2Fd(fdSrc, fdDest, destSkip, destSize) \
     LzwExpand(LzwFdSrcE(fdSrc), LzwFdDestE(fdDest, destSkip, destSize))

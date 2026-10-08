@@ -66,9 +66,6 @@ void flat8_flat8_v_double_ubitmap(grs_bitmap *bm) {
         dst += dst_skip;
         src += src_skip; /* get to the next line */
     }
-#ifdef FULL_FILL
-    memset(dst + row, 0, bm->w);
-#endif
 }
 
 #define QSB_SIZE 4

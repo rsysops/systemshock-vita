@@ -48,9 +48,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifdef AUDIOLOGS
 #include "audiolog.h"
-#endif
 
 #include "frtypes.h"
 #include "frintern.h"
@@ -92,9 +90,7 @@ int fr_rend(frc *view) {
 
             // MLA - does nothing!
             // synchronous_update();            // Make sure our time-sensitive updater gets run
-#ifdef AUDIOLOGS
         audiolog_loop_callback();
-#endif
         VPROF_MARK_BEGIN(VPROF_TRAVERSE);
 
         rastq_begin();
@@ -125,9 +121,7 @@ int fr_rend(frc *view) {
 
         // MLA - does nothing!
         // synchronous_update();            // And one for the road.
-#ifdef AUDIOLOGS
         audiolog_loop_callback();
-#endif
 
         if ((_fr_curflags & FR_PICKUPM_MASK) || DoubleSize) {
             _g3d_enable_blend = save_blend_flag;
@@ -141,6 +135,3 @@ int fr_rend(frc *view) {
     return 1;
 }
 
-#ifdef DEBUG_STUFF_FOR_LATER
-void fr_show_stats(frc *view)
-#endif

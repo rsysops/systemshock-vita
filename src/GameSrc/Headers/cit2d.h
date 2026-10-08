@@ -33,17 +33,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 void draw_shadowed_string(char *s, short x, short y, uchar shadow);
 
-#ifdef BROKEN_SAFE_CLIPRECT
-#define safe_set_cliprect(a, b, c, d)                             \
-    do {                                                          \
-        short _safe_x = a;                                        \
-        short _safe_y = b;                                        \
-        short _safe_p = c;                                        \
-        short _safe_q = d;                                        \
-        gr_safe_set_cliprect(_safe_x, _safe_y, _safe_p, _safe_q); \
-    } while (0)
-#else
 #define safe_set_cliprect(a, b, c, d) gr_safe_set_cliprect(a, b, c, d)
-#endif
 
 #endif // __CIT2D_H

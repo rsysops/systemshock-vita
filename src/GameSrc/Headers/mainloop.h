@@ -69,9 +69,6 @@ void loopmode_enter(short loopmode);
 extern short _current_loop; // which loop we currently are
 extern short _current_3d_flag;
 extern frc *_current_fr_context;
-#ifdef GADGET
-extern Gadget *_current_root;
-#endif
 extern uint _change_flag;   // change flags for loop
 extern uint _static_change; // current static changes
 extern short _new_mode;     // mode to change to, if any

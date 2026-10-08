@@ -62,14 +62,9 @@ void eyepos_init(void);
 #define EYE_P 4
 #define EYE_B 5
 
-#ifdef __FAUXREND_SRC
-long eye[6] = {0, 0, 0, 0, 0, 0};
-long eye_scale[6] = {1, 1, 1, 128, 128, 128};
-#else
 extern long eye[6];
 extern long eye_scale[6];
 extern char eye_slew;
-#endif
 
 // axis setup for the zany extra math-o-tron 3d
 //#define AXIS_ORDER   X_AXIS,Z_AXIS,Y_AXIS

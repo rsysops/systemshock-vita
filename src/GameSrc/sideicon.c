@@ -100,18 +100,8 @@ typedef struct _icon_data {
 // -------
 
 SIDE_ICON side_icons[NUM_SIDE_ICONS];
-#ifdef PRELOAD_BITMAPS
-grs_bitmap side_icon_bms[NUM_SIDE_ICONS][ICON_ART_ITEMS];
-grs_bitmap side_icon_background;
-#else
 #define side_icon_bmid(icon, art) (MKREF(RES_SideIconArt, (ICON_ART_ITEMS * icon) + art + 1))
 #define side_icon_backid (MKREF(RES_SideIconArt, 0))
-#endif
-
-#ifdef PROGRAM_SIDEICON
-static char shiftnums[] = ")!@#$%^&*(";
-static uchar programmed_sideicon = 0;
-#endif
 
 // this is in wares.c
 extern long ware_base_triples[NUM_WARE_TYPES];
@@ -184,36 +174,6 @@ void init_side_icon_popups(void) {
         make_popup_cursor(c, bm, cursor_strings[i * NUM_SIDE_ICONS / 2], i + POPUP_ICON_LEFT, TRUE, offset);
     }
 }
-
-#ifdef DUMMY // not yet, bucko
-
-void init_side_icon_hotkeys(void) {
-    uchar side_icon_hotkey_func(ushort key, uint32_t context, intptr_t i);
-    uchar side_icon_progset_hotkey_func(ushort key, uint32_t context, intptr_t i);
-    uchar lantern_change_setting_hkey(ushort key, uint32_t context, intptr_t i);
-    uchar shield_change_setting_hkey(ushort key, uint32_t context, intptr_t i);
-    uchar side_icon_prog_hotkey_func(ushort key, uint32_t context, intptr_t notused);
-    int i;
-
-    hotkey_add(KB_FLAG_ALT | KB_FLAG_DOWN | '4', DEMO_CONTEXT, lantern_change_setting_hkey, 0);
-    hotkey_add(KB_FLAG_ALT | KB_FLAG_DOWN | '5', DEMO_CONTEXT, shield_change_setting_hkey, 0);
-
-    hotkey_add(KB_FLAG_DOWN | '0', DEMO_CONTEXT, side_icon_hotkey_func, NUM_SIDE_ICONS - 1);
-#ifdef PROGRAM_SIDEICON
-    hotkey_add('`', DEMO_CONTEXT, ide_icon_prog_hotkey_func, 0);
-    hotkey_add(KB_FLAG_DOWN | shiftnums[0], DEMO_CONTEXT, side_icon_progset_hotkey_func,
-               NUM_SIDE_ICONS - 1);
-#endif
-    for (i = 0; i < NUM_SIDE_ICONS - 1; i++) {
-        hotkey_add(KB_FLAG_DOWN | ('1' + i), DEMO_CONTEXT, side_icon_hotkey_func, i);
-#ifdef PROGRAM_SIDEICON
-        hotkey_add(KB_FLAG_DOWN | shiftnums[1 + i], DEMO_CONTEXT, side_icon_progset_hotkey_func,
-                   i);
-#endif
-    }
-}
-
-#endif // DUMMY
 
 // ---------------------------------------------------------------------------
 // init_side_icon()
@@ -346,23 +306,6 @@ uchar side_icon_hotkey_func(ushort keycode, uint32_t context, intptr_t i) {
     return TRUE;
 }
 
-#ifdef PROGRAM_SIDEICON
-uchar side_icon_progset_hotkey_func(ushort keycode, uint32_t context, intptr_t i) {
-    char mess[80];
-    int l;
-    programmed_sideicon = i;
-    get_string(REF_STR_PresetSideicon, mess, 80);
-    l = strlen(mess);
-    get_object_short_name(icon_data[i].waretrip, mess + l, 80 - l);
-    message_info(mess);
-    return TRUE;
-}
-
-uchar side_icon_prog_hotkey_func(ushort keycode, uint32_t context, intptr_t notused) {
-    return (side_icon_hotkey_func(keycode, context, programmed_sideicon));
-}
-#endif
-
 // ========
 // GRAPHICS
 // ========
@@ -396,10 +339,8 @@ void zoom_to_side_icon(LGPoint from, int icon) {
 // Draws a side icon of the specified ware, version, and status.
 
 void side_icon_draw_bm(LGRect *r, ubyte icon, ubyte art) {
-#ifdef SVGA_SUPPORT
     uchar old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
-#endif
     if (is_onscreen())
         uiHideMouse(r);
     if (art == ICON_ART_BACKGROUND)
@@ -410,9 +351,7 @@ void side_icon_draw_bm(LGRect *r, ubyte icon, ubyte art) {
     // draw_hires_resource_bm(side_icon_bmid(icon,art), SCONV_X(r->ul.x), SCONV_Y(r->ul.y));
     if (is_onscreen())
         uiShowMouse(r);
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
     return;
 }
 
@@ -498,43 +437,10 @@ void side_icon_expose(ubyte icon_num) {
 // Load the bitmaps for all side icons and states from the resource system.
 
 errtype side_icon_load_bitmaps() {
-#ifdef PRELOAD_BITMAPS
-    RefTable *side_icon_rft;
-    int i, j, index /*, file_handle */;
-
-    //  file_handle = ResOpenFile("sideart.res");
-    //   if (file_handle < 0) critical_error(CRITERR_RES|6);
-
-    side_icon_rft = ResLock(RES_SideIconArt);
-    load_bitmap_from_res(&side_icon_background, RES_SideIconArt, 0, side_icon_rft, FALSE, NULL, NULL);
-
-    for (i = 0; i < NUM_SIDE_ICONS; i++) {
-
-        for (j = 0; j < ICON_ART_ITEMS; j++) {
-
-            index = (ICON_ART_ITEMS * i) + j + 1;
-            load_bitmap_from_res(&(side_icon_bms[i][j]), RES_SideIconArt, index, side_icon_rft, FALSE, NULL, NULL);
-        }
-    }
-    ResUnlock(RES_SideIconArt);
-//   ResCloseFile(file_handle);
-#endif
 
     return (OK);
 }
 
 errtype side_icon_free_bitmaps() {
-#ifdef PRELOAD_BITMAPS
-    int i, j, index;
-    Free(side_icon_background.bits);
-    for (i = 0; i < NUM_SIDE_ICONS; i++) {
-
-        for (j = 0; j < ICON_ART_ITEMS; j++) {
-
-            index = (ICON_ART_ITEMS * i) + j;
-            Free(side_icon_bms[i][j].bits);
-        }
-    }
-#endif
     return (OK);
 }

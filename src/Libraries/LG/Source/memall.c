@@ -177,55 +177,6 @@ void *CallocNorm(size_t size)
 //
 //	MallocSpew() does Malloc() and spews.
 
-#ifdef DBG_ON
-
-void *MallocSpew(size_t size, char *file, int line)
-{
-	void *p = (*f_malloc)(size);
-	Spew(DSRC_LG_Memall, ("Malloc:  p: 0x%x  size: %d  (file: %s line: %d)\n",
-		p, size, file, line));
-	return(p);
-}
-
-//	---------------------------------------------------------------
-//
-//	ReallocSpew() does Realloc() and spews.
-
-void *ReallocSpew(void *p, size_t size, char *file, int line)
-{
-	void *pnew = (*f_realloc)(p,size);
-	Spew(DSRC_LG_Memall, ("Realloc: p: 0x%x  pold: 0x%x  size: %d  (file: %s line: %d)\n",
-		pnew, p, size, file, line));
-	return(pnew);
-}
-
-//	---------------------------------------------------------------
-//
-//	FreeSpew() does Free() and spews.
-
-void FreeSpew(void *p, char *file, int line)
-{
-	(*f_free)(p);
-	Spew(DSRC_LG_Memall, ("Free:    p: 0x%x  (file: %s line: %d)\n",
-		p, file, line));
-}
-
-//	---------------------------------------------------------------
-//
-//	CallocSpew() does Calloc() and spews.
-
-void *CallocSpew(size_t size, char *file, int line)
-{
-	void *p = (*f_malloc)(size);
-	if (p)
-		memset(p, 0, size);
-	Spew(DSRC_LG_Memall, ("Calloc:  p: 0x%x  size: %d  (file: %s line: %d)\n",
-		p, size, file, line));
-	return(p);
-}
-
-#endif
-
 //	---------------------------------------------------------------
 //		CHECKED ALLOCATION
 //	---------------------------------------------------------------

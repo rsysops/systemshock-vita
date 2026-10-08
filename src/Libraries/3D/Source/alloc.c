@@ -48,10 +48,6 @@ short g3_init(short max_points, int user_x_axis, int user_y_axis, int user_z_axi
     long allocSize;
     char temp_neg_flags[3] = {0, 0, 0};
 
-#ifdef stereo_on
-    extn divide_overflow_r3d, proj_div_2
-#endif
-
                                   // set axis neg flags
                                   axis_swap_flag = 0; // mov	axis_swap_flag,0
     axis_neg_flag = 0;                                // mov	axis_neg_flag,0
@@ -134,11 +130,6 @@ short g3_init(short max_points, int user_x_axis, int user_y_axis, int user_z_axi
     //	_mark_	<initialize 3d system>
     allocSize = max_points * sizeof(g3s_point);
 
-#ifdef stereo_on // ; if stereo mode multiply by 2 at last moment
-    if (_g3d_stereo_base)
-        allocSize <<= 1;
-#endif
-
     point_list = (g3s_point *)malloc(allocSize);
     if (!point_list)
         return (0);
@@ -211,9 +202,6 @@ void g3_shutdown(void) {
     n_points = 0;
     first_free = 0;
 
-#ifdef stereo_on
-    _g3d_stereo_base = 0;
-#endif
 }
 
 //;does extactly what you would think
@@ -231,9 +219,6 @@ int g3_count_free_points(void) {
 
 // check if all points free. returns number of points lost
 int g3_end_frame(void) {
-#ifdef stereo_on
-    mov _g3d_stereo, 0; kill stereo for now
-#endif
 	return(g3_count_free_points()-n_points);
 }
 

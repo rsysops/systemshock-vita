@@ -96,7 +96,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdint.h>
 #include <stdlib.h>
 
-#if defined(VITA) && !defined(FIX_DIV_FPU)
+#if defined(__vita__) && !defined(FIX_DIV_FPU)
 #define FIX_DIV_FPU
 #endif
 
@@ -538,12 +538,6 @@ fixang fix_atan2(fix y, fix x) {
         // in the correct quadrant, so we shouldn't need the code below.
         // Additionally, the code below can cause rounding errors when (th & 0x3fff
         // == 0).  So let's try omitting it.
-
-#ifdef NO_NEED
-    // set high bits based on what quadrant we are in
-    th &= 0x3fff;
-    th |= (y > 0 ? (x > 0 ? 0x0000 : 0x4000) : (x > 0 ? 0xc000 : 0x8000));
-#endif
 
     return th;
 }

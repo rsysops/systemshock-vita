@@ -133,4 +133,3 @@ uchar fr_solidfr_color;
 #endif
 
 // actual behavior controls, cause heck, why not
-#define CLEAR_AS_WE_GO

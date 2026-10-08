@@ -127,9 +127,6 @@ extern uchar pKbdGetKeys[16];
 //----------------
 static void ReadMouseState(mouse_state *pMouseState);
 
-#if __profile__
-#pragma profile off
-#endif
 //---------------------------------------------------------------
 //  The following section is the time manager task for handling mouse movement.
 //---------------------------------------------------------------
@@ -219,9 +216,6 @@ queue. short newin = mouseQueueIn, newout = mouseQueueOut; short in = newin; mou
 }
 
 #pragma require_prototypes on
-#if __profile__
-#pragma profile on
-#endif
 
 //	---------------------------------------------------------
 //	mouse_shutdown() terminates mouse handler.
@@ -394,24 +388,6 @@ void _mouse_update_vel(void)
 //	---------------------------------------------------------
 //  For Mac version: Basically just return true or false right now.
 // WH: no use
-#if 0
-errtype mouse_check_btn(short button, bool *res) {
-
-    if (button == 1) {
-        *res = SDL_BUTTON(SDL_BUTTON_LEFT);
-    } else if (button == 2) {
-        *res = SDL_BUTTON(SDL_BUTTON_RIGHT);
-    }
-    /*   if (!mouse_installed)
-       {
-          Warning(("mouse_get_xy(): mouse not installed.\n"));
-          return ERR_NODEV;
-       }
-       *res = (mouseInstantButts >> button) & 1;
-       Spew(DSRC_MOUSE_CheckBtn,("mouse_check_btn(%d,%x) *res = %d\n",button,res,*res)); */
-    return OK;
-}
-#endif
 // ---------------------------------------------------------
 // mouse_look_next gets the event in front the event queue,
 // but does not remove the event from the queue.
@@ -420,61 +396,6 @@ errtype mouse_check_btn(short button, bool *res) {
 //  For Mac version: Check the normal Mac event queue for mouse events.  The events
 //  looked for depend on the 'mouseMask' setting.
 // WH: no use
-#if 0
-errtype mouse_look_next(ss_mouse_event *res) {
-    printf("mouse_look_next not implemented.\n");
-
-    /*if (OSEventAvail(eventMask, &theEvent))				// If there is an event,
-    {
-            GlobalToLocal(&theEvent.where);
-            res->x = theEvent.where.h;								// fill in the mouse_event
-    record. res->y = theEvent.where.v; res->timestamp = theEvent.when;
-            if (theEvent.modifiers & optionKey)					// If the option keys is down, send back
-    a
-            {																	// right-button
-    event. if (theEvent.what == mouseDown) res->type = MOUSE_RDOWN; else if (theEvent.what == mouseUp) res->type =
-    MOUSE_RUP; res->buttons = 2; res->modifiers = 0;
-            }
-            else																// Otherwise it's a left-button
-    event.
-            {
-                    if (theEvent.what == mouseDown)
-                            res->type = MOUSE_LDOWN;
-                    else if (theEvent.what == mouseUp)
-                            res->type = MOUSE_LUP;
-                    res->buttons = 1;
-                    res->modifiers = (uchar)(theEvent.modifiers >> 8);
-            }
-    }*/
-
-    // If there's not a mouse click event, check the internal queue for mouse
-    // movement events.
-    /*else if (mouseMask & MOUSE_MOTION)
-    {
-            if (mouseQueueOut == mouseQueueIn)			// If no motion events, return an error.
-                    return ERR_NODEV;
-            else
-                    *res = mouseQueue[mouseQueueOut];		// Return the event.
-    }
-
-    // If there are no events at all, return an error.
-    else
-            return ERR_NODEV;*/
-
-    /*
-       Spew(DSRC_MOUSE_LookNext,("entering mouse_look_next()\n"));
-       if (mouseQueueOut == mouseQueueIn)
-          _mouse_update_vel();
-       if (mouseQueueOut == mouseQueueIn)
-       {
-          Spew(DSRC_MOUSE_LookNext,("mouse_look_next(): Queue Underflow.\n"));
-          return ERR_NODEV;
-       }
-      *res = mouseQueue[mouseQueueOut];
-    */
-    return OK;
-}
-#endif
 
 /*
 // -------------------------------------------------------

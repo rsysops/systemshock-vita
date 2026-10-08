@@ -250,11 +250,6 @@ void olh_scan_objects(void) {
     olh_scan_objs();
     if (olh_object.obj == OBJ_NULL)
         return;
-#ifdef SET_HUDOBJ
-    if (hudobj_rect_capable(olh_object.obj)) {
-        hudobj_set_id(olh_object.obj, TRUE);
-    }
-#endif // SET_HUDOBJ
 }
 
 static uchar scan_render; // the render under way is the game loop's
@@ -344,24 +339,6 @@ void olh_do_callout(short xl, short yl) {
 
     if (obj == OBJ_NULL)
         return;
-#ifdef SET_HUDOBJ
-    if (hudobj_rect_capable(ID2TRIP(obj))) {
-        int j;
-        for (j = 0; j < current_num_hudobjs; j++) {
-            struct _hudobj_data *dat = &hudobj_vec[j];
-            if (dat->id == obj) {
-                best_rect = j;
-                break;
-            }
-        }
-        /* perhaps in studlier versions we'll do computations
-           to decide whether we're no longer a candidate,
-           rather than just blow away its candidacy */
-        hudobj_set_id(obj, FALSE);
-        if (best_rect == -1)
-            olh_object.obj = OBJ_NULL;
-    }
-#endif // SET_HUDOBJ
        //   if (obj != OBJ_NULL)
     {
         char buf[80];
@@ -467,7 +444,6 @@ short _olh_overlay_keys[] = {
 
 #define NUM_OVERLAY_KEYS (sizeof(_olh_overlay_keys) / sizeof(_olh_overlay_keys[0]))
 
-#ifdef VITA
 // The help screen (English, French or German image), reworded for the Vita pad and relabelled
 // with the game font. The image is copied and its lettering erased with each box's own fill; the
 // labels are then drawn with ss_string(), which picks the font matching the screen resolution
@@ -737,7 +713,6 @@ static uchar olh_draw_vita_overlay(int lang) {
     gr2ss_override = old_over;
     return TRUE;
 }
-#endif
 
 void olh_overlay(void) {
     extern LGCursor globcursor;
@@ -749,9 +724,7 @@ void olh_overlay(void) {
     uiPushGlobalCursor(&globcursor);
     gr_push_canvas(grd_screen_canvas);
     uiHideMouse(NULL);
-#ifdef VITA
     if (which_lang < 0 || which_lang >= OLH_NUM_LANGS || !olh_draw_vita_overlay(which_lang))
-#endif
         draw_res_bm(REF_IMG_bmHelpOverlayEnglish + MKREF(which_lang, 0), 0, 0);
     uiShowMouse(NULL);
     gr_pop_canvas();

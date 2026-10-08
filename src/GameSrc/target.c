@@ -181,9 +181,6 @@ void mfd_target_expose(MFD *m, ubyte control) {
             // Aha! Herein lies the meat of the targeting display.
 
             // draw the creature mfd bitmap
-#ifdef PLAYTEST
-            if (RefIndexValid((RefTable *)ResGet(REFID(id)), REFINDEX(id)))
-#endif
             {
                 // KLC - chg for new art
                 x = SCONV_X(MFD_VIEW_WID) - res_bm_width(id) - SCONV_X(HP_BAR_MARGIN);
@@ -339,9 +336,6 @@ void mfd_target_expose(MFD *m, ubyte control) {
 extern ubyte targ_frame;
 
 void select_current_target(ObjID id, uchar force_mfd) {
-#ifdef ANNOY_PLAYERS_TRYING_TO_TARGET_THINGS
-    extern errtype change_current(ObjRefID new_current_ref);
-#endif
     if ((player_struct.hardwarez[CPTRIP(TARG_GOG_TRIPLE)] == 0) || (id == PLAYER_OBJ))
         return;
     if (objs[id].info.current_hp <= 0)
@@ -361,9 +355,6 @@ void select_current_target(ObjID id, uchar force_mfd) {
             full_visible |= visible_mask(m);
     }
     mfd_notify_func(MFD_TARGET_FUNC, MFD_TARGET_SLOT, FALSE, MFD_ACTIVE, TRUE);
-#ifdef ANNOY_PLAYERS_TRYING_TO_TARGET_THINGS
-    change_current(objs[id].ref);
-#endif
 }
 
 #define ELIGIBLE_TARGET_RANGE 20

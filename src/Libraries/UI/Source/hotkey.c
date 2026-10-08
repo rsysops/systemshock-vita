@@ -21,9 +21,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "hash.h"
 //#include <_ui.h>
 
-#ifdef HOTKEY_HELP
 #include <string.h>
-#endif
 
 #define CHAIN_LENGTH 2
 #define CHAIN_END -1
@@ -52,13 +50,11 @@ errtype hotkey_init(int tblsize)
 
 errtype hotkey_add(ushort keycode, uint32_t contexts, hotkey_callback func, intptr_t state)
 {
-#ifdef HOTKEY_HELP
    return(hotkey_add_help(keycode,contexts,func,state,NULL));
 }
 
 errtype hotkey_add_help(ushort keycode, uint32_t contexts, hotkey_callback func, intptr_t state, char * help_text)
 {
-#endif
    hotkey_entry e,*ch;
    errtype err;
    int i;
@@ -81,10 +77,8 @@ errtype hotkey_add_help(ushort keycode, uint32_t contexts, hotkey_callback func,
    chain[i].context = contexts;
    chain[i].func = func;
    chain[i].state = state;
-#ifdef HOTKEY_HELP
 //   chain[i].help_text = malloc(strlen(help_text)+1);
 //   strcpy(chain[i].help_text,help_text);
-#endif
    chain[i].next = ch->first;
    ch->first = i;
    return OK;
@@ -143,9 +137,7 @@ errtype hotkey_remove(short keycode, ulong contexts, hotkey_callback func)
       if (chain[i].context == 0)
       {
          ch->first = chain[i].next;
-#ifdef HOTKEY_HELP
 //         free(chain[i].help_text);
-#endif // HOTKEY_HELP
          array_dropelem(&ch->keychain,i);
          i = ch->first;
       }
@@ -159,9 +151,7 @@ errtype hotkey_remove(short keycode, ulong contexts, hotkey_callback func)
          if (chain[n].context == 0)
          {
             chain[i].next = chain[n].next;
-#ifdef HOTKEY_HELP
 //            free(chain[i].help_text);
-#endif // HOTKEY_HELP
             array_dropelem(&ch->keychain,n);
          }
       }
@@ -195,9 +185,7 @@ errtype hotkey_dispatch(short keycode)
 
 static uchar shutdown_iter_func(void* elem, void* data)
 {
-#ifndef NO_DUMMIES
    void *dummy = data;
-#endif // NO_DUMMIES
    hotkey_entry* ch = (hotkey_entry*)elem;
 /* KLC
 #ifdef HOTKEY_HELP
@@ -211,9 +199,7 @@ static uchar shutdown_iter_func(void* elem, void* data)
    }
 #endif // HOTKEY_HELP
 */
-#ifndef NO_DUMMIES
    data = dummy;
-#endif // NO_DUMMIES
    array_destroy(&ch->keychain);
    return FALSE;
 }
@@ -226,39 +212,6 @@ errtype hotkey_shutdown(void)
 }
 
 int list_index = 0;
-
-#ifdef GODDAMN_THIS_MESS_IS_IMPOSSIBLE
-uchar hotkey_list(char **item, int sort_type)
-{
-   void *res;
-   hotkey_entry* ch;
-   hotkey_link *chain;
-   int i;
-
-   hash_step(&hotkey_table, &res, &list_index);
-   ch = (hotkey_entry *)res;
-   if (ch == NULL) return ERR_NOEFFECT;
-   chain = (hotkey_link*)ch->keychain.vec;
-   strcpy(*item, "");
-   for (i = ch->first; i != CHAIN_END; i = chain[i].next)
-   {
-      strcat(*item, 
-      if (chain[i].context & HotkeyContext)
-      {
-         Spew(DSRC_UI_Hotkey,("Succeeded context test %d\n",chain[i].context));
-         if (chain[i].func(keycode,HotkeyContext,chain[i].state))
-            return OK;
-      }
-   }
-   strcpy(*item, 
-}
-
-errtype hotkey_list_clear()
-{
-   list_index = 0;
-}
-
-#endif
 
    
 

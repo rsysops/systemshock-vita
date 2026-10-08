@@ -32,9 +32,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef __AFILE_H
 #define __AFILE_H
 
-#ifndef STDIO_H
 #include <stdio.h>
-#endif
 #ifndef __2D_H
 #include "2d.h"
 #endif

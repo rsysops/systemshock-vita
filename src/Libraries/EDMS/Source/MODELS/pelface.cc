@@ -144,11 +144,6 @@ void EDMS_control_pelvis(physics_handle ph, fix forward, fix turn, fix sidestep,
     // Silly, no?
     Q FF, TT, SS, LL, JJ;
 
-#ifdef EDMS_SHIPPABLE
-    if (ph < 0)
-        mout << "Hey, you are and idiot...";
-#endif
-
     FF.fix_to(forward);
     TT.fix_to(turn);
     SS.fix_to(sidestep);

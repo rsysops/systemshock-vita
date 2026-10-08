@@ -52,7 +52,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "ice.h"
 #include "cyber.h"
 
-#define AI_EDMS
 
 // errtype ai_fire_slow_projectile(ObjID src, int proj_triple, ObjLoc src_loc, ObjLoc target_loc, uchar a, int
 // duration);  errtype ai_throw_grenade(ObjID src, int proj_triple, ObjLoc src_loc, ObjLoc target_loc);
@@ -135,7 +134,6 @@ fix move_tolerance = fix_make(0, 0x0400);
 #define DEFAULT_URGENCY fix_make(0x30, 0)
 
 errtype apply_EDMS_controls(ObjSpecID osid) {
-#ifdef AI_EDMS
     State crit_state;
     ObjCritter *pcrit = &objCritters[osid];
     ObjID id = pcrit->id;
@@ -170,7 +168,6 @@ errtype apply_EDMS_controls(ObjSpecID osid) {
         safe_EDMS_ai_control_robot(objs[id].info.ph, pcrit->des_heading, use_speed, pcrit->sidestep, pcrit->urgency,
                                    &there_yet, curr_ai_dist);
     }
-#endif
     return (OK);
 }
 
@@ -654,12 +651,6 @@ errtype ai_attack_player(ObjSpecID osid, char a) {
     wpnflags = 0;   // Normal attack
     attack_mass = fix_make(CritterProps[cp_num].attacks[a].attack_mass, 0) * 20;
 
-#ifdef CRITTER_ALWAYS_ACCURATE
-    hit_obj = ray_cast_objects(objCritters[osid].id, PLAYER_OBJ, attack_mass,
-                               fix_make(0, CritterProps[cp_num].attacks[a].attack_size),
-                               fix_make(CritterProps[cp_num].attacks[a].attack_velocity, 0),
-                               fix_make(CritterProps[cp_num].attacks[a].att_range, 0));
-#else
     // If we have NO idea where the player is (all failed detection rolls)
     // then don't bother firing.
     if (last_known_loc.x != 255) {
@@ -682,16 +673,9 @@ errtype ai_attack_player(ObjSpecID osid, char a) {
             dest_loc.z += rand() % miss_amt;
         }
         if (CritterProps[cp_num].attacks[a].slow_proj == 0) {
-#ifdef PLAYTEST
-            extern uchar prevent_ray_spew;
-            prevent_ray_spew = FALSE;
-#endif
             hit_obj = ray_cast_attack(objCritters[osid].id, dest_loc, attack_mass, RAYCAST_ATTACK_SIZE,
                                       fix_make(CritterProps[cp_num].attacks[a].attack_velocity, 0),
                                       fix_make(CritterProps[cp_num].attacks[a].att_range, 0));
-#ifdef PLAYTEST
-            prevent_ray_spew = TRUE;
-#endif
             if (hit_obj != OBJ_NULL) {
                 attack_object(hit_obj, CritterProps[cp_num].attacks[a].damage_type,
                               CritterProps[cp_num].attacks[a].damage_modifier,
@@ -708,7 +692,6 @@ errtype ai_attack_player(ObjSpecID osid, char a) {
     } else {
         objCritters[osid].mood = AI_MOOD_HOSTILE;
     }
-#endif
     return (OK);
 }
 
@@ -752,8 +735,6 @@ errtype ai_fire_special(ObjID src, ObjID target, int proj_triple, ObjLoc src_loc
         activate_grenade(objs[proj_id].specID);
         fire_speed = ATTACK_GRENADE_SPEED;
     }
-
-#ifdef AI_EDMS
 
     if ((objs[src].obclass == CLASS_CRITTER) && (CritterProps[CPNUM(src)].proj_offset))
         src_loc.z += (CritterProps[CPNUM(src)].proj_offset >> (SLOPE_SHIFT_D - 2));
@@ -803,7 +784,6 @@ errtype ai_fire_special(ObjID src, ObjID target, int proj_triple, ObjLoc src_loc
     da_robot.cyber_space = -1;
     EDMS_set_robot_parameters(objs[proj_id].info.ph, &da_robot);
 
-#endif
     return (OK);
 }
 

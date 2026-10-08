@@ -61,9 +61,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "vmail.h"
 
-#ifdef AUDIOLOGS
 #include "audiolog.h"
-#endif
 
 // -------
 // DEFINES
@@ -157,9 +155,6 @@ void email_slam_hack(short which);
 
 char *get_email_string(int id, char *text, int siz) {
     get_string(id, text, siz);
-#ifdef TOUPPER_EMAILS
-    strtoupper(text);
-#endif
     return text;
 }
 
@@ -221,13 +216,8 @@ void apply_email_macros(char *text, char *newval) {
             case 'N':
             case 'n':
                 strcpy(newval + cnew, player_struct.name);
-#ifdef TOUPPER_EMAILS
-                if (email_big_font)
-                    strtoupper(newval + cnew);
-#else
                 if (islower(*(newval + cnew)))
                     *(newval + cnew) -= 'a' - 'A';
-#endif
                 cnew += strlen(player_struct.name);
                 break;
             // number of kills
@@ -302,9 +292,7 @@ void email_intercept(void) {
     // Free(email_cursor_bitmap.bits);
     read_email(0, intercept_hack_num);
     shodan_sfx_go = TRUE;
-#ifdef AUDIOLOGS
     if (!audiolog_setting)
-#endif
     {
         if (!digi_fx_playing(SFX_SHODAN_STRONG, NULL))
             play_digi_fx(SFX_SHODAN_STRONG, -1);
@@ -428,9 +416,7 @@ void email_draw_text(Id email_id, bool really_an_email) {
     short x = 0, y = 0;
     char *remains = NULL;
     char buf[256] = "";
-#ifdef SVGA_SUPPORT
     uchar old_over;
-#endif
 
     email_curr_page++;
 
@@ -459,10 +445,8 @@ void email_draw_text(Id email_id, bool really_an_email) {
         return;
     }
     last_text_line = next_text_line;
-#ifdef SVGA_SUPPORT
     old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
-#endif
     gr_push_canvas(pinv_canvas);
     gr_set_font((grs_font *)ResLock(email_font));
     if (!full_game_3d)
@@ -556,9 +540,7 @@ done:
     if (!full_game_3d)
         uiShowMouse(inventory_region->r);
     gr_pop_canvas();
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
 }
 
 //#define BAD_EMAIL_KEYFLAGS (KB_FLAG_SHIFT | KB_FLAG_CTRL | KB_FLAG_ALT | KB_FLAG_SPECIAL)
@@ -742,11 +724,7 @@ void mfd_emailmug_expose(MFD *mfd, ubyte control) {
 
         // Slam in the mug shot, centered.
         if ((mugnum < BASE_VMAIL)
-#ifdef PLAYTEST
-            && RefIndexValid((RefTable *)ResGet(REFID(mug)), REFINDEX(mug)))
-#else
                 ) // god, I love this job
-#endif
         {
 	    FrameDesc *f = RefLock(mug);
 	    if (f != NULL) {
@@ -757,9 +735,7 @@ void mfd_emailmug_expose(MFD *mfd, ubyte control) {
 	    }
         }
 
-#ifdef AUDIOLOGS
         if (!audiolog_setting)
-#endif
             if (shodan_sfx_go) {
                 if (!digi_fx_playing(SFX_SHODAN_STRONG, NULL))
                     play_digi_fx(SFX_SHODAN_STRONG, -1);
@@ -843,9 +819,7 @@ void select_email(int num, uchar scr) {
 void read_email(Id new_base, int num) {
     int id;
     int mug_num;
-#ifdef AUDIOLOGS
     errtype alog_rv = ERR_NOEFFECT;
-#endif
     // KLC - use a global preference now   ubyte terseness = player_struct.terseness;
     ubyte terseness = gShockPrefs.goMsgLength;
 
@@ -866,9 +840,7 @@ void read_email(Id new_base, int num) {
 
     email_flags = 0;
     if (current_email_base == EMAIL_BASE_ID) {
-#ifdef AUDIOLOGS
         alog_rv = audiolog_play(num);
-#endif
         if (player_struct.email[num] & EMAIL_READ)
             email_flags |= EMAIL_FLAG_BEEN_READ;
         player_struct.email[num] |= EMAIL_READ;
@@ -877,9 +849,7 @@ void read_email(Id new_base, int num) {
     current_email = num;
     if (inventory_page >= 0)
         old_invent_page = inventory_page;
-#ifdef AUDIOLOGS
     if ((alog_rv != OK) || (audiolog_setting == 2)) {
-#endif
         inventory_draw_new_page(INV_EMAILTEXT_PAGE);
         next_text_line = 0;
         if (terseness > 0) // let's be terse
@@ -890,9 +860,7 @@ void read_email(Id new_base, int num) {
             next_text_line++;
         }
         free_email_buffer();
-#ifdef AUDIOLOGS
     }
-#endif
 
     if (current_email_base == EMAIL_BASE_ID) {
         player_struct.hardwarez_status[HARDWARE_EMAIL] &= ~(WARE_FLASH);
@@ -903,16 +871,12 @@ void read_email(Id new_base, int num) {
 
         if (mug_num >= BASE_VMAIL) // video email
         {
-#ifdef AUDIOLOGS
             if ((alog_rv != OK) || (audiolog_setting == 2)) {
-#endif
                 // draw the text for the vmail before playing vmail
                 email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID);
                 play_vmail(mug_num - BASE_VMAIL);
-#ifdef AUDIOLOGS
             } else {
             }
-#endif
         } else {
             mfd_notify_func(MFD_EMAILMUG_FUNC, EMAILMUG_SLOT, TRUE, MFD_ACTIVE, TRUE);
             if (current_email != EMAIL_INACTIVE) {
@@ -938,16 +902,12 @@ void read_email(Id new_base, int num) {
             }
         }
     }
-#ifdef AUDIOLOGS
     if ((alog_rv != OK) || (audiolog_setting == 2)) {
-#endif
         email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID);
-#ifdef AUDIOLOGS
     } else {
         if (_current_loop <= FULLSCREEN_LOOP)
             chg_set_flg(INVENTORY_UPDATE);
     }
-#endif
 }
 
 //=======================================================

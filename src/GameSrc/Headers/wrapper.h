@@ -64,9 +64,7 @@ uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data);
 
 errtype make_options_cursor(void);
 
-#ifdef AUDIOLOGS
 void recompute_audiolog_level(ushort vol);
-#endif
 void recompute_digifx_level(ushort vol);
 void recompute_music_level(ushort vol);
 
@@ -104,7 +102,6 @@ enum TEMP_STR_ {
     REF_STR_MousNorm,
     REF_STR_MousInv,
 
-#ifdef VITA
     REF_STR_VitaOptions = 0x11000010,
     REF_STR_GyroAiming,
     REF_STR_GyroOff,
@@ -123,16 +120,12 @@ enum TEMP_STR_ {
     REF_STR_VitaRenderer1Core, // the three in the order of VITA_RENDERER_*
     REF_STR_VitaRenderer3Cores,
     REF_STR_VitaRendererGpu,
-#endif
 
     REF_STR_Help = 0x11000020, // the options panel's pad hints
 
     REF_STR_Seqer    = 0x20000000,
     REF_STR_ADLMIDI,
     REF_STR_NativeMI,
-#ifdef USE_FLUIDSYNTH
-    REF_STR_FluidSyn,
-#endif // USE_FLUIDSYNTH
     REF_STR_MidiOut  = 0x2fffffff,
 
     REF_STR_MidiOutX = 0x30000000 // 0x30000000-0x3fffffff are MIDI outputs

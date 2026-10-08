@@ -2,11 +2,11 @@
 
 #include "lgslot.h"
 
-#if defined(VITA) || defined(LG_SLOT_PTHREADS)
+#if defined(__vita__) || defined(LG_SLOT_PTHREADS)
 
 #include <stdatomic.h>
 
-#ifdef VITA
+#ifdef __vita__
 #include <psp2/kernel/threadmgr.h>
 typedef SceUID slot_thread;
 #define slot_self() sceKernelGetThreadId()

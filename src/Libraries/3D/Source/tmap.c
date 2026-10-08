@@ -379,54 +379,11 @@ int do_tmap(int n, g3s_phandle *vp, grs_bitmap *bm) {
     g3s_phandle *src;
     g3s_phandle tempHand;
 
-#ifdef VITA
     // it's crashing sometimes on "if (bm->type == BMT_RSD8)" line
     if (bm == NULL)
         return CLIP_ALL;
-#endif
 
 // clang-format off
-#ifdef stereo_on
-  test    _g3d_stereo,1
-  jz      no_stereo1
-  push    eax                // calling destroys eax
-  mov     ecx,d [ti_ptr]
-  push    ecx
-  mov     ecx,d [ti_ptr+4]
-  push    ecx
-  mov     ecx,tmap_func
-  push    ecx
-  mov     ecx,light_flag
-  push    ecx
-  call    do_tmap_raw
-  pop     eax
-  mov     light_flag,eax
-  pop     eax
-  mov     tmap_func,eax
-  pop     eax
-  mov     d [ti_ptr+4],eax
-  pop     eax
-  mov     d [ti_ptr],eax
-  pop     eax
-
-  pushm eax,ebx           // copy list and codes and uv and rgb and i
-  // num  points,pointer to  bmap
-
-  move_to_stereo_and_uvi
-
-  set_rt_canv
-
-  popm eax,ebx
-  call do_tmap_raw
-
-  set_lt_canv
-  popad
-  ret
-
-do_tmap_raw:
-  pushad
-no_stereo1:
-#endif
 
         // clang-format on
 

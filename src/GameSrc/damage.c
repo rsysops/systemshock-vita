@@ -418,10 +418,6 @@ uchar kill_player(void) {
     }
 
         // if we died not from a trap - then we should clear the player data
-#ifdef TEST_REBIRTH
-    clear_player_data = FALSE;
-    return FALSE;
-#else
     clear_player_data = (quick_death | alternate_death);
 
     if (quick_death) {
@@ -431,7 +427,6 @@ uchar kill_player(void) {
     }
 
     return (quick_death | alternate_death);
-#endif
 }
 
 void regenerate_player(void) {
@@ -479,10 +474,8 @@ void player_dies() {
     extern void physics_zero_all_controls();
     extern void clear_digi_fx();
     extern short inventory_page;
-#ifdef AUDIOLOGS
     extern char secret_pending_hack;
     secret_pending_hack = 0;
-#endif
 
     // we should play funky death music
     mai_player_death();
@@ -564,17 +557,6 @@ ubyte damage_player(int damage, ubyte dtype, ubyte flags) {
     if (damage <= 0)
         return 0;
 
-#ifdef WACKY_STATIC_USAGE
-    // Play digi FX should go in here when we have appropriate SFX
-    if ((!global_fullmap->cyber) && (damage > static_pain_base + rand() % static_pain_delta)) {
-        extern char static_density, static_color, static_grouping;
-        // Turn on fullscreen static & turn off any SFX that might be otherwise going on.
-        fr_global_mod_flag(FR_SOLIDFR_STATIC, FR_SOLIDFR_MASK | FR_SFX_MASK);
-        fr_solidfr_time = (static_pain_time);
-        play_digi_fx(SFX_STATIC, -1);
-    }
-#endif
-
     // did we take more damage than hit points?? - eeeegggads! we're dead
     if ((*cur_hp) <= damage) {
         damage_dealt = TRUE;
@@ -585,11 +567,6 @@ ubyte damage_player(int damage, ubyte dtype, ubyte flags) {
             } else // normal (non-cyberspace) damage - player's dead dead dead
             {
                 if (*cur_hp > 0) {
-#ifdef CRAZE_NODEATH
-                    if ((player_struct.drug_status[DRUG_LSD] > 0) && (QUESTVAR_GET(COMBAT_DIFF_QVAR) < 3))
-                        *cur_hp = 1;
-                    else
-#endif
                     {
                         *cur_hp = 0;
                         dead = TRUE;
@@ -849,23 +826,6 @@ uchar special_terrain_hit(ObjID cobjid) {
 #define SPCL_THRESH 0x80
 
 // HEY COMMENTED OUT PROCEDURE
-#ifdef CALLS_WERENT_SLOW
-uchar terrain_damage_object(physics_handle ph, fix raw_damage) {
-    uchar dead = FALSE;
-    ObjID target = physics_handle_to_id(ph);
-
-    if (ObjProps[OPNUM(cobjid)].flags & SPCL_TERR_DMG) {
-        if (raw_damage > SPCL_THRESH) {
-            objs[target].info.current_hp = 0;
-            ADD_DESTROYED_OBJECT(target);
-            dead = TRUE;
-        }
-    } else
-        dead = simple_damage_object(target, (raw_damage - HACK_THRESH) >> 10, EXPLOSION_FLAG, NO_SHIELD_ABSORBTION);
-
-    return (dead);
-}
-#endif
 
 // ------------------------------
 // compute_damage()
@@ -1049,12 +1009,8 @@ ubyte attack_object(ObjID target, int damage_type, int damage_mod, ubyte offense
         if (effect)
             *effect = (effect_row) ? *(effect_row + 1) : 0;
     } else {
-#ifdef SELFRUN // we do max damage if we're in self run
-        damage = ((objs[target].obclass == CLASS_CRITTER) && (target != PLAYER_OBJ)) ? 0xFF : 0;
-#else
         damage = compute_damage(target, damage_type, damage_mod, offense, penet, power_level, effect, effect_row,
                                 attack_effect_type);
-#endif
     }
 
     if (damage_inflicted)

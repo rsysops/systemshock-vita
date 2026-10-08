@@ -731,32 +731,6 @@ void ui_poll_keyboard(void)
 		// *key is a System Shock/Mac keycode
 	}
 
-#if 0
-	extern uchar	pKbdGetKeys[16];
-	long			*keys = (long *)pKbdGetKeys;
-	GetKeys((UInt32 *)keys);
-
-	uchar *key;
-	for (key = ui_poll_keys; *key != KBC_NONE; key++)
-		if((pKbdGetKeys[*key>>3] >> (*key & 7)) & 1)
-		{
-			uiPollKeyEvent ev;
-			ev.type = UI_EVENT_KBD_POLL;
-			ev.pos.x = 0;
-			ev.pos.y = 0;
-			ev.action = KBS_DOWN;
-			ev.scancode = *key;
-			ev.mods = 0;
-			if ((keys[1] & 0x00000001) != 0L)	// Shift key
-				ev.mods |= KB_FLAG_SHIFT;
-			if ((keys[1] & 0x00008000) != 0L)	// Cmd key
-				ev.mods |= KB_FLAG_CTRL;
-			if ((keys[1] & 0x00000004) != 0L)	// Option key
-				ev.mods |= KB_FLAG_ALT;
-
-			uiDispatchEvent((uiEvent*)&ev);
-		}
-#endif
 }
 
 void ui_pop_up_keys(void)
@@ -808,8 +782,6 @@ errtype uiPoll(void)
    extern struct _cursor* LastCursor;
    extern void ui_update_cursor(LGPoint pos);
 
-#define BURN_QUEUE
-#ifdef BURN_QUEUE
    // burn through queue
    while(event_queue_next(&ev))
    {
@@ -834,7 +806,6 @@ errtype uiPoll(void)
          }
       }
    }
-#endif // BURN_QUEUE
 
 //   ui_mouse_get_xy(&mousepos.x,&mousepos.y);
 

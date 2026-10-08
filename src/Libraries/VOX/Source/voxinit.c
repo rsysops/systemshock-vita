@@ -42,11 +42,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 fix *zdxdz;
 fix *zdydz;
 
-#ifdef DBG_ON
-// maximal dimension use for bounds checking
-int vxd_maxd;
-#endif
-
 // Startup for the voxel system, it needs to allocate
 // space for the incremental multiplication tables
 // pass it the maximum pixel dimension of any of the
@@ -56,10 +51,6 @@ uchar vx_init(int max_depth)
 {
    zdxdz = (fix *)malloc(2 * max_depth * sizeof(fix));
    zdydz = zdxdz + max_depth;
-
-   #ifdef DBG_ON
-   vxd_maxd = max_depth;
-   #endif
 
    if (zdxdz == NULL) return FALSE;
    return TRUE;

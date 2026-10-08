@@ -299,18 +299,7 @@ void hud_update_lines(short x, short *y, short unused1, short unused2) {
                 if (full_game_3d)
                     use_y += FULLSCREEN_Y_OFFSET;
             }
-#ifdef STEREO_SUPPORT
-            {
-                short temp;
-                if (convert_use_mode == 5)
-                    use_x = 12;
-                ss_set_hack_mode(2, &temp);
-#endif
                 res_draw_text_shadowed(RES_tinyTechFont, HUDLINE_BUFFER(i), use_x, use_y, TRUE);
-#ifdef STEREO_SUPPORT
-                ss_set_hack_mode(0, &temp);
-            }
-#endif
         } else
             hud_free_line(i);
 }
@@ -463,19 +452,15 @@ void update_damage_report(struct _hudobj_data *dat, uchar reverse) {
                             ss_bitmap(&gc.bm,x-1,y-2);
                 */
             } else {
-#ifdef SVGA_SUPPORT
                 extern uchar shadow_scale;
                 uchar old_scale = shadow_scale;
                 shadow_scale = FALSE;
-#endif
                 if (DoubleSize) {
                     x *= 2;
                     y = 2 * y + 1; // Text needed to come down a bit.
                 }
                 draw_shadowed_string(buf, x, y, TRUE);
-#ifdef SVGA_SUPPORT
                 shadow_scale = old_scale;
-#endif
             }
             break;
         }

@@ -75,19 +75,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define LG_memmove memmove
 //#define BlockMove(src, dest, num) LG_memmove(src, dest, num);
 
-#define GAMEONLY			1
-#define SVGA_SUPPORT		1
 #define USE_STEALTH			1
 #define USE_PFIELD			1
-#define DISTANCE_AI_KILL	1
-#define TEXTURE_SELECTION	1
 #define NO_HELP_STRINGS		1
 #define NO_CORRUPT_SAVES	1
-#define MAP_RESHIFTING		1
-#define DIRAC_EDMS			1
-#define NO_ANTIGRAV_CRATES	1
-#define DOOM_EMULATION_MODE	1
-#define EDMS_SAFETY_NET		1
-#define AUDIOLOGS			1
-#define SVGA_CUTSCENES		1
-#define LOST_TREASURES_OF_MFD_GAMES		1

@@ -268,18 +268,11 @@ extern uchar handart_flash;
 
 #define DEFAULT_ANIMATION_SPEED 32
 
-#ifdef USE_ANIMCRIT_DEFS
-#define STANDARD_CRITTER_SPEED fix_make(0, 0x4000)
-#define MIN_CRITTER_ANIM_SPEED 25
-#define MAX_CRITTER_ANIM_SPEED 200
-#define MIN_MOJO fix_make(0, 0x1A00)
-#else
 fix standard_critter_speed = fix_make(0, 0x5800);
 fix min_mojo = fix_make(0, 0x1a00);
 int min_critter_anim_speed = 35;
 int max_critter_anim_speed = 170;
 int attacking_anim_speed = 45;
-#endif
 
 errtype increment_anim(ulong num_units) {
     ObjSpecID osid;
@@ -296,9 +289,6 @@ errtype increment_anim(ulong num_units) {
     ubyte old_handart;
     LightSchedEvent new_event;
     extern uchar anim_on;
-#ifdef SPEW_ON
-    char ft1[30];
-#endif
 
     // *************************************************************
     //                   HAND ART
@@ -543,12 +533,7 @@ errtype increment_anim(ulong num_units) {
                 if ((post == MOVING_CRITTER_POSTURE) && (objs[id].info.ph != -1)) {
                     State s;
                     fix pd;
-#ifdef USE_PHYS_STATE
-                    extern void get_phys_state(int ph, State *new_state, ObjID id);
-                    get_phys_state(objs[id].info.ph, &s, id);
-#else
                     EDMS_get_state(objs[id].info.ph, &s);
-#endif
                     pd = fix_fast_pyth_dist(s.X_dot, s.Y_dot);
                     if (pd > min_mojo) {
                         asp = fix_int(fix_mul_div(fix_make(asp, 0), standard_critter_speed, pd));
@@ -680,15 +665,12 @@ uchar anim_data_from_id(ObjID id, bool *reverse, bool *cycle) {
     return FALSE;
 }
 
-#define CHECK_ANIM_SPEED
 errtype add_obj_to_animlist(ObjID id, uchar repeat, uchar reverse, uchar cycle, short speed, int cb_id, intptr_t user_data,
                             short cbtype) {
     int i = 0;
     uchar replace_me = FALSE;
     int use_counter = anim_counter;
-#ifdef CHECK_ANIM_SPEED
     char count = 0;
-#endif
 
     if (anim_counter == MAX_ANIMLIST_SIZE) {
         return (ERR_NOMEM);
@@ -714,7 +696,6 @@ errtype add_obj_to_animlist(ObjID id, uchar repeat, uchar reverse, uchar cycle, 
         animlist[use_counter].speed = speed;
     else
         animlist[use_counter].speed = DEFAULT_ANIMLIST_SPEED;
-#ifdef CHECK_ANIM_SPEED
     // Hmm, there's probably a better way to check for power-of-2-ness
     for (i = 0; i < 16; i++) {
         if (animlist[use_counter].speed & (1 << i))
@@ -723,7 +704,6 @@ errtype add_obj_to_animlist(ObjID id, uchar repeat, uchar reverse, uchar cycle, 
             break;
         }
     }
-#endif
 
     animlist[use_counter].cbtype = cbtype;
     animlist[use_counter].callback = cb_id;

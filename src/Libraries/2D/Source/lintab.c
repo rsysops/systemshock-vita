@@ -339,11 +339,7 @@ grt_uline_fill_table *grd_uline_fill_table_list[] = {
     NULL,
     (grt_uline_fill_table *)flat8_uline_fill_table,
     NULL,
-#ifdef GR_DOUBLE_CANVAS
-    (grt_uline_fill_table *)flat8_uline_fill_table,
-#else
     NULL,
-#endif
     NULL,
     NULL,
     (grt_uline_fill_table *)gen_uline_fill_table

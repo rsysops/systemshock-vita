@@ -264,29 +264,6 @@ void drug_closedown(bool visible) {
     //                              DUMMY FUNCTIONS
     // ---------------------------------------------------------------------------
 
-#ifdef USE_DUMMY_FUNCS
-// ---------------------------------------------------------------------------
-// dummy_use_drug()
-//
-// A dummy function for using drugs.
-
-void dummy_use_drug() { return; }
-
-// ---------------------------------------------------------------------------
-// dummy_effect_drug()
-//
-// A dummy function for continual drug effects
-
-void dummy_effect_drug() { return; }
-
-// ---------------------------------------------------------------------------
-// dummy_wearoff_drug()
-//
-// A dummy function for drugs wearing off.
-
-void dummy_wearoff_drug() { return; }
-#endif
-
 // --------------------------------------------------------------------------
 //                              LSD
 // --------------------------------------------------------------------------
@@ -323,11 +300,6 @@ void drug_lsd_effect() {
 
 void drug_lsd_startup(void) {
     if (STATUS(DRUG_LSD) > 0) {
-#ifdef CRAZE_NODEATH
-        // super-secret craze hack setup
-        if (player_struct.hit_points == 1)
-            player_struct.hit_points = 2;
-#endif // CRAZE_NODEATH
         drug_lsd_effect();
     }
 }

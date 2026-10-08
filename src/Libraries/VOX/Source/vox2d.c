@@ -57,9 +57,6 @@ extern fix *zdydz;
 
 // maximum depth allocated for mult tables
 // used for bounds checking in debug version
-#ifdef DBG_ON
-extern int vxd_maxd;
-#endif
 
 void vmap_dot(fix x0, fix y0, fix dxdu, fix dydu, fix dxdv, fix dydv, fix dxdz, fix dydz, 
 			  int near_ver,vxs_vox *vx,int dotw,int doth,uchar clip);
@@ -86,9 +83,6 @@ void vmap_dot(fix x0, fix y0, fix dxdu, fix dydu, fix dxdv, fix dydv, fix dxdz, 
    fix oldcurx;
    fix oldcury;
    fix curx,cury;
-   #ifdef DBG_ON
-   short xl,yt,xr,yb;
-   #endif
 
    col = vx->col;
    ht = vx->ht;
@@ -134,16 +128,6 @@ void vmap_dot(fix x0, fix y0, fix dxdu, fix dydu, fix dxdv, fix dydv, fix dxdz, 
    xp = 0;
    yp = 0;
 
-   #ifdef DBG_ON
-   if (vx->d > vxd_maxd) {
-      mprintf("voxel object depth z=%d\n",vx->d);
-      mprintf("greater than max = %d\n",vxd_maxd);
-      mprintf("voxel at %ld\n",vx);
-      mprintf("color map at %ld htmap at %ld\n",col,ht);
-      return;
-    }
-   #endif
-
    for (i=0;i<vx->d;++i) {
       zdxdz[i] = xp;
       zdydz[i] = yp;
@@ -166,32 +150,8 @@ void vmap_dot(fix x0, fix y0, fix dxdu, fix dydu, fix dxdv, fix dydv, fix dxdz, 
          if (c != 0) {
             z = *hrow2;
 
-            #ifdef DBG_ON
-            if ((z>=vxd_maxd) || (z<0) ) {
-               mprintf("voxel object depth (%d,%d)=%d\n",i,j,(char)z);
-               mprintf("out of bounds [0,%d]\n",vxd_maxd);
-               mprintf("color map at %ld  htmap at %ld\n\n",col,ht);
-               return;
-            }
-            #endif
-
             xp = (curx + zdxdz[z])>>16;
             yp = (cury + zdydz[z])>>16;
-
-            #ifdef DBG_ON
-            if (!clip) {
-               xl = xp;
-               xr = xp+dotw;
-               yt = yp;
-               yb = yp+doth;
-               if (gr_clip_rect(&xl,&yt,&xr,&yb) != 0) {
-                  mprintf("vox: Thair's a rectungle oot uf elaignment, lahd.\n");
-                  mprintf("vox: best tell Jaeeemz, thut ruscal!\n");
-                  exit(1);
-                  return;
-               }
-            }
-            #endif
 
             // call the box routine only if its bigger than a point
             // until gr_point supports fill modes, do boxes always.

@@ -309,10 +309,8 @@ grs_bitmap slider_cursor_bmap;
 // Initializes the MFD weapons function.
 
 errtype mfd_weapon_init(MFD_Func *mfd) {
-#ifndef NO_DUMMIES
     void *yum;
     yum = mfd;
-#endif // NO_DUMMIES
 
     MFDSetLastLeftWeapon(0);
     MFDSetLastRightWeapon(0);
@@ -724,11 +722,6 @@ uchar mfd_weapon_beam_handler(MFD *m, uiEvent *e) {
     weapon_slot *ws = &player_struct.weapons[player_struct.actives[ACTIVE_WEAPON]];
     uchar overld = does_weapon_overload(ws->type, ws->subtype);
 
-#ifdef CURSOR_BACKUPS
-    extern grs_bitmap backup_mfd_cursor;
-    extern uchar *backup[NUM_BACKUP_BITS];
-#endif
-
     // We're interested in this event iff its a mouse up,down,action event
     // in the beam status bar.
     if (!(e->mouse_data.action & (MOUSE_LUP | MOUSE_LDOWN | MOUSE_MOTION))) {
@@ -786,11 +779,6 @@ uchar mfd_weapon_beam_handler(MFD *m, uiEvent *e) {
         beam_constrain = m->id;
         // Get our funky mfd-beam-phaser-setting cursor
         uiPushRegionCursor(MFD_REGION(m), &slider_cursor);
-#ifdef CURSOR_BACKUPS
-        backup[20] = (uchar *)malloc(f->bm.w * f->bm.h);
-        LG_memcpy(backup[20], f->bm.bits, f->bm.w * f->bm.h);
-        gr_init_bm(&backup_mfd_cursor, backup[14], BMT_FLAT8, 0, mfd_cursor.w, mfd_cursor.h);
-#endif
         retval = TRUE;
     }
 
@@ -1042,28 +1030,6 @@ void mfd_item_micro_hires_expose(uchar full, int triple) {
 // Draws the little increment/decrement boxes on either side of the
 // "time left before grenade blows up" setting on the MFD.
 
-#ifdef OLD_GRENADE_BUTTONS
-void mfd_item_draw_grenade_setting_boxes(MFD *m) {
-    char buf[2];
-    int i;
-
-    for (i = 0; i < 2; i++) {
-        gr_set_fcolor(WHITE);
-        ss_rect(MfdGrenadeBox[i].ul.x, MfdGrenadeBox[i].ul.y, MfdGrenadeBox[i].lr.x, MfdGrenadeBox[i].lr.y);
-        gr_set_fcolor(MFD_BTTN_FLASH);
-        ss_box(MfdGrenadeBox[i].ul.x, MfdGrenadeBox[i].ul.y, MfdGrenadeBox[i].lr.x, MfdGrenadeBox[i].lr.y);
-    }
-
-    gr_set_fcolor(BLACK);
-    sprintf(buf, "-");
-    ss_string("-", MfdGrenadeBox[0].ul.x + 1, MfdGrenadeBox[0].ul.y + 1);
-    sprintf(buf, "+");
-    ss_string(buf, MfdGrenadeBox[1].ul.x + 1, MfdGrenadeBox[1].ul.y + 1);
-
-    return;
-}
-#endif // OLD_GRENADE_BUTTONS
-
 // --------------------------------------------------------------------------
 // mfd_item_expose()
 //
@@ -1143,12 +1109,8 @@ void draw_mfd_item_spew(Ref id, int n) {
 
     gr_set_font(ResLock(MFD_FONT));
     buf[0] = '\0';
-#ifdef CONCATENATE_ITEMSPEW
-    for (i = 0; i < n; i++, id++)
-#else
     i = n - 1;
     id += i;
-#endif
         get_string(id, buf + strlen(buf), sizeof(buf) - strlen(buf));
     gr_string_wrap(buf, MFD_VIEW_WID - 2);
     gr_string_size(buf, &w, &h);
@@ -1303,39 +1265,6 @@ uchar mfd_item_handler(MFD *m, uiEvent *e) {
 
     case MFD_INV_GRENADE:
 
-#ifdef OLD_GRENADE_BUTTONS
-    {
-        int i;
-        LGRect r[2];
-        int triple;
-        ubyte min, max;
-        triple = get_triple_from_class_nth_item(CLASS_GRENADE, MFDGetCurrItemType(m->id));
-        if (!(TRIP2SC(triple) == GRENADE_SUBCLASS_TIMED))
-            return retval;
-
-        min = TimedGrenadeProps[SCTRIP(triple)].min_time_set;
-        max = TimedGrenadeProps[SCTRIP(triple)].max_time_set;
-
-        RECT_OFFSETTED_RECT(&MfdGrenadeBox[0], m->rect.ul, &(r[0]));
-        RECT_OFFSETTED_RECT(&MfdGrenadeBox[1], m->rect.ul, &(r[1]));
-
-        for (i = 0; i < 2; i++) {
-
-            if (RECT_TEST_PT(&r[i], e->pos)) {
-
-                if (i == 0) {
-                    if (player_struct.grenades_time_setting[MFDGetCurrItemType(m->id)] > min)
-                        player_struct.grenades_time_setting[MFDGetCurrItemType(m->id)]--;
-                } else if (i == 1) {
-                    if (player_struct.grenades_time_setting[MFDGetCurrItemType(m->id)] < max)
-                        player_struct.grenades_time_setting[MFDGetCurrItemType(m->id)]++;
-                }
-
-                mfd_notify_func(MFD_ITEM_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
-            }
-        }
-    }
-#endif // OLD_GRENADE_BUTTONS
     break;
     case MFD_INV_HARDWARE: {
         LGRect r = {{HARDWARE_BUTTON_X, HARDWARE_BUTTON_Y},
@@ -1783,11 +1712,6 @@ uchar mfd_grenade_slider_handler(MFD *m, short val, uiEvent *ev, void *data) {
 
         GRENADE_MOUSE_CONSTRAINED = m->id + 1;
         // Get our funky mfd-beam-phaser-setting cursor
-#ifdef CURSOR_BACKUPS
-        backup[20] = (uchar *)malloc(f->bm.w * f->bm.h);
-        LG_memcpy(backup[20], f->bm.bits, f->bm.w * f->bm.h);
-        gr_init_bm(&backup_mfd_cursor, backup[14], BMT_FLAT8, 0, mfd_cursor.w, mfd_cursor.h);
-#endif
         uiPushRegionCursor(MFD_REGION(m), &slider_cursor);
     }
     if ((ev->mouse_data.buttons & (1 << MOUSE_LBUTTON)) == 0) {
@@ -1826,11 +1750,6 @@ errtype mfd_grenade_init(MFD_Func *f) {
     if (err != OK)
         return err;
     f->handler_count = cnt;
-#ifdef CURSOR_BACKUPS
-    backup[21] = (uchar *)Malloc(slider_bmap.w * slider_bmap.h);
-    LG_memcpy(backup[21], slider_bmap.bits, slider_bmap.w * slider_bmap.h);
-    gr_init_bm(&backup_slider_cursor, backup[21], BMT_FLAT8, 0, slider_bmap.w, slider_bmap.h);
-#endif
     return OK;
 }
 
@@ -1984,14 +1903,6 @@ void mfd_bioware_expose(MFD *m, ubyte control) {
             draw_res_bm(ref, 0, 0);
             mfd_add_rect(0, 0, res_bm_width(ref), res_bm_height(ref));
         }
-#ifdef BIOWARE_TITLE
-        // Title
-        if (full) {
-            s = get_temp_string(REF_STR_BiowareTitle);
-            mfd_draw_string(s, BIO_TEXT_X, y, GREEN_YELLOW_BASE, TRUE);
-        }
-        y += Y_STEP;
-#endif
 
         // Health
         if (full || (LAST_HP(m->id) != player_struct.hit_points)) {
@@ -2103,10 +2014,6 @@ void mfd_bioware_expose(MFD *m, ubyte control) {
 // Open the space station resource file for animation
 
 errtype mfd_anim_init() {
-#ifdef USING_DORKY_BROKEN_ANIM
-    if (ResOpenFile("space4.res") < 0)
-        critical_error(CRITERR_RES | 5);
-#endif
 
     return OK;
 }
@@ -2117,32 +2024,10 @@ errtype mfd_anim_init() {
 // Strictly temporary code.  Starts or stops the space station animation.
 
 void mfd_anim_expose(MFD *m, ubyte control) {
-#ifndef NO_DUMMIES
     MFD *dummy;
     ubyte dummy2;
     dummy = m;
     dummy2 = control;
-#endif
-#ifdef USING_DORKY_BROKEN_ANIM
-    static uchar AnimOn[2];
-    static ActAnim *anim[2];
-
-    if (control & MFD_EXPOSE) {
-
-        gr_set_fcolor((long)BLACK);
-        ss_rect(m->rect.ul.x, m->rect.ul.y, m->rect.lr.x, m->rect.lr.y);
-
-        anim[m->id] = AnimPlayRegion(REF_ANIM_space4, &(m->reg), m->rect.ul, 0);
-        chg_set_sta(ANIM_UPDATE);
-        AnimOn[m->id] = TRUE;
-    } else {
-
-        AnimKill((anim[m->id]));
-        AnimOn[m->id] = FALSE;
-        if ((AnimOn[0] == FALSE) && (AnimOn[1] == FALSE))
-            chg_unset_sta(ANIM_UPDATE);
-    }
-#endif
     return;
 }
 
@@ -2243,14 +2128,8 @@ uchar mfd_elevator_button_handler(MFD *mfd, LGPoint bttn, uiEvent *ev, void *dat
     if (l >= NUM_ELEV_LVLS)
         return TRUE;
     elev_data->stat.selected = b;
-#ifdef PLAYTEST
-    mprintf("Pushing button %d\n", b);
-#endif
     if (!(bit & elev_data->reachlvls)) {
         string_message_info(REF_STR_ElevatorNoMove);
-#ifdef PLAYTEST
-        mprintf("Can't get to that level\n");
-#endif
     } else {
         if (me_bits_music(MAP_GET_XY(PLAYER_BIN_X, PLAYER_BIN_Y)) != ELEVATOR_ZONE)
             string_message_info(REF_STR_UseTooFar);
@@ -2265,7 +2144,6 @@ uchar mfd_elevator_button_handler(MFD *mfd, LGPoint bttn, uiEvent *ev, void *dat
     return TRUE;
 }
 
-#define TEST_ELEVPANEL
 
 errtype mfd_elevator_init(MFD_Func *f) {
     int cnt = 0;
@@ -2277,13 +2155,11 @@ errtype mfd_elevator_init(MFD_Func *f) {
     if (err != OK)
         return err;
     f->handler_count = cnt;
-#ifdef TEST_ELEVPANEL
     {
         elev_data_type *elev_data = (elev_data_type *)&player_struct.mfd_func_data[MFD_ELEV_FUNC][0];
         elev_data->shownlvls = 0xFFF;
         elev_data->reachlvls = 0xF0F;
     }
-#endif
     return OK;
 }
 
@@ -2469,51 +2345,6 @@ errtype mfd_keypad_init(MFD_Func *f);
 void mfd_keypad_expose(MFD *mfd, ubyte control);
 
 uchar keypad_num(int b) {
-#ifdef KEYPAD_NUM_CASE
-    uchar retval;
-    // as Doug points out, this case statement is expressed algorithmically,
-    // but hey, this is already done, easier to modify and maybe even easier
-    // to understand.
-    switch (b) {
-    case 0:
-        retval = 1;
-        break;
-    case 1:
-        retval = 4;
-        break;
-    case 2:
-        retval = 7;
-        break;
-    case 3:
-        retval = 10;
-        break;
-    case 4:
-        retval = 2;
-        break;
-    case 5:
-        retval = 5;
-        break;
-    case 6:
-        retval = 8;
-        break;
-    case 7:
-        retval = 0;
-        break;
-    case 8:
-        retval = 3;
-        break;
-    case 9:
-        retval = 6;
-        break;
-    case 10:
-        retval = 9;
-        break;
-    case 11:
-        retval = 11;
-        break;
-    }
-    return (retval);
-#endif
     static uchar retval[] = {1, 4, 7, 10, 2, 5, 8, 0, 3, 6, 9, 11};
     return (retval[b]);
 }
@@ -3012,21 +2843,6 @@ void set_inventory_mfd(ubyte obclass, ubyte type, uchar grab) {
     }
     if (func != MFD_EMPTY_FUNC) {
         mfd_notify_func(func, slot, grab, stat, TRUE);
-#ifdef RAISE_ON_SELECT
-        if (full_game_3d) {
-            int i;
-            for (i = 0; i < NUM_MFDS; i++) {
-                if (player_struct.mfd_current_slots[i] == MFD_ITEM_SLOT) {
-#ifdef STEREO_SUPPORT
-                    if (convert_use_mode == 5) {
-                        full_visible = FULL_MFD_MASK(i);
-                    } else
-#endif
-                        full_visible |= FULL_MFD_MASK(i);
-                }
-            }
-        }
-#endif
     }
     // THEN we check to see if we need to take over the info mfd
 

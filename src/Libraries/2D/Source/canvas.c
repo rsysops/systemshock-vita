@@ -98,14 +98,6 @@ grs_canvas *gr_pop_canvas (void)
 
 void gr_init_canvas (grs_canvas *c, uchar *p, int type, short w, short h)
 {
-#ifdef GR_DOUBLE_CANVAS
-   if (type==BMT_FLAT8_DOUBLE) {
-      gr_init_bm (&c->bm, p, BMT_FLAT8, 0, w, h);
-      gr_init_gc (c);
-      gr_cset_fix_cliprect (c, 0, 0, fix_make ((w>>1),0), fix_make (h,0));
-      c->bm.type=BMT_FLAT8_DOUBLE;
-   } else
-#endif
    {
       gr_init_bm (&c->bm, p, type, 0, w, h);
       gr_init_gc (c);

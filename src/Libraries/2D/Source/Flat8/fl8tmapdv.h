@@ -26,7 +26,6 @@ extern fix fix_mul_asm_safe(fix a, fix b);
 #endif
 
 // InvDIv = 0 to use divs in mappers, !=0 to use inverse multiplies
-#define InvDiv 1
 
 // this macro does a safe divide on a light, which we can shift up for more
 // precision

@@ -127,44 +127,10 @@ int g3_check_and_draw_poly(long c, int n_verts, g3s_phandle *p) {
 
 int check_and_draw_common(long c, int n_verts, g3s_phandle *p) {
 // clang-format off
-#ifdef stereo_on
-  test    _g3d_stereo,1
-  jz      check_and_draw_common_raw
-  pushm eax,ecx,esi
-
-  call check_and_draw_common_raw
-  set_rt_canv
-
-  popm eax,ecx,esi
-  pushm eax,ecx
-
-  // moves list at esi to temp and repoints esi
-  test gour_flag,6
-  jnz  do_uvi_copy1
-  move_to_stereo
-  jmp     raw_poly_continue1
-do_uvi_copy1:
-  mov     edx,esi
-  mov     eax,ecx
-  move_to_stereo_and_uvi
-  mov     esi,edx
-raw_poly_continue1:
-
-  popm eax,ecx
-  call check_and_draw_common_raw
-
-  set_lt_canv
-  ret
-check_and_draw_common_raw:
-#endif
         // clang-format on
 
         if (g3_check_poly_facing(p[0], p[1], p[2])) {
-#ifdef stereo_on
-        js draw_poly_common_raw
-#else
         return draw_poly_common(c, n_verts, p);
-#endif
     }
     else return 0; // no draw
 }
@@ -215,38 +181,6 @@ int draw_poly_common(long c, int n_verts, g3s_phandle *p) {
     long rgb;
 
 // clang-format off
-#ifdef stereo_on
-  test    _g3d_stereo, 1
-  jz      draw_poly_common_raw
-
-  pushm eax,ecx,esi
-
-  call draw_poly_common_raw
-  set_rt_canv
-
-  popm eax,ecx,esi
-  pushm eax,ecx
-
-  // moves list at esi to temp and repoints esi
-  test gour_flag,6
-  jnz  do_uvi_copy2
-  move_to_stereo
-  jmp     raw_poly_continue2
-do_uvi_copy2:
-  mov     edx,esi
-  mov     eax,ecx
-  move_to_stereo_and_uvi
-  mov     esi,edx
-raw_poly_continue2:
-
-  popm eax,ecx
-  call draw_poly_common_raw
-
-  set_lt_canv
-  ret
-
-draw_poly_common_raw:
-#endif
 
         // clang-format on
 

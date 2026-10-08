@@ -92,7 +92,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #define MAP_VERSION_NUMBER ((int)11)
 // so we auto convert from it
-#define OLD_MAP
 #define OLD_MAP_VERSION_NUMBER ((int)10)
 
 // probably should kick it up to 16 bytes, expand one of the bitfields to three uchars instead
@@ -146,7 +145,6 @@ typedef struct _map_element {
     //   } rinfo;
 } MapElem;
 
-#ifdef OLD_MAP
 typedef struct _omap_element {
     //struct _bitfields {
     //    ushort tiletype : 6;
@@ -210,7 +208,6 @@ typedef struct {
 #define ome_rotflr(me_ptr)               ((me_ptr)->rinfo.rotflr)
 #define ome_rotceil(me_ptr)              ((me_ptr)->rinfo.rotceil)
 #define ome_flicker(me_ptr)              ((me_ptr)->rinfo.flicker)
-#endif
 
 typedef struct {
     int32_t x_size, y_size;
@@ -331,11 +328,7 @@ typedef struct {
 #define _me_templight_flr_set(me_ptr, v)  _me_merge_set(me_ptr, v, templight, MAP_TLGHT_FLOOR)
 
 // bind the non _ version of the macros correctly
-#ifdef MAP_ACCESS_COUNT
-#include "mapcount.h"
-#else
 #include "mapnorm.h"
-#endif
 
 extern MapElem *global_map;
 extern FullMap *global_fullmap;
@@ -349,23 +342,12 @@ void map_free(void);
 #define DEFAULT_YSHF 6u
 #define DEFAULT_ZSHF 3u
 
-#ifndef MAP_RESIZING
 #define fm_x_sz(fm_ptr)   (1u << DEFAULT_XSHF)
 #define fm_y_sz(fm_ptr)   (1u << DEFAULT_YSHF)
 #define fm_x_shft(fm_ptr) (DEFAULT_XSHF)
 #define fm_y_shft(fm_ptr) (DEFAULT_YSHF)
-#else
-#define fm_x_sz(fm_ptr)   ((fm_ptr)->x_size)
-#define fm_y_sz(fm_ptr)   ((fm_ptr)->y_size)
-#define fm_x_shft(fm_ptr) ((fm_ptr)->x_shft)
-#define fm_y_shft(fm_ptr) ((fm_ptr)->y_shft)
-#endif
 
-#ifndef MAP_RESHIFTING
-#define fm_z_shft(fm_ptr) (DEFAULT_ZSHF)
-#else
 #define fm_z_shft(fm_ptr) ((fm_ptr)->z_shft)
-#endif
 
 // look, non stupid non hardcoded defines, how wacky!
 #define MAP_YSIZE (fm_y_sz(global_fullmap))
@@ -394,16 +376,6 @@ void map_free(void);
 #define MAP_MK 0xff
 #define MAP_MS 8
 
-#ifdef SAFE_FIX
-#define obj_coord_from_fix(fixval)    ((fix_int((fixval)) & 0xFF) << 8) + (fix_frac((fixval)) >> 8)
-#define obj_height_from_fix(fixval)   (fix_int((fixval) * (1 << 8 - SLOPE_SHIFT_D)))
-#define obj_angle_from_fix(fixval)    (fix_int(fix_div((fixval), fix_2pi) * 255))
-#define obj_angle_from_fixang(fixval) (fix_div((fixval), FIXANG_PI) >> 9)
-#define fix_from_obj_coord(sval)      (fix_make((sval) >> 8, ((sval)&0xFF) << 8))
-#define fix_from_obj_height(oid)      (ACK)
-#define fix_from_obj_height_val(hval) (ACK)
-#define fix_from_obj_angle(byteval)   ((255 - fix_make(byteval, 0)) / 64)
-#else
 #define obj_coord_from_fix(fixval)    ((int)(fixval) >> 8)
 #define obj_height_from_fix(fixval)   ((fixval) >> (8 + SLOPE_SHIFT_D))
 #define obj_angle_from_fix(fixval)    (fix_int(fix_div((fixval), fix_2pi) * 255))
@@ -412,7 +384,6 @@ void map_free(void);
 #define fix_from_obj_height(oid)      ((fix)objs[(oid)].loc.z << (8u + SLOPE_SHIFT_D))
 #define fix_from_obj_height_val(hval) ((hval) << (8 + SLOPE_SHIFT_D))
 #define fix_from_obj_angle(byteval)   ((255 - fix_make(byteval, 0)) / 64)
-#endif
 
 #define fix_inv2pi                        (fix_make(0, 10430))
 #define obj_angle_from_phys(fixinrad)     (64 - (((ushort)fix_div(fixinrad, fix_2pi)) >> 8))

@@ -485,13 +485,11 @@ errtype region_place(LGRegion *reg)
    // NOTE:  Assumes that the DB already has the correct values about you...
 
 
-#ifdef UI_LINKED
    /* If appropriate, do automanaging things */
    if (reg->status_flags & AUTOMANAGE_FLAG)
    {
       region_manage_place(reg);
    }
-#endif // UI_LINKED
 
    /* Dispatch appropriate callbacks */
    if (reg->parent != NULL)
@@ -506,13 +504,11 @@ errtype region_remove(LGRegion *reg, uchar draw)
    // This is currently a very stupid algorithm with lots of flicker and wasted effort
    // Needs to be made better!
 
-#ifdef UI_LINKED
    /* If appropriate, do automanaging things */
    if (reg->status_flags & AUTOMANAGE_FLAG)
    {
       region_manage_remove(reg);
    }
-#endif // UI_LINKED
    
    if (reg->parent != NULL)
       region_propagate_callback(reg, REPLACE_CB, reg->r);
@@ -937,7 +933,6 @@ errtype region_convert_to_root(LGRegion *reg, LGRegion **root_reg, LGRect *rect,
    return(OK);
 }
 
-#ifdef UI_LINKED
 errtype region_manage_place(LGRegion *reg)
 {
    LGRegion *dummy;
@@ -969,5 +964,3 @@ errtype region_get_invisible(LGRegion* reg, uchar* invis)
    return OK;
 }
 
-#endif // UI_LINKED
-                                                    

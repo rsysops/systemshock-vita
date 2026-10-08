@@ -135,8 +135,6 @@ typedef struct {
 #define ROUNDUP_INTS(bits) (((bits) + sizeof(uint) * 8 - 1) / (sizeof(uint) * 8))
 #define GRIDP_STATE_INTS ROUNDUP_INTS(GRIDP_BTN_ROW *GRIDP_BTN_COL *GRIDP_STATE_BITS)
 
-#define GPZ_GATES
-#define SHOW_DONENESS
 // #define GRIDP_AUTO_SOLVE
 
 typedef struct {
@@ -150,9 +148,6 @@ typedef struct {
     uchar winmove_r; //:3;                   //  \_ 1 byte
     uchar winmove_c; //:3;                   //  /
     uchar winmove_f; //:1;                   // /
-#ifdef GRIDP_AUTO_SOLVE
-    uchar solve_me;
-#endif
 } gridFlowPuzzleLayout;
 
 #define GRIDP_PADSIZE \

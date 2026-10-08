@@ -120,32 +120,6 @@ errtype load_res_bitmap(grs_bitmap *bmp, Ref rid, uchar alloc) {
     return (retval);
 }
 
-#ifdef SIMPLER_NONEXTRACTING_WAY
-errtype load_res_bitmap(grs_bitmap *bmp, Ref rid, uchar alloc) {
-    errtype retval = OK;
-    char *bits = bmp->bits;
-    FrameDesc *f;
-    int sz;
-    extern int memcount;
-
-    f = RefLock(rid);
-    sz = f->bm.w * f->bm.h;
-    if (alloc) {
-        bits = malloc(sz);
-        if (bits == NULL) {
-            retval = ERR_NOMEM;
-            goto out;
-        }
-    }
-    LG_memcpy(bits, (char *)(f + 1), sz);
-    *bmp = f->bm;
-    bmp->bits = bits;
-out:
-    RefUnlock(rid);
-    return retval;
-}
-#endif
-
 errtype simple_load_res_bitmap(grs_bitmap *bmp, Ref rid) { return load_res_bitmap(bmp, rid, TRUE); }
 
 #pragma mark -
@@ -154,7 +128,6 @@ errtype load_res_bitmap_cursor(LGCursor *c, grs_bitmap *bmp, Ref rid, uchar allo
     errtype retval = OK;
     LGRect anchor;
 
-#ifdef SVGA_SUPPORT
     short w, h;
     short temp;
     uchar *bits;
@@ -189,13 +162,6 @@ errtype load_res_bitmap_cursor(LGCursor *c, grs_bitmap *bmp, Ref rid, uchar allo
     retval = uiMakeBitmapCursor(c, bmp, anchor.ul);
     ss_set_hack_mode(0, &temp);
     gr2ss_override = old_over;
-#else
-    retval = master_load_bitmap_from_res(bmp, REFID(rid), REFINDEX(rid),
-                                         &anchor, (alloc) ? NULL : bmp->bits);
-    if (retval == OK) {
-        retval = uiMakeBitmapCursor(c, bmp, anchor.ul);
-    }
-#endif
     return retval;
 }
 

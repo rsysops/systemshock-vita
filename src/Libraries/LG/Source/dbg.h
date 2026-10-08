@@ -129,13 +129,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define WARN(...) log_log(LOG_WARN, THIS_FILE, __LINE__, __VA_ARGS__)
 #define ERROR(...) log_log(LOG_ERROR, THIS_FILE, __LINE__, __VA_ARGS__)
 
-#ifdef SPEW_ON
-#define Spew(src,msg) { printf(src); printf(": "); printf(msg); }
-#define SpewArgs(src,msg,args) { printf(src); printf(": ", args); printf(msg); }
-#else
 #define Spew(src,msg) {}
 #define SpewArgs(src,msg,args) {}
-#endif
 
 // Define the only warning I want to do right now - KC
 /*

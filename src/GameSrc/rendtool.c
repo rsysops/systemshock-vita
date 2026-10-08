@@ -289,14 +289,8 @@ uchar game_obj_block(void *vmptr, uchar *_sclip, int *loc) {
 
 int game_fr_idx(void) { return _game_fr_tmap; }
 
-#define TIM_WERE_AWAKE
-#ifdef TIM_WERE_AWAKE
 #define IsTpropStars() (textprops[_game_fr_tmap].force_dir > 0)
 #define IsTpStarDraw() (textprops[_game_fr_tmap].force_dir == 2)
-#else
-#define IsTpropStars() (_game_fr_tmap < 4)
-#define IsTpStarDraw() (_game_fr_tmap < 2)
-#endif
 
 extern g3s_phandle _fdt_tmppts[8]; /* these are used for all temporary point sets */
 
@@ -375,14 +369,6 @@ grs_bitmap *game_fr_tmap_full(void) {
         }
     }
     lmask = (1 << loop);
-#ifdef CAN_MISS
-    if (((texture_array[_game_fr_tmap].sizes_loaded) & lmask) == 0) {
-        do {
-            loop++;
-            lmask <<= 1;
-        } while ((loop < TEXTURE_16_INDEX) && (((texture_array[_game_fr_tmap].sizes_loaded) & lmask) == 0));
-    }
-#endif
 
 draw_it:
     draw_me = get_texture_map(_game_fr_tmap + ANIMTEXT_FRAME(_game_fr_tmap), loop);

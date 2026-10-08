@@ -254,16 +254,12 @@ typedef short sfix;
 // change references of g3s_vector.x to g3s_vector.xyz[0] (or .gX, .gY, etc.
 // from the #defines)
 typedef struct g3s_vector {
-#if 0 // MLA #ifdef __cplusplus
-	fix x,y,z;
-#else
     union {
         struct {
             fix x, y, z;
         };
         fix xyz[3];
     };
-#endif
 } g3s_vector;
 
 #define gX xyz[0]
@@ -289,9 +285,6 @@ typedef struct g3s_matrix {
 typedef struct g3s_point *g3s_phandle;
 
 typedef struct g3s_point {
-#if 0 // #ifdef __cplusplus
-	fix x,y,z;
-#else
     union { // rotated 3d coords, use as vector or elements
         g3s_vector vec;
         struct {
@@ -300,21 +293,16 @@ typedef struct g3s_point {
         fix xyz[3];
         g3s_phandle next; // next in free list, when point is unused
     };
-#endif
 
     fix sx, sy;     // screen coords
     ubyte codes;     // clip codes
     ubyte p3_flags; // misc flags
-#if 0               // #ifdef __cplusplus
-	sfix u,v;
-#else
     union {
         struct {
             sfix u, v;
         } uv;        // for texturing, etc.
         grs_rgb rgb; // for RGB-space gouraud shading
     };
-#endif
     sfix i; // gouraud shading & lighting
 } g3s_point;
 

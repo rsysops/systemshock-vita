@@ -35,7 +35,6 @@ extern SDL_Renderer *renderer;
 
 bool fullscreenActive = false;
 
-#ifdef VITA
 #include <math.h>
 #include "Shock.h"
 #include "Prefs.h"
@@ -487,7 +486,6 @@ void VitaStartTextInput(int emulate_every_frame)
     vita_text_input_active = 1;
     per_frame_keydown_emulation = emulate_every_frame;
 }
-#endif
 
 static void toggleFullScreen() {
     fullscreenActive = !fullscreenActive;
@@ -791,12 +789,8 @@ void SetMouseXY(int mx, int my) {
     SDL_GetWindowSize(window, &physical_width, &physical_height);
 
     int w, h;
-#ifdef VITA
     w = physical_width;
     h = physical_height;
-#else
-    SDL_RenderGetLogicalSize(renderer, &w, &h);
-#endif
 
     float scale_x = (float)physical_width / w;
     float scale_y = (float)physical_height / h;
@@ -937,7 +931,6 @@ uchar Ascii2Code[95] = {
     0x32  // ~
 };
 
-#ifdef VITA
 void HandleControllerButtonEvent(SDL_ControllerButtonEvent button)
 {
     bool keyboardPress = false;
@@ -1225,7 +1218,6 @@ void HandleTouchEvent(SDL_TouchFingerEvent event)
         }
     }
 }
-#endif
 
 void pump_events(void) {
     SDL_Event ev;
@@ -1327,12 +1319,10 @@ void pump_events(void) {
                     case SDLK_PAGEDOWN:
                         keyEvent.ascii = KEY_PGDN;
                         break;
-#ifdef VITA
                     // the pad's START in the main menu (see MenuKeyForButton())
                     case SDLK_END:
                         keyEvent.ascii = KEY_END;
                         break;
-#endif
                     }
                 }
 
@@ -1383,7 +1373,6 @@ void pump_events(void) {
         } break;
 
         case SDL_TEXTINPUT: {
-#ifdef VITA
             if (vita_text_input_active) {
                 text_input_active = 1;
                 strncpy(vita_input_text, ev.text.text, VITA_TEXT_BUFFER_SIZE);
@@ -1393,7 +1382,6 @@ void pump_events(void) {
                     return;
                 }
             }
-#endif
             uint32_t len = strlen(ev.text.text);
 
             // for every utf8 char in null-terminated string
@@ -1534,7 +1522,6 @@ void pump_events(void) {
                 break;
             }
             break;
-#ifdef VITA
             case SDL_FINGERDOWN:
             case SDL_FINGERUP:
             case SDL_FINGERMOTION:
@@ -1561,13 +1548,10 @@ void pump_events(void) {
             case SDL_CONTROLLERBUTTONUP:
                 HandleControllerButtonEvent(ev.cbutton);
                 break;
-#endif
         }
     }
-#ifdef VITA
     ProcessControllerAxisMotion();
     EmulateTextInput();
-#endif
 }
 
 //===============================================================
@@ -1616,24 +1600,6 @@ kbs_event kb_next(void) {
     }
     return retEvent;
 
-#if 0
-	bool gotKey = FALSE;
-	EventRecord	theEvent;
-	while(!gotKey)
-	{
-		gotKey = GetOSEvent(keyDownMask | autoKeyMask, &theEvent);		// Get a key
-		if (gotKey)
-		{
-			retEvent.code = (uchar)(theEvent.message >> 8); // keyCodeMask == 0x0000FF00
-			retEvent.state = KBS_DOWN;
-			retEvent.ascii = (uchar)(theEvent.message & charCodeMask);
-			retEvent.modifiers = (uchar)(theEvent.modifiers >> 8);
-		}
-		else if ((flags & KBF_BLOCK) == 0)					// If there was no key and we're
-			return (retEvent);										// not blocking, then return.
-	}
-	return (retEvent);
-#endif
 }
 
 //---------------------------------------------------------------
@@ -1654,24 +1620,6 @@ kbs_event kb_look_next(void) {
     }
     return retEvent;
 
-#if 0
-	bool				gotKey = FALSE;
-	EventRecord	theEvent;
-	while(!gotKey)
-	{
-		gotKey = OSEventAvail(keyDownMask | autoKeyMask, &theEvent);		// Get a key
-		if (gotKey)
-		{
-			retEvent.code = (uchar)(theEvent.message >> 8);
-			retEvent.state = KBS_DOWN;
-			retEvent.ascii = (uchar)(theEvent.message & charCodeMask);
-			retEvent.modifiers = (uchar)(theEvent.modifiers >> 8);
-		}
-		else if (flags & KBF_BLOCK == 0)					// If there was no key and we're
-			return (retEvent);										// not blocking, then return.
-	}
-	return (retEvent);
-#endif
 }
 
 //---------------------------------------------------------------
@@ -1680,10 +1628,6 @@ kbs_event kb_look_next(void) {
 void kb_flush(void) {
     // http://mirror.informatimago.com/next/developer.apple.com/documentation/Carbon/Reference/Event_Manager/event_mgr_ref/function_group_5.html#//apple_ref/c/func/FlushEvents
     // FlushEvents(keyDownMask | autoKeyMask, 0);
-#ifndef VITA
-    // don't flush on vita for now. this interrupts key up event during emulated text input and messes things up on game startup ("stucked in" buttons)
-    SDL_FlushEvents(SDL_KEYDOWN, SDL_KEYUP); // Note: that's a range!
-#endif
     nextKBevent = 0; // this flushes the keyboard events already buffered - TODO is that desirable?
 }
 
@@ -1747,13 +1691,9 @@ errtype mouse_get_xy(short *x, short *y) {
 void middleize_mouse(void) {
     int w, h;
 
-#ifdef VITA
     SDL_GetWindowSize(window, &w, &h);
     emulatedPointerPosX = w / 2;
     emulatedPointerPosY = h / 2;
-#else
-    SDL_RenderGetLogicalSize(renderer, &w, &h);
-#endif
 
     MouseX = latestMouseEvent.x = w / 2;
     MouseY = latestMouseEvent.y = h / 2;
@@ -1763,12 +1703,8 @@ void get_mouselook_vel(int *vx, int *vy) {
     if (SDL_ShowCursor(SDL_QUERY) == SDL_ENABLE)
         *vx = *vy = 0;
     else {
-#ifdef VITA
         *vx = relativeRightXAxis;
         *vy = relativeRightYAxis;
-#else
-        SDL_GetRelativeMouseState(vx, vy);
-#endif
 
         *vx += MouseChaosX;
         MouseChaosX = 0;

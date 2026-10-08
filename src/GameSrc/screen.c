@@ -25,9 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // Source code for the Citadel Screen routines
 
-#ifdef SVGA_SUPPORT
 #include "fullscrn.h"
-#endif
 #include "frcursors.h"
 #include "game_screen.h"
 #include "tools.h"
@@ -60,21 +58,14 @@ KLC - stereo
 #define STATUS_WIDTH 312
 #define GAMESCR_BIO 0
 
-#ifdef CURSOR_BACKUPS
-#include "loopdbg.h"
-#include "string.h"
-#endif
-
 #define CFG_TIME_VAR "time_passes"
 
 LGRect Inv_rect;
 
-#ifdef SVGA_SUPPORT
 extern grs_screen *svga_screen;
 extern frc *svga_render_context;
 extern short svga_mode_data[];
 extern short mode_id;
-#endif
 
 LGRect *inventory_rect = &Inv_rect, *status_rect, mess_rect;
 LGRect real_status_rect;
@@ -148,31 +139,11 @@ errtype screen_init(void) {
 
     install_motion_mouse_handler(mainview_region, NULL);
 
-#ifdef SVGA_SUPPORT
     gr2ss_register_init(0, 320, 200);
-#ifdef VITA
     gr2ss_register_mode(0, 480, 272);
-#else
-    gr2ss_register_mode(0, 320, 400);
-#endif
     gr2ss_register_mode(0, 640, 400);
     gr2ss_register_mode(0, 640, 480);
-#ifdef VITA
     gr2ss_register_mode(0, 960, 544);
-#else
-    gr2ss_register_mode(0, 1024, 768);
-#endif
-#ifdef STEREO_SUPPORT
-    if (i6d_device == I6D_VFX1) {
-        Warning(("size = %d, %d!\n", i6d_ss->scr_w, i6d_ss->scr_h));
-        gr2ss_register_mode(0, 320, 240);
-        gr2ss_register_mode(0, 640, 240); // VFX Hack Mode
-    } else {
-        gr2ss_register_mode(0, 320, 100); // note secret stereo mode
-        gr2ss_register_mode(0, 640, 350); // CTM Hack Mode
-    }
-#endif
-#endif
 
     // Install mouse converter...
     ui_mouse_convert = ss_mouse_convert;
@@ -249,25 +220,19 @@ void screen_start() {
     status_bio_start();
     status_vitals_update(TRUE);
 // KLC - not needed anymore   mouse_unconstrain();
-#ifdef PALFX_FADES
-// later   if (pal_fx_on) palfx_fade_up(FALSE);
-#endif
 
     CaptureMouse(true);
     SetMotionCursorForMouseXY();
 }
 
 void screen_exit() {
-#ifdef SVGA_SUPPORT
     uchar cur_pal[768];
     extern grs_screen *cit_screen;
     uchar *s_table;
-#endif
 
     status_bio_end();
     uiHideMouse(NULL);
 
-#ifdef SVGA_SUPPORT
     if ((_new_mode != GAME_LOOP) && (_new_mode != FULLSCREEN_LOOP)) {
 
         s_table = gr_get_light_tab();
@@ -277,7 +242,6 @@ void screen_exit() {
         // KLC      change_svga_cursors();
         // KLC      status_bio_update_screenmode();
     }
-#endif
     if (_new_mode == -1)
         return;
 
@@ -402,11 +366,9 @@ errtype _screen_init_mouse(LGRegion *r, uiSlab *slab, uchar do_init) {
     uiMakeSlab(slab, r, &globcursor);
     if (do_init)
         uiInit(slab);
-#ifdef INPUT_CHAINING
 /* Ãdo we ever need this?
    if (config_get_raw(CHAINING_VAR,NULL,0))
       kb_set_flags(kb_get_flags()|KBF_CHAIN);*/
-#endif // INPUT_CHAINING
 
     uiHideMouse(NULL);
     // KLC - no longer needed   if (mouse_put_xy(100,100) == ERR_NODEV)

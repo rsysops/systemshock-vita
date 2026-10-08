@@ -40,9 +40,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "textmaps.h"
 uchar tmap_static_mem[NUM_STATIC_TMAPS * SIZE_STATIC_TMAP];
-#ifdef SVGA_CUTSCENES
 uchar tmap_big_buffer[NUM_STATIC_TMAPS * SIZE_BIG_TMAP];
-#endif
 
 #include "objects.h"
 #include "objapp.h"

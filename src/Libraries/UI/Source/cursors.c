@@ -685,13 +685,11 @@ errtype uiHideMouse(LGRect* r)
    }
 
 //#define FREEZE_ON_HIDE
-#ifndef FREEZE_ON_HIDE
    else
    {
       MouseLock--;
       return ERR_NOEFFECT;
    }
-#endif
 	return OK;
 }
 
@@ -740,18 +738,10 @@ errtype uiShowMouse(LGRect* r)
       MouseLock--;
       ret = OK;
    }
-#ifndef FREEZE_ON_HIDE
    else
    {
       ret = ERR_NOEFFECT;
    }
-#else
-   else
-   {
-      if (MouseLock <= 2) MouseLock = 2;
-      MouseLock--;
-   }
-#endif
    if (--curhiderect < 0) curhiderect = 0;
    MouseLock--;
 

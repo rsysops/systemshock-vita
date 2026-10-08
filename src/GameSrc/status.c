@@ -129,7 +129,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define BOTTOMLESS 0x04 // things that fall off the bottom don't get drawn.
 
 // For now, turn these on so it won't try to draw any biorhythm stuff
-#define TIMING_PROCEDURES_OFF
 //#define TIMING_CALLBACK_OFF
 
 // Struct to contain information about tail
@@ -181,13 +180,6 @@ static uchar track_colors[NUM_BIO_TRACKS] = {
 /* bio keeps private canvas so we don't have to save/restore stuff from
    the real screen canvas. */
 static grs_canvas bio_canvas;
-
-#ifdef SYNCH_BIORHYTHMS
-grs_bitmap bio_bitmap;
-
-#define BIO_BITMAP_SIZE ((GAMESCR_BIO_X + GAMESCR_BIO_WIDTH) * (GAMESCR_BIO_Y + GAMESCR_BIO_HEIGHT))
-uchar bio_bitmap_bits[BIO_BITMAP_SIZE];
-#endif
 
 extern LGPoint LastCursorPos;
 
@@ -285,7 +277,6 @@ void bio_restore_pixel(grs_bitmap *bmp, short x, short y) {
 void bio_vline(int color, int x, int y, int y1) {
     if ((curr_bio_mode == DIFF_BIO) && (under_bio(x)))
         return;
-#ifdef SVGA_SUPPORT
     if (convert_use_mode != 0) {
         short x0, x1, i, j;
         x0 = SCONV_X(x);
@@ -301,7 +292,6 @@ void bio_vline(int color, int x, int y, int y1) {
             for (j = y; j <= y1; j++)
                 ss_save_under_set_pixel(color, i, j);
     } else
-#endif
     {
         if (y > y1) {
             int foo = y;
@@ -329,9 +319,7 @@ grs_bitmap bio_background_bitmap;
 void status_bio_set(short bio_mode) {
     FrameDesc *f;
     int i;
-#ifdef SVGA_SUPPORT
     uchar old_over = gr2ss_override;
-#endif
 
     curr_bio_mode = bio_mode;
 
@@ -341,14 +329,10 @@ void status_bio_set(short bio_mode) {
     curr_bio_y = bios_y[bio_mode];
     curr_bio_w = bios_w[bio_mode];
     curr_bio_h = bios_h[bio_mode];
-#ifdef SVGA_SUPPORT
     gr2ss_override = OVERRIDE_ALL;
-#endif
     ss_cset_cliprect(&bio_canvas, STATUS_BIO_X, STATUS_BIO_Y, STATUS_BIO_X + STATUS_BIO_WIDTH,
                      STATUS_BIO_Y + STATUS_BIO_HEIGHT);
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
 
     curr_bio_ref = bio_refs[bio_mode];
     f = RefLock(STATUS_RESID);
@@ -378,26 +362,17 @@ void status_bio_update_screenmode() { bio_canvas = *grd_screen_canvas; /* make c
 void status_bio_init(void) {
     status_bio_update_screenmode();
 
-#ifndef TIMING_PROCEDURES_OFF
-    bio_time_id = tm_add_process((void (*)())status_bio_update, 0, TMD_FREQ / 140);
-#endif
 }
 
 void status_bio_start(void) {
     if (!full_game_3d)
         gBioInited = TRUE;
 
-#ifndef TIMING_PROCEDURES_OFF
-    tm_activate_process(bio_time_id);
-#endif
 }
 
 void status_bio_end(void) {
     gBioInited = FALSE;
 //   Free(bio_background_bitmap.bits);
-#ifndef TIMING_PROCEDURES_OFF
-    tm_deactivate_process(bio_time_id);
-#endif
 }
 
 // -----------------------------------------------------------
@@ -511,22 +486,6 @@ errtype clear_bio_tracks() {
 //#define FIND_OVERLAP(x,y) (((x) - y + STATUS_BIO_LENGTH) % STATUS_BIO_LENGTH)
 int FIND_OVERLAP(int x, int y) { return (((x)-y + STATUS_BIO_LENGTH) % STATUS_BIO_LENGTH); }
 
-#ifdef SYNCH_BIORHYTHMS
-#ifdef SVGA_SUPPORT
-// ------------------------------------------------------------------------
-// status_bio_synchronous()
-//
-// Does the synchronous blitting of biorhythm canvas
-void status_bio_synchronous() {
-    if (!convert_use_mode)
-        return;
-    gr_push_canvas(grd_screen_canvas);
-    ss_scale_bitmap(&bio_bitmap, 0, 0, GAMESCR_BIO_WIDTH, GAMESCR_BIO_HEIGHT);
-    gr_pop_canvas();
-}
-#endif
-#endif
-
 // ------------------------------------------------------------------------
 // status_bio_update()
 //
@@ -534,7 +493,6 @@ void status_bio_synchronous() {
 // Does clever incremental redraw (but not yet)
 
 void status_bio_update(void) {
-#ifndef TIMING_CALLBACK_OFF
     uchar color;
     int i;
     int j;
@@ -558,9 +516,7 @@ void status_bio_update(void) {
     gr_set_canvas(&bio_canvas);
     curr_blk = bio_data;
 
-#ifdef SVGA_SUPPORT
     gr_push_state();
-#endif
     for (i = 0; i < NUM_BIO_TRACKS; i++, curr_blk++) {
         if (curr_blk->free == FALSE) {
             // We must check to see if this track should be drawn now,
@@ -636,12 +592,9 @@ void status_bio_update(void) {
         }
     }
 
-#ifdef SVGA_SUPPORT
     gr_pop_state();
-#endif
     gr_set_canvas(old_canvas);
     MouseLock--;
-#endif
 }
 
 // ---------------------------------------------------------------------------------------

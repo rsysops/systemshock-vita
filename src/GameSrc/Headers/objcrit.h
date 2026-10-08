@@ -166,12 +166,9 @@ typedef struct CyberCritterProp {
     uchar alt_vcolors[NUM_VCOLORS];
 } CyberCritterProp;
 
-#define EMPTY_STRUCTS
 
 typedef struct RobobabeCritterProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } RobobabeCritterProp;
 
 // Quantity defines - subclasses

@@ -304,10 +304,6 @@ void scale_view_matrix(void) {
     // scale set matrix scale vector based on window and pixel ratio
     temp_long = fix_mul_div(window_height, pixel_ratio, window_width);
 
-#ifdef stereo_on
-    _g3d_eyesep = fix_mul(-temp_long, _g3d_eyesep_raw); // calculate true eyesep
-#endif
-
     if (temp_long <= f1_0)
         _matrix_scale.gX = fix_mul(_matrix_scale.gX, temp_long);
     else

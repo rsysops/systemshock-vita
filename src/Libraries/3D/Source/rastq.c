@@ -218,7 +218,7 @@ void rastq_use_gpu(int on) { rq.use_gpu = on; }
 
 // Profile builds alternate what they compare (see vprof.h).
 static void profile_settings(void) {
-#if defined(VITA) && defined(VITA_PROFILE)
+#if defined(__vita__) && defined(VITA_PROFILE)
     rq.mode = RASTQ_TRUST_STABLE;
     rq.use_gpu = vprof_variant != 0;
     rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
@@ -1749,7 +1749,7 @@ void rastq_begin(void) {
     int i;
 
     profile_settings();
-#if defined(VITA) && defined(VITA_PROFILE)
+#if defined(__vita__) && defined(VITA_PROFILE)
     if (rq.threads != RASTQ_THREADS)
         rastq_set_threads(RASTQ_THREADS);
 #endif
@@ -1782,7 +1782,7 @@ void rastq_begin(void) {
             rq.gpu_check = 1;
         else
             rq.checking = 1;
-#if defined(VITA) && defined(VITA_PROFILE)
+#if defined(__vita__) && defined(VITA_PROFILE)
         // A checked frame draws everything several times: keep it out of the
         // timings.
         vprof_frame_discard();

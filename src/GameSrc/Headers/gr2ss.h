@@ -18,7 +18,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 */
 #include "frprotox.h"
 
-#ifdef SVGA_SUPPORT
 extern void ss_string(char *s, short x, short y);
 void ss_scale_string(char *s, short x, short y);
 extern void ss_bitmap(grs_bitmap *bmp, short x, short y);
@@ -97,47 +96,3 @@ extern uchar gr2ss_override;
 #define OVERRIDE_ALL    0x7F
 #define OVERRIDE_FAIL   0x80
 
-#else
-
-#define ss_string(s, x, y)                      gr_string(s, x, y)
-#define ss_bitmap(bmp, x, y)                    gr_bitmap(bmp, x, y)
-#define ss_kept_bitmap(bmp, x, y)               gr_bitmap(bmp, x, y)
-#define ss_ubitmap(bmp, x, y)                   gr_ubitmap(bmp, x, y)
-#define ss_noscale_bitmap(bmp, x, y)            gr_bitmap(bmp, x, y)
-#define ss_scale_bitmap(bmp, x, y, w, h)        gr_scale_bitmap(bmp, x, y, w, h)
-#define ss_rect(x1, y1, x2, y2)                 gr_rect(x1, y1, x2, y2)
-#define ss_box(x1, y1, x2, y2)                  gr_box(x1, y1, x2, y2)
-#define ss_int_line(x1, y1, x2, y2)             gr_int_line(x1, y1, x2, y2)
-#define ss_thick_int_line(x1, y1, x2, y2)       gr_int_line(x1, y1, x2, y2)
-#define ss_int_disk(x1, y1, rad)                gr_int_disk(x1, y1, rad)
-#define ss_safe_set_cliprect(x1, y1, x2, y2)    gr_safe_set_cliprect(x1, y1, x2, y2)
-#define ss_cset_cliprect(pcanv, x1, y1, x2, y2) gr_cset_cliprect(pcanv, x1, y1, x2, y2)
-#define ss_vline(x1, y1, y2)                    gr_vline(x1, y1, y2)
-#define ss_hline(x1, y1, y2)                    gr_hline(x1, y1, y2)
-#define ss_fix_line(x1, y1, x2, y2)             gr_fix_line(x1, y1, x2, y2)
-#define ss_thick_fix_line(x1, y1, x2, y2)       gr_fix_line(x1, y1, x2, y2)
-#define ss_get_bitmap(bmp, x, y)                gr_get_bitmap(bmp, x, y)
-#define ss_set_pixel(color, x, y)               gr_set_pixel(color, x, y)
-#define ss_set_thick_pixel(color, x, y)         gr_set_pixel(color, x, y)
-#define ss_clut_ubitmap(bmp, x, y, cl)          gr_clut_ubitmap(bmp, x, y, cl)
-#define ss_recompute_zoom(w, oldm)
-
-#define gr2ss_register_init(convert_type, init_x, init_y)
-#define gr2ss_register_mode(conv_mode, nx, ny)
-
-extern void ss_mouse_convert(short *px, short *py, uchar down);
-extern void ss_mouse_convert_round(short *px, short *py, uchar down);
-
-#define SCONV_X(x) x
-#define SCONV_Y(y) y
-#define INV_SCONV_X(x) x
-#define INV_SCONV_Y(y) y
-
-#define FIXCONV_X(x) x
-#define FIXCONV_Y(y) y
-#define INV_FIXCONV_X(x) x
-#define INV_FIXCONV_Y(y) y
-
-#define MODE_SCONV_X(x, m) x
-#define MODE_SCONV_Y(y, m) y
-#endif

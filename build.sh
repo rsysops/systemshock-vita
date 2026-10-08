@@ -33,9 +33,6 @@ docker run --rm \
         cd "$BUILD_DIR"
         cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake \
-            -DVITA=true \
-            -DENABLE_FLUIDSYNTH=OFF \
-            -DENABLE_SDL2=ON \
             -DENABLE_VITA_PROFILE=$PROFILE_FLAG \
             -DCMAKE_BUILD_TYPE=None
         make -j"$(nproc)"

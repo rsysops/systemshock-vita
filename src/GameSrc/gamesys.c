@@ -163,9 +163,6 @@ void check_nearby_objects() {
     extern char mlimbs_machine;
     extern int mlimbs_monster;
     int new_monster;
-#ifdef USE_3DREP_FOR_SHODANIZING
-    short rep;
-#endif
     ObjID id;
     ObjSpecID osid;
     LGPoint dest_pt, source_pt;
@@ -266,15 +263,10 @@ void check_nearby_objects() {
                         case SCREEN_TRIPLE:
                         case BIGSCREEN_TRIPLE:
                         case SUPERSCREEN_TRIPLE:
-#ifdef USE_3DREP_FOR_SHODANIZING
-                            rep = compute_3drep(&(objs[id]), id, ObjProps[OPNUM(id)].render_type);
-                            if ((rep & TPOLY_INDEX_MASK) == SHODAN_STATIC_MAGIC_COOKIE)
-#else
                             if (((objBigstuffs[objs[id].specID].data2 & TPOLY_INDEX_MASK) ==
                                  SHODAN_STATIC_MAGIC_COOKIE) &&
                                 (((objBigstuffs[objs[id].specID].data2 & TPOLY_TYPE_MASK) >> TPOLY_INDEX_BITS) ==
                                  TPOLY_TYPE_CUSTOM_MAT))
-#endif
                             {
                                 // Chance of shodanizing....
                                 if ((rand() & STOCHASTIC_SHODAN_MASK) == 1) {
@@ -444,14 +436,6 @@ errtype gamesys_run(void) {
     ObjSpecID osi;
     uchar dummy;
     extern uchar *shodan_bitmask;
-
-#ifdef AUTOCORRECT_DIFF_TRASH
-    for (int i = 0; i < 4; i++) {
-        extern char diff_qvars[4];
-        if (player_struct.difficulty[i] != QUESTVAR_GET(diff_qvars[i]))
-            QUESTVAR_SET(diff_qvars[i], player_struct.difficulty[i]);
-    }
-#endif
 
     //   page_amount = 0;
 
@@ -884,20 +868,6 @@ void expose_player_real(short damage, ubyte type, ushort tsecs) {
     }
     cval += damage;
     player_struct.hit_points_lost[type - 1] = (ubyte)cval;
-#ifdef SCHEDULED_DECAY
-    if (tsecs > 0) {
-        SchedEvent ev;
-        SchedExposeData *xd = (SchedExposeData *)&ev.data;
-        int count = 1;
-        ev.timestamp = TICKS2TSTAMP(player_struct.game_time + tsecs * CIT_CYCLE);
-        ev.type = EXPOSE_SCHED_EVENT;
-        xd->damage = -(damage / count); // plus or minus exposure increment
-        xd->type = type;
-        xd->tsecs = tsecs;
-        xd->count = count;
-        schedule_event(&game_seconds_schedule, &ev);
-    }
-#endif // SCHEDULED_DECAY
 }
 
 void expose_player(byte damage, ubyte type, ushort tsecs) { expose_player_real(damage, type, tsecs); }

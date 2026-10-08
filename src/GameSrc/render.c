@@ -282,24 +282,6 @@ void update_cspace_tiles(void) {
             } else if (val_area(cur_tp) == 3)
                 me_flip_set(mmp, 2);
 
-#ifdef STATE_RULES
-    switch (me_bits_flip(mmp)) {
-    case 2:
-        if ((val_area(cur_tp) < 2) || (val_area(cur_tp) > 3))
-            me_flip_set(mmp, 0);
-        break;
-    case 1:
-        me_flip_set(mmp, 3);
-        break;
-    case 0:
-        if (val_area(cur_tp) == 3)
-            me_flip_set(mmp, 2);
-        break;
-    case 3:
-        if (((val_area(cur_tp) + i + j) & 0xf) < 4)
-            me_flip_set(mmp, 2);
-    }
-#endif
 }
 
 void tile_hit(int mx, int my) {

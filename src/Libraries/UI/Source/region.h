@@ -39,7 +39,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define OBSCURATION_CHECK      0x0800
 #define AUTODESTROY_FLAG       0x1000
 
-#define UI_LINKED    1
 
 typedef struct _Region
 {                  

@@ -69,12 +69,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define CPNUM(id) (ClassBaseArray[objs[id].obclass][objs[id].subclass] + objs[id].info.type)
 #define SCNUM(id) (objs[id].info.type)
 
-#ifdef SLOW
-#define OPNUM(id) OPTRIP(ID2TRIP(id))
-#define CPNUM(id) CPTRIP(ID2TRIP(id))
-#define SCNUM(id) SCTRIP(ID2TRIP(id))
-#endif
-
 // Prototypes
 short num_types(uchar obclass, uchar subclass);
 

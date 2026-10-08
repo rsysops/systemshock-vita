@@ -89,7 +89,6 @@ uchar pick_best_ref(ObjRefID cRef) {
 // but for now, we just have to get all objs in the square sorting
 // we can deal with speeding this up later
 void render_parse_obj(void) {
-#ifndef __RENDTEST__
     ObjRefID curORef;
     ObjID cobjid;
 
@@ -112,16 +111,9 @@ void render_parse_obj(void) {
         curORef = objRefs[curORef].next;
     }
     render_sorted_objs();
-#else
-    ushort curORef;
-    curORef = _fdt_mptr->objRef;
-    _fr_sdbg(OBJ_TALK, mprintf("Rendering %d at %d %d\n", curORef, _fdt_x, _fdt_y));
-    // perhaps draw a box or something
-#endif
 }
 
 void facelet_parse_obj(void) {
-#ifndef __RENDTEST__
     ObjRefID curORef;
     ObjID cobjid;
 
@@ -134,10 +126,4 @@ void facelet_parse_obj(void) {
         }
         curORef = objRefs[curORef].next;
     }
-#else
-    ushort curORef;
-    curORef = _fdt_mptr->objRef;
-    _fr_sdbg(OBJ_TALK, mprintf("Rendering %d at %d %d\n", curORef, _fdt_x, _fdt_y));
-    // perhaps draw a box or something
-#endif
 }

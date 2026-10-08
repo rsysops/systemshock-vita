@@ -55,7 +55,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "visible.h"
 
 // SOME YUMMY DEFINES!
-#define AI_EDMS
 
 // A bunch of visibility related factors.
 // These should probably wind up in a quickbox?
@@ -227,7 +226,6 @@ uchar do_physics_stupidity(ObjID id, int big_dist) {
     int use_dist;
     fix there_yet;
 
-#ifdef DISTANCE_AI_KILL
     // don't phys-kill anything that is currently pathfinding or in combat mode (it'll leave combat mode
     // after a while anyways)
     if ((objCritters[osid].path_id != -1) || (objCritters[osid].mood == AI_MOOD_HOSTILE) ||
@@ -255,7 +253,6 @@ uchar do_physics_stupidity(ObjID id, int big_dist) {
         //         awake!\n",id,objs[id].info.ph,objs[id].info.ph));
         return (FALSE);
     }
-#endif
     if ((!EDMS_frere_jaques(objs[id].info.ph)) && (objCritters[osid].des_speed != 0)) {
         //      Spew(DSRC_PHYSICS_Sleeper, ("obj id %x, ph = %d(0x%x) is in range but
         //      asleep!\n",id,objs[id].info.ph,objs[id].info.ph)); Spew(DSRC_PHYSICS_Sleeper, ("obj id %x, head = %x (vs
@@ -383,15 +380,11 @@ errtype do_stealth_stuff(ObjID id, short base_vis, uchar *raycast_success, fix d
 void set_des_heading(ObjID id, ObjSpecID osid, fix targ_x, fix targ_y, fixang *angdiff, fixang *target_ang) {
     State current_state;
 
-#ifdef AI_EDMS
     safe_EDMS_get_state(objs[id].info.ph, &current_state);
     *angdiff = point_in_view_arc(targ_x, targ_y, current_state.X, current_state.Y,
                                  0x4000 - fixang_from_phys_angle(phys_angle_from_obj(objs[objCritters[osid].id].loc.h)),
                                  target_ang);
     objCritters[osid].des_heading = fixang_to_fixrad(*target_ang);
-#else
-    objCritters[osid].des_heading = 0;
-#endif
 }
 
 // Continue along the pathfinding path, grabbing new steps as
@@ -480,21 +473,9 @@ errtype follow_pathfinding(ObjID id, ObjSpecID osid) {
         set_des_heading(id, osid, fix_make(objCritters[osid].pf_x, 0x8000), fix_make(objCritters[osid].pf_y, 0x8000),
                         &angdiff, &target_ang);
 
-#ifdef WACKY_SPEED_REDUCTION
-        if (paths[path_id].num_steps < 2) {
-            objCritters[osid].des_speed = DEFAULT_SPEED >> 3;
-            Warning(("speed slowing due to distance!\n"));
-        } else
-#endif
             if (objCritters[osid].des_speed == 0)
             objCritters[osid].des_speed = DEFAULT_SPEED;
 
-#ifdef SPEED_QUARTERING
-        // Quarter speed if we are mostly turning and are going fast
-        if ((angdiff > 0x2000) && (objCritters[osid].des_speed > MAX_TURNING_SPEED)) {
-            objCritters[osid].des_speed = objCritters[osid].des_speed >> 2;
-        }
-#endif
     }
     return (OK);
 }
@@ -565,29 +546,18 @@ void check_attitude_adjustment(ObjID id, ObjSpecID osid, int big_dist, uchar ray
         set_des_heading(id, osid, fix_from_obj_coord(last_known_loc.x), fix_from_obj_coord(last_known_loc.y), &angdiff,
                         &target_ang);
         if (angdiff < 0x2000) {
-#ifdef AI_EDMS
             if (raycast_success || (ray_cast_objects(id, PLAYER_OBJ, VISIBLE_MASS, VISIBLE_SIZE, VISIBLE_SPEED,
                                                      VISIBLE_RANGE) == PLAYER_OBJ)) {
                 raycast_success = TRUE;
                 objCritters[osid].mood = AI_MOOD_ATTACKING;
-#ifdef ANNOYING_COMBAT_SPEW
-                Spew(DSRC_AI_Combat, ("id %x Spotted player, attacking!\n"));
-#endif
             } else
-#endif
             {
                 objCritters[osid].mood = AI_MOOD_HOSTILE;
                 set_posture_movesafe(osid, STANDING_CRITTER_POSTURE);
-#ifdef ANNOYING_COMBAT_SPEW
-                Spew(DSRC_AI_Combat, ("id %x failed raycast!\n"));
-#endif
             }
         } else {
             objCritters[osid].mood = AI_MOOD_HOSTILE;
             set_posture_movesafe(osid, STANDING_CRITTER_POSTURE);
-#ifdef ANNOYING_COMBAT_SPEW
-            Spew(DSRC_AI_Combat, ("id %x failed angcheck, angdiff = %x\n", angdiff));
-#endif
         }
     }
 }
@@ -882,15 +852,6 @@ errtype ai_run() {
     int dist;
     char mood;
     extern ObjID shodan_avatar_id;
-#ifdef PLAYTEST
-    short crit_count = 0;
-#endif
-
-#ifndef GAMEONLY
-    // Punt out if no physics or no ai
-    if (!physics_running)
-        return (OK);
-#endif
 
     check_requests(FALSE);
 
@@ -936,9 +897,7 @@ errtype ai_run() {
         objCritters[osid].wait_frames--;
 
         // Tell EDMS what to do with us.
-#ifdef AI_EDMS
         apply_EDMS_controls(osid);
-#endif
 
         // If it is our turn to get a bigger share of the
         // computron pie, then let's crank.
@@ -955,13 +914,7 @@ errtype ai_run() {
                 //               Spew(DSRC_AI_Hacks, ("critter %x, is confused! flags =
                 //               %x\n",id,objCritters[osid].flags));
                 run_peaceful_ai(id, dist);
-#ifdef USE_DIST_OVERRIDE_FOR_DEFAULT_FRAMES
-                objCritters[osid].wait_frames = min(DEFAULT_FRAMES, dist >> 8);
-//            if ((dist >> 8) < DEFAULT_FRAMES)
-//               Spew(DSRC_AI_AI, ("using %d frames for id %x instead of %d\n",dist >> 8, id, DEFAULT_FRAMES));
-#else
                 objCritters[osid].wait_frames = DEFAULT_FRAMES;
-#endif
             }
             // a bit o' random deviation...
             objCritters[osid].wait_frames += (*tmd_ticks & 0x2);

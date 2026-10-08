@@ -56,10 +56,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "gamescr.h"
 #include "gr2ss.h"
 
-#ifdef LOST_TREASURES_OF_MFD_GAMES
 #include "minimax.h"
 #include "limits.h"
-#endif
 
 // -------
 // Globals
@@ -168,7 +166,6 @@ void games_init_road(void *game_state);
 void games_init_null(void *game_state);
 void games_init_bots(void *game_state);
 
-#ifdef LOST_TREASURES_OF_MFD_GAMES
 void games_expose_15(MFD *m, ubyte control);
 void games_init_15(void *game_state);
 uchar games_handle_15(MFD *m, uiEvent *e);
@@ -180,19 +177,6 @@ uchar games_handle_ttt(MFD *m, uiEvent *e);
 void games_expose_wing(MFD *m, ubyte control);
 void games_init_wing(void *game_state);
 uchar games_handle_wing(MFD *m, uiEvent *e);
-#else
-#define games_expose_15 games_expose_null
-#define games_init_15 games_init_null
-#define games_handle_15 games_handle_null
-
-#define games_expose_ttt games_expose_null
-#define games_init_ttt games_init_null
-#define games_handle_ttt games_handle_null
-
-#define games_expose_wing games_expose_null
-#define games_init_wing games_init_null
-#define games_handle_wing games_handle_null
-#endif
 
 uchar games_handle_pong(MFD *m, uiEvent *e);
 uchar games_handle_road(MFD *m, uiEvent *e);
@@ -280,14 +264,6 @@ void mfd_games_expose(MFD *m, ubyte control) {
         gr_set_font(fon);
 
         cur_mode = GAME_MODE;
-#ifdef PLAYTEST
-        // so, like, this code is totally meaningless.
-        // I'm glad WATCOM bothers to warn about it.
-        // if anyone fixes it, probably should make
-        // cur_mode = GAME_MODE_MENU not 0 (ping)
-        if ((cur_mode < 0) && (cur_mode > NUM_GAMES))
-            cur_mode = 0;
-#endif
         if (COOKIE != GAME_COOK(GAME_MODE)) {
             // hey, our secret storage data became invalid...
             // umm, so, umm, what to do?  Hey, let's just pop
@@ -998,14 +974,6 @@ void games_run_bots(bots_state *bs) {
     if (BOT_TOP + BOT_HEIGHT * (i + 1) > MFD_VIEW_HGT - PONG_BORDER - 2 * PLY_PADDLE_YRAD)
         goto loser;
 
-#ifdef USE_BROKEN_CODE
-    if (bs->hpos < HPOS_HACK) {
-        rev = ((unsigned)(-HPOS - HPOS_HACK)) / BOT_WIDTH;
-        rev = (1 << rev) - 1; // test bottommost bits
-        if (guys & rev)
-            bs->hpos += 2 * (bs->hspd = -bs->hspd);
-    }
-#else
     if (bs->hpos < 0) {
         for (i = 0; i < BOTS_NUM_COLUMNS; ++i)
             if (guys & (1u << i))
@@ -1015,24 +983,8 @@ void games_run_bots(bots_state *bs) {
             ++bs->vpos;
         }
     }
-#endif
 
     if (bs->hspd > 0) {
-#ifdef USE_BROKEN_CODE
-        // position of the rightmost bot is BOTS_NUM_COLUMNS * BOT_WIDTH + hpos,
-        // which scrolls off if > MFD_VIEW_WID
-        rev = (MFD_VIEW_WID - HPOS) / BOT_WIDTH - BOTS_NUM_COLUMNS;
-        // rev is now the number of bots we'd've shifted off the right
-        if (rev > 0) {
-            if (rev > BOTS_NUM_COLUMNS)
-                bs->hpos += 2 * (bs->hspd = -bs->hspd);
-            else {
-                rev = ~((1 << (BOTS_NUM_COLUMNS - rev)) - 1);
-                if (guys & rev)
-                    bs->hpos += 2 * (bs->hspd = -bs->hspd);
-            }
-        }
-#else
         // so loop through and see whether any bots are offscreen
         for (i = BOTS_NUM_COLUMNS - 1; i >= 0; --i)
             if (guys & (1u << i))
@@ -1042,7 +994,6 @@ void games_run_bots(bots_state *bs) {
             bs->hpos += 2 * (bs->hspd = -bs->hspd);
             ++bs->vpos;
         }
-#endif
     }
 
     if (generic_ball_and_paddle(bs)) {
@@ -1093,9 +1044,7 @@ void games_run_bots(bots_state *bs) {
 void games_expose_bots(MFD *m, uchar control) {
     bots_state *bs = (bots_state *)GAME_DATA;
     uiEvent fake_event;
-#ifdef SVGA_SUPPORT
     extern char convert_use_mode;
-#endif
 
     for (; games_time_diff >= PONG_CYCLE; games_time_diff -= PONG_CYCLE) {
         games_run_bots(bs);
@@ -1110,12 +1059,8 @@ void games_expose_bots(MFD *m, uchar control) {
         gr_set_fcolor(WHITE);
         for (uint8_t i = 0; i < BOTS_NUM_COLUMNS; ++i) {
             if (bs->rows[j] & (1u << i)) {
-#ifdef SVGA_SUPPORT
                 draw_res_bm_core(invader[j] + INVADER_TYPES * convert_use_mode, HPOS + BOT_WIDTH * i,
                                  BOT_HEIGHT * j + BOT_TOP - (j == 1), FALSE);
-#else
-                draw_res_bm(invader[j], HPOS + BOT_WIDTH * i, BOT_HEIGHT * j + BOT_TOP - (j == 1));
-#endif
             }
         }
     }
@@ -1300,11 +1245,7 @@ static void make_random_attacker(void) {
 #define SQRD(x) ((x) * (x))
 
 #define BOAT_DEATH_NOISE SFX_SPARKING_CABLE
-#ifdef DEMO
-#define SWIMMER_DEATH_NOISE SFX_SPARKING_CABLE
-#else
 #define SWIMMER_DEATH_NOISE SFX_DEATH_9
-#endif
 
 static void advance_mcom_state(void) {
     uint32_t i, j;
@@ -1643,7 +1584,6 @@ static void games_expose_mcom(MFD *m, ubyte control) {
     mfd_notify_func(MFD_GAMES_FUNC, MFD_INFO_SLOT, FALSE, MFD_ACTIVE, FALSE);
 }
 
-#ifdef LOST_TREASURES_OF_MFD_GAMES
 //----------------------------
 //----------------------------
 // mfd 15-sliding-tile puzzle
@@ -2349,15 +2289,6 @@ wing_star *wing_st = (wing_star *)(hideous_secret_game_storage + HIDEOUS_GAME_ST
 // fix that later.
 enum WingmanMode { WINGMAN_FORMATION, WINGMAN_ATTACK };
 
-#if 0
-
-static int WingmanMode wingman_mode = WINGMAN_FORMATION;
-static int num_wing_objects, wing_frame_count;
-static int wing_game_mode = WING_BRIEFING, wing_level;
-static int wing_message, wing_message_timer;
-
-#else
-
 struct wing_data {
     uchar game_mode;
     uchar wd_wingman_mode;
@@ -2378,12 +2309,6 @@ struct wing_data {
 #define wing_level         (WING_DATA->wd_wing_level)
 #define wing_message       (WING_DATA->wd_wing_message)
 #define wing_message_timer (WING_DATA->wd_wing_message_timer)
-
-#endif
-
-#ifdef PLAYTEST
-static int wing_cheat = 0;
-#endif
 
 enum WingTypes { WING_BLUE_HAIR, WING_SHOT, WING_BOOM, WING_WINGMAN, WING_BADGUY, WING_BADGUY2, WING_BADGUY3 };
 
@@ -3282,15 +3207,6 @@ uchar games_handle_wing(MFD *m, uiEvent *e) {
     else
         y = y + (y > 0 ? -4096 : 4096);
 
-#ifdef PLAYTEST
-    if (wing_cheat && (e->mouse_data.action & MOUSE_RDOWN) && (e->mouse_data.buttons & 3) == 3) {
-        // right click while left button held
-        wing_delete_all_but();
-        wing_level |= 3;
-        return TRUE;
-    }
-#endif
-
     if (e->mouse_data.action & MOUSE_LDOWN) {
         if ((e->mouse_data.buttons & 3) == 3) {
             // both buttons, assume it's an order
@@ -3367,8 +3283,6 @@ void games_expose_wing(MFD *m, ubyte control) {
     // autoreexpose
     mfd_notify_func(MFD_GAMES_FUNC, MFD_INFO_SLOT, FALSE, MFD_ACTIVE, FALSE);
 }
-
-#endif // LOST_TREASURES
 
 /*
 // this is so lovely, it is a test function, joy

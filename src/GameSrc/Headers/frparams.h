@@ -55,14 +55,7 @@ typedef struct {
         uchar nodraw : 1;     /* dont actually render FB */
     } features;
     struct {
-#ifdef C_WERE_SUPER_COOL
-        uchar lighting : 1;   /* any lighting at all? */
-        uchar terrain : 1;    /* terrain light values checked and used? */
-        uchar camera : 1;     /* camera light values used */
-        uchar normal_chk : 1; /* use normal when computing wall lighting */
-#else
         uchar flags; /* 0,0,0,0,any,terr,cam,normal */
-#endif
         int normal_shf;   /* what to shift normal by when adding to dist */
         uchar rad[2];     /* inner, outer lighting radius */
         uchar base[2];    /* inner, outer light values */

@@ -735,7 +735,6 @@ void InitDecXMI(void) {
     int musicrate = 48000;
 
     switch (gShockPrefs.soMidiBackend) {
-#ifdef VITA
     case OPT_SEQ_DOSBox:
     case OPT_SEQ_Nuked:
     {
@@ -744,25 +743,6 @@ void InitDecXMI(void) {
         AdlMidiSetEmulator(musicdev, (gShockPrefs.soMidiBackend == OPT_SEQ_Nuked) ? Music_Opl3Nuked
                                                                                    : Music_Opl3DosBox);
     } break;
-#else
-    case OPT_SEQ_ADLMIDI: // adlmidi
-    {
-        INFO("Creating ADLMIDI device");
-        musicdev = CreateMusicDevice(Music_AdlMidi);
-    } break;
-    case OPT_SEQ_NativeMI: // native midi
-    {
-        INFO("Creating native MIDI device");
-        musicdev = CreateMusicDevice(Music_Native);
-    } break;
-#endif
-#ifdef USE_FLUIDSYNTH
-    case OPT_SEQ_FluidSyn: // fluidsynth
-    {
-        INFO("Creating FluidSynth MIDI device");
-        musicdev = CreateMusicDevice(Music_FluidSynth);
-    } break;
-#endif
     }
 
     // init chosen music device
@@ -808,21 +788,12 @@ void ReloadDecXMI(void) {
             deviceTypeMatch = 0;
             break;
         case Music_AdlMidi:
-#ifdef VITA
             deviceTypeMatch = (AdlMidiGetEmulator(MusicDev) ==
                                ((gShockPrefs.soMidiBackend == OPT_SEQ_Nuked) ? Music_Opl3Nuked : Music_Opl3DosBox));
-#else
-            deviceTypeMatch = (gShockPrefs.soMidiBackend == 0);
-#endif
             break;
         case Music_Native:
             deviceTypeMatch = (gShockPrefs.soMidiBackend == 1);
             break;
-#ifdef USE_FLUIDSYNTH
-        case Music_FluidSynth:
-            deviceTypeMatch = (gShockPrefs.soMidiBackend == 2);
-            break;
-#endif
         }
     }
 

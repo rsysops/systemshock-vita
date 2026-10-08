@@ -75,7 +75,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //#include <map.h>
 
 // #define HASH_OBJECTS
-#define NO_OBJ_REF_STATE_INFO
 
 // enumeration of classes
 // ## INSERT NEW CLASS HERE
@@ -154,11 +153,7 @@ typedef struct {
 #define OBJ_LOC_BIN_Y(oloc)  ((oloc).y >> 8u)
 #define OBJ_LOC_FINE_X(oloc) ((ushort)((oloc).x & 0xFF00u))
 #define OBJ_LOC_FINE_Y(oloc) ((ushort)((oloc).y & 0xFF00u))
-#ifdef SAFE_FIX
-#define OBJ_LOC_VAL_TO_FIX(value) (fix_make((value >> 8), ((value & 0xFF00) << 8)))
-#else
 #define OBJ_LOC_VAL_TO_FIX(value) (((fix)value) << 8)
-#endif
 
 typedef struct {
     char ph;
@@ -180,16 +175,7 @@ typedef struct {
     uchar inst_flags;     //  flags for instance data.  right now 0x01 is used by Mahk's render tricks
 } old_ObjInfo;
 
-#ifdef HASH_OBJECTS
-#define OBJ_HASH_ENTRIES 512
-#define OBJ_HASH_HEAD_ENTRIES 256
-#define OBJ_HASH_HEAD_ENTRIES_START (OBJ_HASH_ENTRIES - OBJ_HASH_HEAD_ENTRIES)
-#define OBJ_HASH_FUNC(bin) \
-    ((((((bin).sq.x) << 2) + ((bin).sq.y)) & (OBJ_HASH_HEAD_ENTRIES - 1)) + OBJ_HASH_HEAD_ENTRIES_START)
-#define ObjRefHead(bin) (objHashTable[ObjGetHashElem((bin), FALSE)].ref) /* don't change this */
-#else
 #define ObjRefHead(bin) (MAP_GET_XY((bin).sq.x, (bin).sq.y))->objRef
-#endif
 
 //                          ////////////////////////////////
 //                          //
@@ -224,22 +210,6 @@ typedef struct {
     do {                                   \
         dstbin = srcbin;                   \
     } while (0)
-
-#ifndef NO_OBJ_REF_STATE_INFO
-#if (SIZEOF_AN_OBJREFSTATEINFO == 4)
-#define ObjRefStateInfoEqual(info1, info2) (*((int *)(&info1)) == *((int *)(&info2)))
-#elif (SIZEOF_AN_OBJREFSTATEINFO == 2)
-#define ObjRefStateInfoEqual(info1, info2) (*((short *)(&info1)) == *((short *)(&info2)))
-#elif (SIZEOF_AN_OBJREFSTATEINFO == 1)
-#define ObjRefStateInfoEqual(info1, info2) (*((char *)(&info1)) == *((char *)(&info2)))
-#else
-#define ObjRefStateInfoEqual(info1, info2) (!memcmp(&(info1), &(info2), sizeof(ObjRefStateInfo)))
-#endif
-#define ObjRefStateInfoCopy(srcinfo, dstinfo) \
-    do {                                      \
-        dstinfo = srcinfo;                    \
-    } while (0)
-#endif
 
 #if (SIZEOF_AN_OBJLOC == 4)
 #define ObjLocEqual(bin1, bin2) (*((int *)(&bin1)) == *((int *)(&bin2)))

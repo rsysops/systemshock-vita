@@ -41,9 +41,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "adlmidi.h"
 #include "Xmi.h"
 
-#ifdef AUDIOLOGS
 #include "audiolog.h"
-#endif
 
 //#include <ail.h>
 
@@ -255,20 +253,6 @@ void mlimbs_do_ai() {
         // }
     }
 }
-
-#ifdef NOT_YET //
-
-void mlimbs_do_credits_ai() {
-    extern uchar mlimbs_semaphore;
-    if (ai_cycle) {
-        ai_cycle = 0;
-        grind_credits_music_ai();
-        mlimbs_preload_requested_timbres();
-        mlimbs_semaphore = FALSE;
-    }
-}
-
-#endif // NOT_YET
 
 errtype mai_attack() {
     if (music_on) {
@@ -513,80 +497,6 @@ errtype load_score_for_location(int x, int y) {
     load_score_guts(sc);
     return (OK);
 }
-
-#ifdef NOT_YET //
-
-// 16384
-// 8192
-//#define SFX_BUFFER_SIZE    8192
-#define MIDI_TYPE 0
-#define DIGI_TYPE 1
-// #define SPCH_TYPE   2    // perhaps someday, for special CD speech and separate SB digital effects, eh?
-#define DEV_TYPES 2
-
-#define DEV_CARD 0
-#define DEV_IRQ 1
-#define DEV_DMA 2
-#define DEV_IO 3
-#define DEV_DRQ 4
-#define DEV_PARMS 5
-
-// doug gets sneaky, film at 11
-#define MIDI_CARD MIDI_TYPE][DEV_CARD
-#define MIDI_IRQ  MIDI_TYPE][DEV_IRQ
-#define MIDI_DMA  MIDI_TYPE][DEV_DMA
-#define MIDI_IO   MIDI_TYPE][DEV_IO
-#define MIDI_DRQ  MIDI_TYPE][DEV_DRQ
-#define DIGI_CARD DIGI_TYPE][DEV_CARD
-#define DIGI_IRQ  DIGI_TYPE][DEV_IRQ
-#define DIGI_DMA  DIGI_TYPE][DEV_DMA
-#define DIGI_IO   DIGI_TYPE][DEV_IO
-#define DIGI_DRQ  DIGI_TYPE][DEV_DRQ
-
-#define SFX_BUFFER_SIZE 8192
-//#define SFX_BUFFER_SIZE 4096
-
-static char *dev_suffix[] = {"card", "irq", "dma", "io", "drq"};
-static char *dev_prefix[] = {"midi_", "digi_"};
-
-short music_get_config(char *pre, char *suf) {
-    int tmp_in, dummy_count = 1;
-    char buf[20];
-    strcpy(buf, pre);
-    strcat(buf, suf);
-    if (!config_get_value(buf, CONFIG_INT_TYPE, &tmp_in, &dummy_count))
-        return -1;
-    else
-        return (short)tmp_in;
-}
-
-audio_card *fill_audio_card(audio_card *cinf, short *dinf) {
-    cinf->type = dinf[DEV_CARD];
-    cinf->dname = NULL;
-    cinf->io = dinf[DEV_IO];
-    cinf->irq = dinf[DEV_IRQ];
-    cinf->dma_8bit = dinf[DEV_DMA];
-    cinf->dma_16bit = -1; // who knows, eh?
-    return cinf;
-}
-
-#ifdef PLAYTEST
-static char def_sound_path[] = "r:\\prj\\cit\\src\\sound";
-#else
-static char def_sound_path[] = "sound";
-#endif
-
-#ifdef SECRET_SUPPORT
-FILE *secret_fp = NULL;
-char secret_dc_buf[10000];
-volatile char secret_update = FALSE;
-void secret_closedown(void) {
-    if (secret_fp != NULL)
-        fclose(secret_fp);
-}
-#endif
-
-#endif // NOT_YET
 
 //----------------------------------------------------------------------
 //  For Mac version, the vast majority of the config mess just goes away.  But we do check for

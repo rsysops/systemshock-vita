@@ -56,9 +56,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "fauxrint.h"
 #include "froslew.h"
-#ifndef __RENDTEST__
 #include "objsim.h"
-#endif
 #include "map.h"
 #include "tilename.h"
 #include "mapflags.h"

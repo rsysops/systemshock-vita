@@ -186,23 +186,6 @@ grs_vertex **g3_bitmap_common(grs_bitmap *bm, g3s_phandle p) {
     long rm2;
     long rm3;
 
-#ifdef stereo_on
-    if (_g3d_stereo & 1) {
-
-        ;
-        edi is point handle pushm edi,
-            esi call g3_bitmap_common_raw set_rt_canv
-
-                popm edi,
-            esi add edi,
-            _g3d_stereo_base call g3_bitmap_common_raw set_lt_canv
-
-                ret
-
-                    g3_bitmap_common_raw:
-    }
-#endif
-
     if ((p->p3_flags & PF_PROJECTED) == 0)
         if (g3_project_point(p) == 0)
             p->codes |= CC_CLIP_OVERFLOW;
