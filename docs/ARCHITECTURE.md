@@ -13,58 +13,77 @@ At runtime the game requires the original System Shock data files (`DATA`/`SOUND
 | `CMakeLists.txt` | Build definition (Vita only) |
 | `build.sh` | Vita build entry point (Docker) |
 | `src/` | All engine and game source (see below) |
-| `vita/` | Vita packaging/build glue: `Dockerfile`, `vita.cmake`, `sce_sys/` (icon/LiveArea assets) |
-| `build/` | Out-of-tree CMake build output (git-ignored) |
+| `vita/` | Vita packaging/build glue: `Dockerfile`, `vita.cmake`, `segment-gap.ld` (linker script), `sce_sys/` (icon/LiveArea assets) |
+| `tests/` | PC harnesses that compile parts of the libraries natively: `fix_div/` (fixed-point division) and `rastq/` (rasterizer queue) |
+| `docs/` | This file, the key mappings, the profiling guide and the performance findings |
+| `build/`, `build-profile/` | Out-of-tree CMake build output of the default and profile builds (git-ignored) |
 
 ## Source tree (`src/`)
 
 ### `src/MacSrc/` — application/platform layer
-Inherited from the original Mac codebase; hosts process entry and OS-facing glue: `Shock.c` (`main()`, SDL/vita2d init), `InitMac.c`, `Prefs.c` (settings/keybinds), `SDLSound.c`, `Modding.c` (fan-mission/mod loading), `Xmi.c`, `ShockBitmap.c`, `MacTune.c`.
+Inherited from the original Mac codebase; hosts process entry and OS-facing glue: `Shock.c` (`main()`, SDL/vita2d init, presentation), `VitaGpu.c` (the GPU renderer, see [Rendering paths](#rendering-paths)), `InitMac.c`, `Prefs.c` (settings/keybinds), `SDLSound.c`, `Modding.c` (fan-mission/mod loading), `Xmi.c`, `ShockBitmap.c`, `MacTune.c`. These files, with `src/MusicSrc/MusicDevice.c`, are compiled straight into the `systemshock` executable.
 
-### `src/GameSrc/` — game logic (~100 files, built as `GAME_LIB`)
+### `src/GameSrc/` — game logic (~120 files, built as `GAME_LIB`)
 Grouped by concern:
 - **Rendering** — the `fr*` frame-renderer family (`frmain.c`, `frcamera.c`, `frobj.c`, `frclip.c`, `frterr.c`, …), plus `render.c`, `rendtool.c`, `gamerend.c`.
 - **AI** — `ai.c`, `newai.c`, `pathfind.c`, `schedule.c`.
 - **Physics/collision** — `physics.c`.
-- **HUD / MFDs** — `hud.c`, `mfd*.c`, `newmfd.c`, `cybermfd.c`, `cardmfd.c`, `gearmfd.c`, `ammomfd.c`.
+- **HUD / MFDs** — `hud.c`, `mfd*.c`, `newmfd.c`, `cybermfd.c`, `cardmfd.c`, `gearmfd.c`, `ammomfd.c`; `hudkeep.c` (keeps pictures of what the HUD redraws identically each frame); `olh.c`, `olhscan.c` (on-screen help).
 - **Player/inventory/combat** — `player.c`, `invent.c`, `combat.c`, `weapons.c`, `damage.c`, `grenades.c`.
 - **World/objects** — `objects.c`, `objsim.c`, `objuse.c`, `objload.c`, `gameobj.c`, `trigger.c`.
 - **Automap / cyberspace** — `amap.c`, `automap.c`, `fullamap.c`, `cyber.c`, `cybrnd.c`.
 - **Game loop / lifecycle** — `mainloop.c`, `gameloop.c`, `gamesys.c`, `gametime.c`, `setup.c`, `cutsloop.c`, `saveload.c`.
+- **Profiling** — `vprof.c`, the on-device profiler of the profile build (see [PROFILING.md](PROFILING.md)).
 
 ### `src/MusicSrc/`
 `MusicDevice.c` — MIDI/music device abstraction.
 
 ### `src/Libraries/` — reusable engine libraries
-Each has its own CMake target, added via `add_subdirectory(src/Libraries/)`:
+Each row with sources is its own CMake target, defined in `src/Libraries/CMakeLists.txt`:
 
 | Library | Purpose |
 |---|---|
 | `2D` | Bitmap/blit primitives |
-| `3D` | 3D math and texture mapping |
-| `GR` | Graphics abstraction |
+| `3D` | 3D math and texture mapping; the rasterizer queue and its worker threads (`rastq.c`, `rastqthr.c`) |
+| `GR` | Graphics abstraction (its sources live in `2D/Source/GR`) |
 | `RES` | Reads the original `.res` game data files (`resacc.c`, `lzw.c`) |
-| `LG` | "Looking Glass" core utilities: memory allocator, logging (`LG/Source/LOG`) |
-| `INPUT` | Input abstraction; `sdl_events.c` is the primary cross-platform input layer |
+| `LG` | "Looking Glass" core utilities: temporary memory (`tmpalloc.c`, `stack.c`), per-thread slots for the rasterizer's workers (`lgslot.c`), logging (vendored, `LG/Source/LOG`) |
+| `INPUT` | Input; `sdl_events.c` turns SDL controller, touch and gyro events into the game's keyboard and mouse events |
 | `UI` | UI widgets |
 | `RND` | Random number generation |
 | `VOX` | Voxel-ish rendering |
-| `FIX` / `FIXPP` | Fixed-point math |
+| `FIX` | Fixed-point math |
+| `FIXPP` | C++ fixed-point class, header only (`fixpp.h`), used by `EDMS` |
 | `EDMS` | Collision detection (C++) |
 | `DSTRUCT` | Data structures |
 | `PALETTE` | Palette handling |
 | `AFILE` | Movie/AFILE playback |
-| `adlmidi` | FM-synth MIDI |
+| `adlmidi` | FM-synth MIDI (vendored libADLMIDI) |
+| `H`, `SND` | Shared headers only, no target |
 
 ## Vita porting layer
 
 There is **no dedicated platform tree**: the Vita code sits directly in the shared files, unconditionally, with no `VITA` switch. The only exception is the handful of files the PC tests in `tests/` also compile (`lgslot.c`, `fix.c`, `mode.c`, `rastq.c`, `rastqthr.c`, `vprof.h`, and the vendored `log.c`): they keep a PC branch, chosen with the compiler's built-in `__vita__`. The main concentrations of Vita code are:
 
-- **`src/MacSrc/Shock.c`** — Vita-specific `main()` prologue (`chdir` into `VITA_PATH`); `InitVita2D()` / `ClearVita2D()`, which create a paletted texture (`SCE_GXM_TEXTURE_FORMAT_P8_ABGR`) via **vita2d** (SceGxm-based) that SDL2's software renderer writes into; controller/gyro init (`OpenController()`, `OpenGyro()`); aspect-ratio letterboxing (`SetRenderRect()`).
-- **`src/GameSrc/gameloop.c`** — Vita heap size override and `sceClibMem*`-based `memcpy`/`memset`/`memmove`/`memcmp` for performance.
+- **`src/MacSrc/Shock.c`** — `main()` prologue (`chdir` into `VITA_PATH`, CPU/GPU clock settings); the heap size (`_newlib_heap_size_user`) and `sceClibMem*`-based `memcpy`/`memset`/`memmove`/`memcmp`; `InitVita2D()` / `ResizeVita2D()`, which create the screen's paletted texture (`SCE_GXM_TEXTURE_FORMAT_P8_ABGR`) and the GPU's canvases through **vita2d** (SceGxm-based); controller/gyro init (`OpenController()`, `OpenGyro()`); aspect-ratio letterboxing (`SetRenderRect()`); presentation (`SDLDraw()`).
+- **`src/MacSrc/VitaGpu.c`** — the GPU renderer: SceGxm draw calls and shaders compiled at start-up.
 - **`src/Libraries/INPUT/Source/sdl_events.c`** — the largest concentration of Vita logic: analog-stick movement/aim, rear/front touchpad-to-mouse emulation, gyro-based look, and a virtual-keyboard text input buffer.
-- Other touched files: `Prefs.c/h`, `ShockBitmap.c`, `wrapper.c`, `fullscrn.c`, `screen.c`, `setup.c`, `gr2ss.c`, `newmfd.c`, `amaploop.c`, `LG/Source/LOG/src/log.c`, `2D/Source/mode.c`.
+- **`src/Libraries/3D/Source/rastqthr.c`**, **`src/Libraries/LG/Source/lgslot.c`** — the rasterizer's worker threads and their per-thread slots, on SceKernel threads and semaphores.
+- **`src/GameSrc/vprof.c`** — the profiler's overlay and log, in the profile build only.
+- **`src/MacSrc/Prefs.c`**, **`src/GameSrc/wrapper.c`** — the Vita settings (gyro, look speeds, cursor, renderer) and their `Vita Options` menu page.
 - **`vita/vita.cmake`** — defines `VITA_APP_NAME` and `VITA_TITLEID` (`SHOK00001`), calls `vita_create_self` / `vita_create_vpk`, and bundles the `vita/sce_sys/` icon and LiveArea assets into the package.
+
+## Rendering paths
+
+`Renderer` in `Vita Options` (`gShockPrefs.renderer`, applied by `VitaApplyRenderer()` in `Prefs.c`) chooses what fills the 3D view's pixels. All three look the same; they differ in who does the work:
+
+| Setting | What happens |
+|---|---|
+| `1 core` | The original software renderer: each finished 2D polygon goes straight to the pixel-filling mappers of the `2D` library. |
+| `3 cores` | The 3D pass records those calls in the rasterizer queue (`3D/Source/rastq.c`) instead of drawing, and the queue replays them in the same order on three threads, each filling a band of rows. |
+| `GPU` (default) | The queue hands its list to `VitaGpu.c`, which draws flat polygons, texture maps and shaded polygons into a canvas of its own; the CPU still draws what the GPU does not take. |
+
+The GPU's shaders are compiled when the game starts, which needs `ur0:data/libshacccg.suprx`; without it the setting is not offered and the game stays on the CPU. The design and measurements are in [PERFORMANCE-CPU.md](PERFORMANCE-CPU.md) ("Multicore rasterizer") and [PERFORMANCE-GPU.md](PERFORMANCE-GPU.md).
 
 ## Build system
 
@@ -84,4 +103,6 @@ It then adds `src/Libraries/`, defines the `MAC_SRC`/`GAME_SRC` file lists, and 
 1. **Entry** — `main()` in `src/MacSrc/Shock.c` runs the Vita-specific prologue (`chdir`), then initializes SDL and vita2d (`InitSDL()` → `InitVita2D()`).
 2. **Main loop dispatch** — control passes to `mainloop()` in `src/GameSrc/mainloop.c`, which selects the active loop via the `citadel_loops[]` function-pointer table (game / setup / cutscene / automap modes).
 3. **Per-frame update** — the active mode's function (e.g. `game_loop()` in `gameloop.c`) advances game time, runs AI (`ai_run`) and game systems (`gamesys_run`), updates animations, then calls into rendering (`render_run`) when `localChanges` is set.
-4. **Presentation** — rendering writes into an SDL software surface, which on Vita is blitted into the vita2d paletted texture (`palettedTexturePointer`) and presented to the screen through vita2d/SceGxm.
+4. **Presentation** — everything the game draws in software (HUD, panels, menus, and the 3D view on the CPU renderers) lands in an 8-bit screen buffer. `SDLDraw()` in `Shock.c` copies it into the screen's paletted vita2d texture (`palettedTexturePointer`) and draws that, scaled, through vita2d/SceGxm. A 3D view the GPU drew is shown straight from its canvas instead, without a copy: alone if it fills the screen, or over the screen buffer's picture if it is the paneled view's window.
+
+See also [KEYMAPS.md](KEYMAPS.md) for the controls and [PROFILING.md](PROFILING.md) for measuring the game on the console.

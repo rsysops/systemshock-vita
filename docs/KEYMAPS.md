@@ -36,7 +36,8 @@ event, shown in the last column.
 | Aiming (on by default) | Gyro | Not available from the keyboard (needs a host controller with motion sensors) | Mouse-look delta |
 
 Gyro aiming, analog/gyro look speed and the cursor in menus can be changed from
-the **Vita Options** entry in the game menu.
+the **Vita Options** entry in the game menu. The same page holds the
+**Renderer** setting (see [ARCHITECTURE.md](ARCHITECTURE.md#rendering-paths)).
 
 Tuning values, all in `sdl_events.c`:
 
@@ -56,9 +57,10 @@ These Vita3K bindings exist but do nothing in this port:
 
 ## Actions not reachable with the Vita controls
 
-The Vita input code only ever emits plain keys — never Shift, Ctrl or Alt —
-and only these: `w` `W` `s` `a` `d` `Space` `t` `g` `b` `Tab` `Esc` `o` `u`
-`f` `q` `e`, plus LMB, RMB, Shift+LMB and mouse motion. Any game action bound
+During gameplay the Vita input code only emits plain keys — never Shift, Ctrl
+or Alt — and only these: `w` `W` `s` `a` `d` `Space` `t` `g` `b` `Tab` `Esc`
+`o` `u` `f` `q` `e`, plus LMB, RMB, Shift+LMB and mouse motion. (In menus the
+same buttons send navigation keys instead: see [Menus](#menus).) Any game action bound
 to another key or to a modifier combination therefore has no button. This
 applies to Vita3K too, since keyboard presses there become Vita buttons.
 
