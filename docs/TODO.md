@@ -1,19 +1,25 @@
-* Improve performance (GPU)
-* Audio log are slow to load
-* Modifications?
-* Support for System Shock Enhanced?
-* Explain the changes from the parent project + screenshots in README
-* Quick save?
-* Delete MIDI player and switch to DosBox only?
-* Native resolution for the movies?
-* FPS lock 30?
-* Move the rendering to the GPU? Subtitles are rendered separately or not? => resync them
-* Game crash on button / hack
-* Add a message alert if the resource are absent
-* Add a message for shader compilation
-* Cyberspace GPU rendered?
+Controls:
 * Cyberspace controls are bad? Could add rear touchscreen controls as option?
-* Stutters: a sound effect is decoded on the main thread the first time it plays (~0.2 s freeze). Decode in the background or at level load? See PERFORMANCE-GPU.md, step G7
-* Classic vs Enhanced vs Port
-* On help HUD is disable automatically
+
+Documentation:
+* Explain the changes from the parent project + screenshots in README
+
+Features:
 * FOV
+* Modifications?
+* Quick save?
+
+Fixes:
+* Game crash on button / hack
+
+Performance:
+* Audio log are slow to load / lag spike stutter when a new audio is loaded for the first time
+* FPS lock 30?
+* Improve performance (GPU)
+
+User interface:
+* Add a message alert if the resource are absent
+* Delete CPU render option (GPU if possible, CPU multithread if not)
+* Delete MIDI player and switch to DosBox only
+* Native resolution for the movies?
+* On help HUD is disable automatically
