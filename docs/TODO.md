@@ -1,5 +1,6 @@
 Controls:
 * Cyberspace controls are bad? Could add rear touchscreen controls as option?
+* Pass on the prefs.txt (all options)
 
 Documentation:
 * Explain the changes from the parent project + screenshots in README
@@ -14,12 +15,13 @@ Fixes:
 
 Performance:
 * Audio log are slow to load / lag spike stutter when a new audio is loaded for the first time
-* FPS lock 30?
+* FPS lock 30 option
 * Improve performance (GPU)
+* Remove gpu.txt when no error
+* System Shock Enhanced shadow render
 
 User interface:
 * Add a message alert if the resource are absent
-* Delete CPU render option (GPU if possible, CPU multithread if not)
 * Delete MIDI player and switch to DosBox only
 * Native resolution for the movies?
 * On help HUD is disable automatically

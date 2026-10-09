@@ -30,7 +30,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //--------------------
 #include "Shock.h"
 #include "Prefs.h"
-#include "rastq.h"
 
 #include "popups.h"
 #include "olhext.h"
@@ -88,8 +87,6 @@ static const char *VITA_GYRO = "vita-gyro";
 static const char *VITA_GYRO_SPEED = "vita-gyro-speed";
 static const char *VITA_CONTROLLER_SPEED = "vita-controller-speed";
 static const char *VITA_CURSOR = "vita-cursor";
-static const char *VITA_MULTICORE = "vita-multicore"; // before there was a choice of three
-static const char *VITA_RENDERER = "vita-renderer";
 
 static void SetShockGlobals(void);
 
@@ -120,7 +117,6 @@ void SetDefaultPrefs(void) {
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;
     gShockPrefs.showCursor = false;
-    gShockPrefs.renderer = VITA_RENDERER_GPU;
     gShockPrefs.doResolution = 0; // High-res.
     gShockPrefs.doDetail = 3;     // Max detail.
     gShockPrefs.goOnScreenHelp = true;
@@ -250,14 +246,6 @@ int16_t LoadPrefs(void) {
                 gShockPrefs.controllerAimingSpeed = cas;
         } else if (strcasecmp(key, VITA_CURSOR) == 0) {
             gShockPrefs.showCursor = is_true(value);
-        } else if (strcasecmp(key, VITA_MULTICORE) == 0) {
-            // an older file: "off" was the choice of one core
-            if (!is_true(value))
-                gShockPrefs.renderer = VITA_RENDERER_1_CORE;
-        } else if (strcasecmp(key, VITA_RENDERER) == 0) {
-            int renderer = atoi(value);
-            if (renderer >= 0 && renderer < VITA_RENDERERS)
-                gShockPrefs.renderer = (unsigned char)renderer;
         }
     }
 
@@ -297,7 +285,6 @@ int16_t SavePrefs(void) {
     fprintf(f, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
     fprintf(f, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
-    fprintf(f, "%s = %d\n", VITA_RENDERER, gShockPrefs.renderer);
     fclose(f);
     return 0;
 }
@@ -319,16 +306,6 @@ static void SetShockGlobals(void) {
     DoubleSize = (gShockPrefs.doResolution == 1); // Set this True for low-res.
     SkipLines = gShockPrefs.doUseQD;
     _fr_global_detail = gShockPrefs.doDetail;
-    VitaApplyRenderer();
-}
-
-void VitaApplyRenderer(void) {
-    int recorded = gShockPrefs.renderer != VITA_RENDERER_1_CORE;
-
-    rastq_set_mode(recorded ? RASTQ_TRUST_STABLE : RASTQ_OFF);
-    rastq_set_threads(recorded ? RASTQ_THREADS : 1);
-    rastq_set_min_rows(RASTQ_SMALL_VIEW_ROWS);
-    rastq_use_gpu(gShockPrefs.renderer == VITA_RENDERER_GPU);
 }
 
 //************************************************************************************

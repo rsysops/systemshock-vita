@@ -40,6 +40,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "gr2ss.h"
 #include "hkeyfunc.h"
 #include "mainloop.h"
+#include "rastq.h"
 #include "setup.h"
 #include "shockolate_version.h"
 #include "status.h"
@@ -232,6 +233,14 @@ int main(int argc, char **argv) {
 
     SetDefaultPrefs();
     LoadPrefs();
+
+    // The 3D view is recorded and drawn by the GPU or, where it can't be used,
+    // on three cores (see docs/ARCHITECTURE.md, "Rendering paths")
+
+    rastq_set_mode(RASTQ_TRUST_STABLE);
+    rastq_set_threads(RASTQ_THREADS);
+    rastq_set_min_rows(RASTQ_SMALL_VIEW_ROWS);
+    rastq_use_gpu(1);
 
     // see Prefs.c
     CreateDefaultKeybindsFile(); // only if it doesn't already exist

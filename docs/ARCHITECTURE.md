@@ -70,20 +70,22 @@ There is **no dedicated platform tree**: the Vita code sits directly in the shar
 - **`src/Libraries/INPUT/Source/sdl_events.c`** — the largest concentration of Vita logic: analog-stick movement/aim, rear/front touchpad-to-mouse emulation, gyro-based look, and a virtual-keyboard text input buffer.
 - **`src/Libraries/3D/Source/rastqthr.c`**, **`src/Libraries/LG/Source/lgslot.c`** — the rasterizer's worker threads and their per-thread slots, on SceKernel threads and semaphores.
 - **`src/GameSrc/vprof.c`** — the profiler's overlay and log, in the profile build only.
-- **`src/MacSrc/Prefs.c`**, **`src/GameSrc/wrapper.c`** — the Vita settings (gyro, look speeds, cursor, renderer) and their `Vita Options` menu page.
+- **`src/MacSrc/Prefs.c`**, **`src/GameSrc/wrapper.c`** — the Vita settings (gyro, look speeds, cursor) and their `Vita Options` menu page.
 - **`vita/vita.cmake`** — defines `VITA_APP_NAME` and `VITA_TITLEID` (`SHOK00001`), calls `vita_create_self` / `vita_create_vpk`, and bundles the `vita/sce_sys/` icon and LiveArea assets into the package.
 
 ## Rendering paths
 
-`Renderer` in `Vita Options` (`gShockPrefs.renderer`, applied by `VitaApplyRenderer()` in `Prefs.c`) chooses what fills the 3D view's pixels. All three look the same; they differ in who does the work:
+Three paths can fill the 3D view's pixels. All three look the same; they differ in who does the work:
 
-| Setting | What happens |
+| Path | What happens |
 |---|---|
-| `1 core` | The original software renderer: each finished 2D polygon goes straight to the pixel-filling mappers of the `2D` library. |
-| `3 cores` | The 3D pass records those calls in the rasterizer queue (`3D/Source/rastq.c`) instead of drawing, and the queue replays them in the same order on three threads, each filling a band of rows. |
-| `GPU` (default) | The queue hands its list to `VitaGpu.c`, which draws flat polygons, texture maps and shaded polygons into a canvas of its own; the CPU still draws what the GPU does not take. |
+| GPU | The 3D pass records its calls in the rasterizer queue (`3D/Source/rastq.c`) instead of drawing, and the queue hands its list to `VitaGpu.c`, which draws flat polygons, texture maps and shaded polygons into a canvas of its own; the CPU still draws what the GPU does not take. |
+| Three cores | The queue replays the recorded calls in the same order on three threads, each filling a band of rows. |
+| One core | The original software renderer: each finished 2D polygon goes straight to the pixel-filling mappers of the `2D` library. |
 
-The GPU's shaders are compiled when the game starts, which needs `ur0:data/libshacccg.suprx`; without it the setting is not offered and the game stays on the CPU. The design and measurements are in [PERFORMANCE-CPU.md](PERFORMANCE-CPU.md) ("Multicore rasterizer") and [PERFORMANCE-GPU.md](PERFORMANCE-GPU.md).
+The game uses the GPU, and three cores for the views the GPU isn't given or when it can't be used; there is no setting. `main()` in `Shock.c` sets the queue up that way once, at start-up. The one-core path is what the queue's tests (`tests/rastq`) compare the others against.
+
+The GPU's shaders are compiled when the game starts, which needs `ur0:data/libshacccg.suprx`; without it the game says so in a message box and stays on the CPU. The design and measurements are in [PERFORMANCE-CPU.md](PERFORMANCE-CPU.md) ("Multicore rasterizer") and [PERFORMANCE-GPU.md](PERFORMANCE-GPU.md).
 
 ## Build system
 

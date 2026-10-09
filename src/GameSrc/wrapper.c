@@ -57,7 +57,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "olhext.h"
 #include "Xmi.h"
 #include "Prefs.h"
-#include "VitaGpu.h"
 
 
 
@@ -381,10 +380,6 @@ static struct {
     {REF_STR_VitaRes4, {"640 x 480", "640 x 480", "640 x 480"}},
     {REF_STR_VitaRes5, {"960 x 544", "960 x 544", "960 x 544"}},
     {REF_STR_Cursor, {"Cursor", "Curseur", "Mauszeiger"}},
-    {REF_STR_VitaRenderer, {"Renderer", "Rendu", "Renderer"}},
-    {REF_STR_VitaRenderer1Core, {"1 core", "1 coeur", "1 Kern"}},
-    {REF_STR_VitaRenderer3Cores, {"3 cores", "3 coeurs", "3 Kerne"}},
-    {REF_STR_VitaRendererGpu, {"GPU", "GPU", "GPU"}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 
@@ -2225,11 +2220,6 @@ static void cursor_dealfunc(uchar unused) {
     (void)unused;
 }
 
-static void vita_renderer_dealfunc(uchar unused) {
-    VitaApplyRenderer();
-    (void)unused;
-}
-
 void vita_input_init(uchar butid) {
     LGRect r;
     char *keys;
@@ -2265,14 +2255,6 @@ void vita_input_init(uchar butid) {
     standard_button_rect(&r, i);
     multi_init(i, keys[1], REF_STR_Cursor, REF_STR_GyroOff, ID_NULL,
                 sizeof(gShockPrefs.showCursor), &gShockPrefs.showCursor, 2, cursor_dealfunc, &r);
-    i++;
-
-    // What draws the 3D view. The GPU is on offer when its shaders could be
-    // compiled (see VitaGpu.h).
-    standard_button_rect(&r, i);
-    multi_init(i, keys[2], REF_STR_VitaRenderer, REF_STR_VitaRenderer1Core, ID_NULL,
-                sizeof(gShockPrefs.renderer), &gShockPrefs.renderer,
-                vgpu_available() ? VITA_RENDERERS : VITA_RENDERERS - 1, vita_renderer_dealfunc, &r);
     i++;
 
     standard_button_rect(&r, 5);

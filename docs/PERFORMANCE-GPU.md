@@ -41,7 +41,8 @@ is an estimate; nothing here is measured yet.
   end; dropped at step G6.) Without the module the game runs on its CPU
   renderers.
 - **The GPU renderer is the default** (step G6), with "3 cores" and
-  "1 core" selectable in Vita Options.
+  "1 core" selectable in Vita Options. (The setting has been removed
+  since: the game uses the GPU, or three cores when it can't.)
 
 ## The approach
 
@@ -1011,6 +1012,11 @@ and not a variant of the profile build:
 In every Vita build from here on.
 
 ### The Renderer setting
+
+(Removed since: with nothing to gain from the slower choices, the game now
+always does what "GPU" did, three cores included when the GPU can't be
+used. `main()` in `src/MacSrc/Shock.c` sets the queue up. What follows is
+the setting as it was.)
 
 Vita Options' "Multicore" button is now "Renderer", with three choices
 (`gShockPrefs.renderer`, `vita-renderer` in the prefs file; an older
