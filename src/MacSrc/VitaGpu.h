@@ -25,6 +25,9 @@ int vgpu_available(void);
 // Whether it also draws what is shaded between colours, which cyberspace is
 // made of. Without that a cyberspace view is better left to the CPU.
 int vgpu_shades(void);
+// Whether the set-up stopped at the shader compiler: libshacccg.suprx isn't
+// in ur0:data/, or wouldn't load.
+int vgpu_compiler_missing(void);
 
 // One line on how the set-up and the start-up checks went, for the profiler.
 const char *vgpu_report(void);

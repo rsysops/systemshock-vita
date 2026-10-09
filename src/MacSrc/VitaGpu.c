@@ -132,6 +132,7 @@ static int scene_texture_count;
 vgpu_counters_t vgpu_counters;
 
 static int ready;
+static int no_compiler; // the shader compiler module didn't load
 static int begin_errors_logged, refusals_logged;
 static char report[640] = "gpu: not initialized";
 
@@ -1198,6 +1199,7 @@ void vgpu_init(void) {
     shark_install_log_cb(shark_log);
     err = shark_init(SHACCCG_PATH);
     if (err < 0) {
+        no_compiler = 1;
         gpu_log("no shader compiler: 0x%08x (is %s there?)", (unsigned)err, SHACCCG_PATH);
         snprintf(report, sizeof(report), "gpu: no shader compiler (0x%08x)", (unsigned)err);
         return;
@@ -1279,4 +1281,6 @@ const char *vgpu_report(void) { return report; }
 int vgpu_available(void) { return ready && textured; }
 
 int vgpu_shades(void) { return vgpu_available() && shades; }
+
+int vgpu_compiler_missing(void) { return no_compiler; }
 

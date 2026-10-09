@@ -47,6 +47,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "vprof.h"
 
 #include <psp2/kernel/clib.h>
+#include <psp2/message_dialog.h>
 #include <psp2/power.h>
 #include <vita2d.h>
 #include "VitaGpu.h"
@@ -172,6 +173,32 @@ void SetRenderRect(int width, int height)
     }
 }
 
+// Shows the system's message box over the screen as it is, and waits for the
+// player to close it.
+static void VitaAlert(const char *text)
+{
+    SceMsgDialogUserMessageParam message;
+    SceMsgDialogParam param;
+
+    memset(&message, 0, sizeof(message));
+    message.buttonType = SCE_MSG_DIALOG_BUTTON_TYPE_OK;
+    message.msg = (const SceChar8 *)text;
+
+    sceMsgDialogParamInit(&param);
+    param.mode = SCE_MSG_DIALOG_MODE_USER_MSG;
+    param.userMsgParam = &message;
+
+    if (sceMsgDialogInit(&param) < 0)
+        return;
+    while (sceMsgDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_RUNNING)
+        SDLDraw();
+    sceMsgDialogTerm();
+
+    // the press or the tap that closed the box isn't for the game
+    SDL_PumpEvents();
+    SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+}
+
 //------------------------------------------------------------------------------------
 //		Main function.
 //------------------------------------------------------------------------------------
@@ -229,6 +256,12 @@ int main(int argc, char **argv) {
 
     load_da_palette();
     gr_clear(0xFF);
+
+    // Without the shader compiler there is no GPU renderer: say so
+
+    if (vgpu_compiler_missing())
+        VitaAlert("libshacccg.suprx is not installed in ur0:data/.\n\n"
+                  "Without it the game cannot use the GPU and will run poorly.");
 
     // Draw the splash screen
 

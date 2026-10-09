@@ -6,7 +6,7 @@ Data files from System Shock are required. This port was only tested with `Syste
 
 To install the data files, you'll have to create the `ux0:data/systemshock/res/` folder on your PS Vita and copy `DATA` and `SOUND` folders from the installed System Shock folder there.
 
-The GPU renderer, which is the default, needs the shader compiler module `libshacccg.suprx` in `ur0:data/` (the same file many Vita ports ask for). Without it the game runs on its CPU renderers.
+The GPU renderer, which is the default, needs the shader compiler module `libshacccg.suprx` in `ur0:data/` (the same file many Vita ports ask for). Without it the game runs on its CPU renderers, which are slower, and says so in a message when it starts.
 
 ## Building
 
