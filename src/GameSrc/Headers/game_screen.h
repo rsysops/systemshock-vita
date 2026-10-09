@@ -64,7 +64,6 @@ void screen_exit(void);
 errtype screen_draw(void);
 
 // Stop doing graphics things
-errtype screen_shutdown(void);
 
 // Handle keyboard input anywhere on the main screen
 uchar main_kb_callback(uiEvent *h, LGRegion *r, intptr_t udata);
@@ -73,10 +72,8 @@ uchar main_kb_callback(uiEvent *h, LGRegion *r, intptr_t udata);
 void generic_reg_init(uchar create_reg, LGRegion *reg, LGRect *rct, uiSlab *slb, uiHandlerProc key_h, uiHandlerProc maus_h);
 
 // Globals
-extern uchar *default_font_buf;
 extern LGRegion *root_region, *mainview_region, *inventory_region_game, *status_region;
 extern LGRegion *pagebutton_region_game;
 extern LGCursor globcursor, wait_cursor, fire_cursor;
-extern frc *normal_game_fr_context;
 
 #endif // __GAMESCREEN_H

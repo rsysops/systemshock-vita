@@ -47,7 +47,6 @@ int gri_lit_floor_umap_loop(grs_tmap_loop_info *tli) {
     int in_band = gr_row_in_band(tli, tli->y);
 
     if (in_band) {
-#if InvDiv
         inv = fix_div(fix_make(1, 0), tli->w);
         u = fix_mul_asm_safe(tli->left.u, inv);
         du = fix_mul_asm_safe(tli->right.u, inv) - u;
@@ -55,14 +54,6 @@ int gri_lit_floor_umap_loop(grs_tmap_loop_info *tli) {
         dv = fix_mul_asm_safe(tli->right.v, inv) - v;
         i = fix_mul_asm_safe(tli->left.i, inv);
         di = fix_mul_asm_safe(tli->right.i, inv) - i;
-#else
-        u = fix_div(tli->left.u, tli->w);
-        du = fix_div(tli->right.u, tli->w) - u;
-        v = fix_div(tli->left.v, tli->w);
-        dv = fix_div(tli->right.v, tli->w) - v;
-        i = fix_div(tli->left.i, tli->w);
-        di = fix_div(tli->right.i, tli->w) - i;
-#endif
     }
 
     ulong t_mask = tli->mask;
@@ -76,17 +67,11 @@ int gri_lit_floor_umap_loop(grs_tmap_loop_info *tli) {
         if (dx > 0 && in_band)
         {
 
-#if InvDiv
             inv = fix_div(fix_make(1, 0) << 8, dx);
             di = fix_mul_asm_safe_light(di, inv);
             inv >>= 8;
             du = fix_mul_asm_safe(du, inv);
             dv = fix_mul_asm_safe(dv, inv);
-#else
-            du = fix_div(du, dx);
-            dv = fix_div(dv, dx);
-            di = fix_div(di, dx);
-#endif
 
             fix d = fix_ceil(tli->left.x) - tli->left.x;
             u += fix_mul(du, d);
@@ -159,7 +144,6 @@ int gri_lit_floor_umap_loop(grs_tmap_loop_info *tli) {
 
         in_band = gr_row_in_band(tli, tli->y);
         if (in_band) {
-#if InvDiv
             inv = fix_div(fix_make(1, 0), tli->w);
             u = fix_mul_asm_safe(tli->left.u, inv);
             du = fix_mul_asm_safe(tli->right.u, inv) - u;
@@ -167,14 +151,6 @@ int gri_lit_floor_umap_loop(grs_tmap_loop_info *tli) {
             dv = fix_mul_asm_safe(tli->right.v, inv) - v;
             i = fix_mul_asm_safe(tli->left.i, inv);
             di = fix_mul_asm_safe(tli->right.i, inv) - i;
-#else
-            u = fix_div(tli->left.u, tli->w);
-            du = fix_div(tli->right.u, tli->w) - u;
-            v = fix_div(tli->left.v, tli->w);
-            dv = fix_div(tli->right.v, tli->w) - v;
-            i = fix_div(tli->left.i, tli->w);
-            di = fix_div(tli->right.i, tli->w) - i;
-#endif
         }
 
     } while (--(tli->n) > 0);

@@ -4,11 +4,6 @@ project(shockolate VERSION 0.7.8)
 
 include(FeatureSummary)
 
-#set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS OFF)
-#set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB32_PATHS ON)
-set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB32_PATHS OFF)
-set_property(GLOBAL PROPERTY FIND_LIBRARY_USE_LIB64_PATHS ON)
-
 # Required for stdbool.h
 set(CMAKE_C_STANDARD 99)
 # For nullptr in C++
@@ -18,104 +13,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g ")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -D__STDC_LIMIT_MACROS")
 
-option(ENABLE_EXAMPLES "Enable example applications" OFF)
-add_feature_info(ENABLE_EXAMPLES ENABLE_EXAMPLES "Enable example application (can be broken!)")
-option(ENABLE_DEBUG_BLIT "Enable debugging blitter" OFF)
-add_feature_info(ENABLE_DEBUG_BLIT ENABLE_DEBUG_BLIT "Enable debugging blitter")
-option(ENABLE_OPENGL "Enable OpenGL support" ON)
-add_feature_info(ENABLE_OPENGL ENABLE_OPENGL "Enable OpenGL support")
-option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log (VITA only)" OFF)
+option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log" OFF)
 add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
-
-set(ENABLE_SDL2 "BUNDLED" CACHE STRING "Enable SDL2 (ON/BUNDLED, default BUNDLED)")
-set_property(CACHE ENABLE_SDL2 PROPERTY STRINGS "ON" "BUNDLED")
-add_feature_info(ENABLE_SDL2 ENABLE_SOUND "Enable SDL2 support")
-
-set(ENABLE_SOUND "BUNDLED" CACHE STRING "Enable sound support (requires SDL2_mixer) (ON/BUNDLED/OFF, default BUNDLED)")
-set_property(CACHE ENABLE_SOUND PROPERTY STRINGS "ON" "BUNDLED" "OFF")
-add_feature_info(ENABLE_SOUND ENABLE_SOUND "Enable sound support (requires SDL2_mixer)")
-
-set(ENABLE_FLUIDSYNTH "BUNDLED" CACHE STRING "Enable FluidSynth MIDI support (ON/BUNDLED/OFF, default BUNDLED)")
-set_property(CACHE ENABLE_FLUIDSYNTH PROPERTY STRINGS "ON" "BUNDLED" "OFF")
-add_feature_info(ENABLE_FLUIDSYNTH ENABLE_FLUIDSYNTH "Enable FluidSynth MIDI support")
-
-# HAAAAX!!
-add_definitions(-DSVGA_SUPPORT)
-
-if(ENABLE_DEBUG_BLIT)
-	add_definitions(-DDEBUGGING_BLIT)
-endif()
 
 add_compile_options(-fsigned-char -fno-strict-aliasing)
 
-# Find OpenGL
-if(ENABLE_OPENGL)
-	find_package(OpenGL REQUIRED)
-	add_definitions(-DUSE_OPENGL)
-	if(WIN32)
-		list(APPEND OPENGL_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/build_ext/built_glew/include)
-		list(APPEND OPENGL_LIBRARIES ${CMAKE_SOURCE_DIR}/build_ext/built_glew/lib/libglew32.dll.a winmm)
-	endif(WIN32)
-endif(ENABLE_OPENGL)
-
-if(ENABLE_SDL2 MATCHES "ON")
-	find_package(SDL2 REQUIRED)
-	if(SDL2_FOUND)
-		message(STATUS "SDL2 found: ${SDL2_INCLUDE_DIRS} ${SDL2_LIBRARIES}")
-	endif(SDL2_FOUND)
-endif(ENABLE_SDL2 MATCHES "ON")
-if(ENABLE_SDL2 MATCHES "BUNDLED")
-	set(SDL2_DIR ${CMAKE_SOURCE_DIR}/build_ext/built_sdl)
-	find_library(SDL2_LIBRARY SDL2 PATHS ${SDL2_DIR}/lib NO_DEFAULT_PATH)
-	find_library(SDL2MAIN_LIBRARY SDL2main PATHS ${SDL2_DIR}/lib NO_DEFAULT_PATH)
-	set(SDL2_INCLUDE_DIRS ${SDL2_DIR}/include/SDL2)
-	set(SDL2_LIBRARIES "${SDL2MAIN_LIBRARY};${SDL2_LIBRARY}")
-endif(ENABLE_SDL2 MATCHES "BUNDLED")
-
-if(ENABLE_SOUND MATCHES "ON")
-	# FIXME applies only for *nix systems
-	find_package(PkgConfig)
-	pkg_check_modules(SDL2_MIXER REQUIRED SDL2_mixer>=2.0.4)
-	add_definitions(-DUSE_SDL_MIXER=1)
-endif(ENABLE_SOUND MATCHES "ON")
-if(ENABLE_SOUND MATCHES "BUNDLED")
-	set(SDL2_MIXER_DIR ${CMAKE_SOURCE_DIR}/build_ext/built_sdl_mixer)
-	set(SDL2_MIXER_INCLUDE_DIRS ${SDL2_MIXER_DIR}/include/SDL2)
-	find_library(SDL2_MIXER_LIBRARY SDL2_mixer PATHS ${SDL2_MIXER_DIR}/lib)
-	set(SDL2_MIXER_LIBRARIES ${SDL2_MIXER_LIBRARY})
-	add_definitions(-DUSE_SDL_MIXER=1)
-endif(ENABLE_SOUND MATCHES "BUNDLED")
-
-if(ENABLE_FLUIDSYNTH MATCHES "ON")
-	find_package(PkgConfig)
-	pkg_check_modules(FLUIDSYNTH REQUIRED fluidsynth)
-	add_definitions("-DUSE_FLUIDSYNTH=1")
-endif(ENABLE_FLUIDSYNTH MATCHES "ON")
-if(ENABLE_FLUIDSYNTH MATCHES "BUNDLED")
-        find_library(FLUIDSYNTH_LIBRARY fluidsynth PATHS ${CMAKE_SOURCE_DIR}/build_ext/fluidsynth-lite/src)
-	set(FLUIDSYNTH_INCLUDE_DIRS ${CMAKE_SOURCE_DIR}/build_ext/fluidsynth-lite/include)
-	set(FLUIDSYNTH_LIBRARIES ${FLUIDSYNTH_LIBRARY})
-	add_definitions("-DUSE_FLUIDSYNTH=1")
-endif(ENABLE_FLUIDSYNTH MATCHES "BUNDLED")
+find_package(SDL2 REQUIRED)
+find_library(SDL2_MIXER_LIBRARY SDL2_mixer)
 
 include_directories(
 	${SDL2_INCLUDE_DIRS}
-	${SDL2_MIXER_INCLUDE_DIRS}
-	${FLUIDSYNTH_INCLUDE_DIRS}
-	${OPENGL_INCLUDE_DIRS}
 )
-
-if(NOT WIN32)
-  # Find ALSA for Linux native MIDI
-  # NOTE: this seems to require having 64-bit dev pacakges installed when building
-  #  on 64-bit OS, even when building a 32-bit binary
-  find_package(ALSA)
-  if(ALSA_FOUND)
-      message(STATUS "ALSA found")
-      include_directories(${ALSA_INCLUDE_DIRS})
-      add_definitions(-DUSE_ALSA=1)
-  endif(ALSA_FOUND)
-endif(NOT WIN32)
 
 # Generate version based on project version
 set(PROJECT_REVERSION_STRING "")
@@ -137,29 +45,23 @@ message(STATUS "Version is ${PROJECT_VERSION}${PROJECT_REVERSION_STRING}")
 configure_file("${CMAKE_SOURCE_DIR}/src/GameSrc/Headers/shockolate_version.h.in"
 	"${CMAKE_BINARY_DIR}/src/GameSrc/Headers/shockolate_version.h" )
 
-if(VITA)
-	add_definitions(-DVITA)
-	add_definitions(-DVITA2D)
-	# Keep the music mix the Vita port has always had: both OPL3 emulators
-	# play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE-CPU.md).
-	add_definitions(-DOPL3_HALF_SQUARE_WAVES)
-	include_directories(src/vita)
-	set(stratagus_SRCS ${stratagus_SRCS} ${vita_SRCS})
-	set(VITA_FLAGS "-Ofast -mcpu=cortex-a9 -mfpu=neon -fgraphite-identity -floop-nest-optimize -fno-lto")
-	set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${VITA_FLAGS}")
-	set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${VITA_FLAGS}")
-	set(VITA_LIBS "-lSDL2 -lvita2d -pthread -ljpeg -lpng -lwebp -lz -lvorbisfile -lvorbis -logg -lmikmod -lmodplug -lxmp-lite -lopusfile -lopus -lScePower_stub -lSceAudio_stub -lSceCtrl_stub -lSceHid_stub \
-	-lSceTouch_stub -lSceDisplay_stub -lSceGxm_stub -lSceAppMgr_stub -lSceSysmodule_stub -lSceCommonDialog_stub -lFLAC -lmpg123 -lSceMotion_stub -lSceAppUtil_stub -lSceShaccCgExt -ltaihen_stub \
-	-fno-builtin-memcpy -fno-builtin-memset -fno-builtin-memmove -fno-builtin-memcmp")
-	if(ENABLE_VITA_PROFILE)
-		add_definitions(-DVITA_PROFILE)
-		set(VITA_LIBS "${VITA_LIBS} -lScePgf_stub")
-	endif()
-	SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
-	# room after the code segment for what vita-elf-create adds there
-	set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-T,${CMAKE_SOURCE_DIR}/vita/segment-gap.ld")
-	include("${CMAKE_SOURCE_DIR}/vita/vita.cmake")
+# Keep the music mix the Vita port has always had: both OPL3 emulators
+# play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE-CPU.md).
+add_definitions(-DOPL3_HALF_SQUARE_WAVES)
+set(VITA_FLAGS "-Ofast -mcpu=cortex-a9 -mfpu=neon -fgraphite-identity -floop-nest-optimize -fno-lto")
+set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${VITA_FLAGS}")
+set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${VITA_FLAGS}")
+set(VITA_LIBS "-lSDL2 -lvita2d -pthread -ljpeg -lpng -lwebp -lz -lvorbisfile -lvorbis -logg -lmikmod -lmodplug -lxmp-lite -lopusfile -lopus -lScePower_stub -lSceAudio_stub -lSceCtrl_stub -lSceHid_stub \
+-lSceTouch_stub -lSceDisplay_stub -lSceGxm_stub -lSceAppMgr_stub -lSceSysmodule_stub -lSceCommonDialog_stub -lFLAC -lmpg123 -lSceMotion_stub -lSceAppUtil_stub -lSceShaccCgExt -ltaihen_stub \
+-fno-builtin-memcpy -fno-builtin-memset -fno-builtin-memmove -fno-builtin-memcmp")
+if(ENABLE_VITA_PROFILE)
+	add_definitions(-DVITA_PROFILE)
+	set(VITA_LIBS "${VITA_LIBS} -lScePgf_stub")
 endif()
+SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
+# room after the code segment for what vita-elf-create adds there
+set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-T,${CMAKE_SOURCE_DIR}/vita/segment-gap.ld")
+include("${CMAKE_SOURCE_DIR}/vita/vita.cmake")
 
 # Configuration done. Print features
 feature_summary(WHAT ENABLED_FEATURES DESCRIPTION "Enabled features:")
@@ -177,7 +79,6 @@ set(MAC_SRC
 	src/MacSrc/MacTune.c
 	src/MacSrc/SDLSound.c
 	src/MacSrc/Modding.c
-	src/MacSrc/OpenGL.cc
 	src/MacSrc/Xmi.c
 	src/MusicSrc/MusicDevice.c
 )
@@ -237,7 +138,6 @@ set(GAME_SRC
 	src/GameSrc/gr2ss.c
 	src/GameSrc/grenades.c
 	src/GameSrc/hand.c
-	src/GameSrc/hflip.c
 	src/GameSrc/hkeyfunc.c
 	src/GameSrc/hud.c
 	src/GameSrc/hudkeep.c
@@ -330,80 +230,6 @@ include_directories(
 	${CMAKE_BINARY_DIR}/src/GameSrc/Headers
 )
 
-if(ENABLE_EXAMPLES)
-
-add_executable(playmov
-	src/Libraries/AFILE/Tests/playmov.c
-)
-add_executable(movinfo
-	src/Libraries/AFILE/Tests/movinfo.c
-)
-
-target_link_libraries(playmov
-	AFILE_LIB
-	FIX_LIB
-	${SDL2_LIBRARIES}
-	${SDL2_MIXER_LIBRARIES}
-)
-
-target_link_libraries(movinfo
-	AFILE_LIB
-	FIX_LIB
-)
-
-add_executable(TestSimpleMain
-	src/Libraries/2D/TestSource/SimpleMain.c
-)
-
-target_link_libraries(TestSimpleMain
-	2D_LIB
-	GR_LIB
-	3D_LIB
-	RES_LIB
-	FIX_LIB
-	LG_LIB
-	${SDL2_LIBRARIES}
-)
-
-add_executable(BoxTest
-	src/Libraries/3D/Tests/BoxTest.c
-)
-
-target_link_libraries(BoxTest
-	2D_LIB
-	GR_LIB
-	3D_LIB
-	RES_LIB
-	FIX_LIB
-	LG_LIB
-	${SDL2_LIBRARIES}
-)
-
-add_executable(BitmapTest
-	src/Libraries/3D/Tests/BitmapTest.c
-)
-
-target_link_libraries(BitmapTest
-	2D_LIB
-	GR_LIB
-	3D_LIB
-	RES_LIB
-	FIX_LIB
-	LG_LIB
-	${SDL2_LIBRARIES}
-)
-
-add_executable(FixTest
-	src/Libraries/FIX/Tests/FixTest/fixtest.c
-)
-
-target_link_libraries(FixTest
-	FIX_LIB
-	LG_LIB
-)
-
-endif()
-
 # Include magic header file, set struct packing size
 add_definitions(
 	-include precompiled.h
@@ -415,13 +241,7 @@ add_executable(systemshock
 
 add_library(GAME_LIB ${GAME_SRC})
 
-# MINGW additional linker options
-if(MINGW)
-	set(WINDOWS_LIBRARIES "mingw32 -mwindows")
-endif(MINGW)
-
 target_link_libraries(systemshock
-	${WINDOWS_LIBRARIES} # Set it before any linker options! Beware WinMain@16 error!!
 	GAME_LIB
 	UI_LIB
 	2D_LIB
@@ -435,19 +255,9 @@ target_link_libraries(systemshock
 	INPUT_LIB
 	PALETTE_LIB
 	RES_LIB
-#	SND_LIB
 	VOX_LIB
 	EDMS_LIB
-	FIXPP_LIB
 	ADLMIDI_LIB
 	${SDL2_LIBRARIES}
-	${SDL2_MIXER_LIBRARIES}
-	${FLUIDSYNTH_LIBRARIES}
-	${OPENGL_LIBRARIES}
-	${ALSA_LIBRARIES}
+	${SDL2_MIXER_LIBRARY}
 )
-
-# Turn on address sanitizing if wanted
-set(CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/externals/sanitizers/cmake" ${CMAKE_MODULE_PATH})
-find_package(Sanitizers)
-add_sanitizers(systemshock)

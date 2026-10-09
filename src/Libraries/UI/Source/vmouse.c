@@ -40,14 +40,6 @@ errtype ui_mouse_get_xy(short *pmx, short *pmy)
    return(retval);
 }
 
-errtype ui_mouse_put_xy(short pmx, short pmy)
-{
-   errtype retval;
-   ui_mouse_do_conversion(&pmx,&pmy,FALSE);
-   retval = mouse_put_xy(pmx,pmy);
-   return(retval);
-}
-
 errtype ui_mouse_constrain_xy(short xl, short yl, short xh, short yh)
 {
    if (ui_mouse_convert == NULL)

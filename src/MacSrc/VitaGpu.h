@@ -14,8 +14,6 @@
 extern "C" {
 #endif
 
-#ifdef VITA
-
 // Sets the GPU path up, after vita2d: compiles its shaders, runs its start-up
 // checks and offers itself to the rasterizer queue. Without it, or if any of
 // that fails, everything stays on the CPU. Details go to gpu.txt in the
@@ -63,16 +61,6 @@ typedef struct {
     unsigned draws;                   // draws issued
 } vgpu_counters_t;
 extern vgpu_counters_t vgpu_counters;
-
-#else
-
-#define vgpu_init() ((void)0)
-#define vgpu_available() 0
-#define vgpu_canvas(width, height, row) NULL
-#define VitaShowView(bits, x, y, width, height) 0
-#define VitaSyncView() ((void)0)
-
-#endif
 
 #ifdef __cplusplus
 }

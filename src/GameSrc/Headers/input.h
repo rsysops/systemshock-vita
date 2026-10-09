@@ -42,7 +42,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define INPUT_NORMAL_CURSOR 0
 #define INPUT_OBJECT_CURSOR 1
 
-#define INPUT_CHAINING
 #define CHAINING_VAR "kb_chain"
 
 #define MAX_JUMP_CONTROL (CONTROL_MAX_VAL / 2)
@@ -63,7 +62,6 @@ void free_cursor_bitmaps();
 
 void input_chk(void);
 // uchar main_kb_callback(uiEvent *h, LGRegion *r, intptr_t udata);
-void shutdown_input(void);
 void init_input(void);
 void install_motion_mouse_handler(LGRegion *r, frc *fr);
 void install_motion_keyboard_handler(LGRegion *r);

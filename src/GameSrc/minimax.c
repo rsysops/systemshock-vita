@@ -24,7 +24,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  *
  */
 
-#ifdef LOST_TREASURES_OF_MFD_GAMES
 #include <limits.h>
 #include <string.h>
 #include "minimax.h"
@@ -199,4 +198,3 @@ void minimax_step(void) {
     fstack_create(sizeof(which_child) + sizeof(value));
 }
 
-#endif // LOST_TREASURES...

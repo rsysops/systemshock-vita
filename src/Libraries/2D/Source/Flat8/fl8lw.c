@@ -57,7 +57,6 @@ int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli) {
     int b_top = tli->band_top, b_bot = tli->band_bot;
     int yt, yb;
 
-#if InvDiv
     inv_dy = fix_div(fix_make(1, 0), tli->w);
     u = fix_mul_asm_safe(tli->left.u, inv_dy);
     du = fix_mul_asm_safe(tli->right.u, inv_dy) - u;
@@ -67,16 +66,6 @@ int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli) {
     di = fix_mul_asm_safe(tli->right.i, inv_dy) - i;
     if (di >= -256 && di <= 256)
         i += 1024;
-#else
-    u = fix_div(tli->left.u, tli->w);
-    du = fix_div(tli->right.u, tli->w) - u;
-    v = fix_div(tli->left.v, tli->w);
-    dv = fix_div(tli->right.v, tli->w) - v;
-    i = fix_div(tli->left.i, tli->w);
-    di = fix_div(tli->right.i, tli->w) - i;
-    if (di >= -256 && di <= 256)
-        i += 1024;
-#endif
 
     dy = tli->right.y - tli->left.y;
 
@@ -91,17 +80,11 @@ int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli) {
         if ((d = fix_ceil(tli->right.y) - fix_ceil(tli->left.y)) > 0) {
             d = fix_ceil(tli->left.y) - tli->left.y;
 
-#if InvDiv
             inv_dy = fix_div(fix_make(1, 0) << 8, dy);
             di = fix_mul_asm_safe_light(di, inv_dy);
             inv_dy >>= 8;
             du = fix_mul_asm_safe(du, inv_dy);
             dv = fix_mul_asm_safe(dv, inv_dy);
-#else
-            du = fix_div(du, dy);
-            dv = fix_div(dv, dy);
-            di = fix_div(di, dy);
-#endif
             u += fix_mul(du, d);
             v += fix_mul(dv, d);
             i += fix_mul(di, d);
@@ -180,20 +163,12 @@ int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli) {
         y = tli->left.v + tli->left.dv;
         tli->left.i += tli->left.di;
 
-#if InvDiv
         inv_dy = fix_div(fix_make(1, 0), tli->w);
         u = fix_mul_asm_safe(k, inv_dy);
         v = fix_mul_asm_safe(y, inv_dy);
         i = fix_mul_asm_safe(tli->left.i, inv_dy);
         if (di >= -256 && di <= 256)
             i += 1024;
-#else
-        u = fix_div(k, tli->w);
-        v = fix_div(y, tli->w);
-        i = fix_div(tli->left.i, tli->w);
-        if (di >= -256 && di <= 256)
-            i += 1024;
-#endif
 
         tli->left.u = k;
         tli->left.v = y;
@@ -203,15 +178,9 @@ int gri_lit_wall_umap_loop(grs_tmap_loop_info *tli) {
         y = tli->right.v + tli->right.dv;
         tli->right.i += tli->right.di;
 
-#if InvDiv
         du = fix_mul_asm_safe(k, inv_dy) - u;
         dv = fix_mul_asm_safe(y, inv_dy) - v;
         di = fix_mul_asm_safe(tli->right.i, inv_dy) - i;
-#else
-        du = fix_div(k, tli->w) - u;
-        dv = fix_div(y, tli->w) - v;
-        di = fix_div(tli->right.i, tli->w) - i;
-#endif
         tli->right.u = k;
         tli->right.v = y;
 
@@ -360,7 +329,6 @@ int gri_lit_wall_umap_loop_1D(grs_tmap_loop_info *tli) {
     uchar *o_bits;
     fix inv_dy;
 
-#if InvDiv
     inv_dy = fix_div(fix_make(1, 0), tli->w);
     u = fix_mul_asm_safe(tli->left.u, inv_dy);
     v = fix_mul_asm_safe(tli->left.v, inv_dy);
@@ -369,15 +337,6 @@ int gri_lit_wall_umap_loop_1D(grs_tmap_loop_info *tli) {
     di = fix_mul_asm_safe(tli->right.i, inv_dy) - i;
     if (di >= -256 && di <= 256)
         i += 512;
-#else
-    u = fix_div(tli->left.u, tli->w);
-    v = fix_div(tli->left.v, tli->w);
-    dv = fix_div(tli->right.v, tli->w) - v;
-    i = fix_div(tli->left.i, tli->w);
-    di = fix_div(tli->right.i, tli->w) - i;
-    if (di >= -256 && di <= 256)
-        i += 512;
-#endif
 
     dy = tli->right.y - tli->left.y;
 

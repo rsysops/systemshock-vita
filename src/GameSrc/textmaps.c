@@ -39,7 +39,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "tpolys.h"
 #include "statics.h"
 
-#include "OpenGL.h"
 #include "rastq.h"
 
 
@@ -151,10 +150,6 @@ grs_bitmap *get_texture_map(int idx, int sz) {
     ushort sz_add[NUM_TEXTURE_SIZES - 1] = {0, 64 * 64, (64 * 64) + (32 * 32)};
     uchar *bt;
 //   mprintf("Getting tmap %d, sz %d\n",idx,sz);
-#ifdef DEMO
-    if (sz == 2)
-        sz = 1;
-#endif
     if (sz == 0) {
         if (all_textures)
             bt = get_tmap_128x128(idx);
@@ -208,10 +203,6 @@ void load_textures(void) {
         } // Set local properties
         for (n = SMALLEST_SIZE_INDEX; n < NUM_TEXTURE_SIZES; n++) {
             if ((n != TEXTURE_128_INDEX) || all_textures) {
-#ifdef DEMO
-                if (n == TEXTURE_32_INDEX)
-                    break;
-#endif
                 cur_bm = get_texture_map(c, n);
 
                 // This is a BLATANT hack to get around the 1 Meg limit in the resource system
@@ -238,8 +229,6 @@ void load_textures(void) {
                     //                              gr_bitmap(cur_bm, 0, 0);
                     //               });
                 }
-                if(can_use_opengl())
-                    opengl_cache_wall_texture(c, n, cur_bm);
             }
         }
     }
@@ -257,27 +246,7 @@ void load_textures(void) {
 }
 
 void free_textures(void) {
-#ifndef SVGA_CUTSCENES
-    if (all_textures && (tmap_dynamic_mem == NULL))
-        free(tmap_dynamic_mem);
-#endif
     tmaps_setup = FALSE;
-}
-
-errtype bitmap_array_unload(int *num_bitmaps, grs_bitmap *arr[]) {
-    int i;
-
-    if (*num_bitmaps == 0)
-        return (ERR_NOEFFECT);
-
-    // Spew(DSRC_SYSTEM_Memory, ("Freeing %d bitmaps...\n",*num_bitmaps));
-    for (i = 0; i < *num_bitmaps; i++) {
-        //      Spew(DSRC_SYSTEM_Memory, ("%d ",i));
-        free(arr[i]->bits);
-        free(arr[i]);
-    }
-    *num_bitmaps = 0;
-    return (OK);
 }
 
 uchar empty_bitmap(grs_bitmap *bmp) {
@@ -429,187 +398,5 @@ errtype clear_texture_properties(void) {
 
     //#define TEXTURE_CRUNCH_HACK
 
-#ifdef TEXTURE_CRUNCH_HACK
-
-#define NUM_CONVERT 93
-short convert_list[NUM_CONVERT][2] = {
-    {0, 144,},
-    {3, 115,},
-    {9, 8,},
-    {11, 158,},
-    {13, 7,},
-    {15, 14},
-    {16, 158,},
-    {45, 158,},
-    {46, 158,},
-    {47, 158,},
-    {48, 49,},
-    {50, 49,},
-    {51, 49,},
-    {59, 58,},
-    {61, 62,},
-    {67, 66,},
-    {73, 158,},
-    {86, 158,},
-    {87, 158,},
-    {92, 93,},
-    {94, 158,},
-    {98, 158,},
-    {99, 158,},
-    {100, 158,},
-    {105, 158,},
-    {106, 158,},
-    {107, 158,},
-    {109, 158,},
-    {123, 122,},
-    {124, 125,},
-    {128,158,},
-    {129,158,},
-    {133, 132,},
-    {150,158,},
-    {151,158,},
-    {152, 158,},
-    {153,158,},
-    {154, 158,},
-    {155,158,},
-    {156,158,},
-    {169,167,},
-    {170, 164,},
-    {173,160,},
-    {179,158,},
-    {180,158,},
-    {181,158,},
-    {184,158,},
-    {185,158,},
-    {187,158,},
-    {194,158,},
-    {197,158,},
-    {198,158,},
-    {199,158,},
-    {200,158,},
-    {201,158,},
-    {202,158,},
-    {203,158,},
-    {204,158,},
-    {207,158,},
-    {211,158,},
-    {212,205,},
-    {213,158,},
-    {239,158,},
-    {240,241,},
-    {245,244,},
-    {247,246,},
-    {250,249,},
-    {251,249,},
-    {254,249,},
-    {255,249,},
-    {260,259,},
-    {261,158,},
-    {269,266,},
-    {275,158,},
-    {276,158,},
-    {277,266,},
-    {279,266,},
-    {282,281,},
-    {292,158,},
-    {293,158,},
-    {295,158,},
-    {296,294,},
-    {297,294,},
-    {298,294,},
-    {299,294,},
-    {300,158,},
-    {301,157,},
-    {309,158,},
-    {310,158,},
-    {311,158,},
-    {318,158,},
-    {343,158,},
-    {351,350,}
-};
-
-short tmap_convert[GAME_TEXTURES];
-short tmap_crunch[GAME_TEXTURES];
-
-errtype texture_crunch_init(void) {
-    int i, c;
-    for (i = 0; i < GAME_TEXTURES; i++)
-        tmap_convert[i] = i;
-    for (i = 0; i < NUM_CONVERT; i++)
-        tmap_convert[convert_list[i][0]] = convert_list[i][1];
-    c = 0;
-    for (i = 0; i < GAME_TEXTURES; i++) {
-        if (tmap_convert[i] == i)
-            tmap_crunch[i] = c++;
-        else
-            tmap_crunch[i] = -1;
-    }
-    return (OK);
-}
-
-errtype texture_crunch_go(void) {
-    int i;
-
-    for (i = 0; i < NUM_LOADED_TEXTURES; i++) {
-        // Warning(("%d=%d->%d->%d\n",i,loved_textures[i],tmap_convert[loved_textures[i]],tmap_crunch[tmap_convert[loved_textures[i]]]));
-        loved_textures[i] = tmap_crunch[tmap_convert[loved_textures[i]]];
-    }
-    load_textures();
-
-    return (OK);
-}
-#endif
-
     //#define TEXTURE_ANNIHILATION
 
-#ifdef TEXTURE_ANNIHILATION
-#define NUM_DEMO_TEXTURES 32
-#pragma disable_message(202)
-uchar salvation_list[GAME_TEXTURES];
-uchar texture_annihilate_func(ushort keycode, uint32_t context, intptr_t data) {
-    int fn;
-    int i, c;
-    extern int texture_fnum;
-
-    mprintf("texture_fnum = %d\n", texture_fnum);
-    if (texture_fnum == 0) {
-        // Warning(("HEY, TEXTURE_FNUM is %d!\n",texture_fnum));
-        return (TRUE);
-    }
-
-    ResCloseFile(texture_fnum);
-
-    fn = ResEditFile("texture.res", FALSE);
-
-    for (i = 0; i < GAME_TEXTURES; i++)
-        salvation_list[i] = FALSE;
-
-    // Determine which textures are fine and happy
-    for (i = 0; i < NUM_DEMO_TEXTURES; i++) {
-        salvation_list[loved_textures[i]] = TRUE;
-    }
-
-    // Annhiliate all that do not conform... except for 16x16s which are in
-    // always since it's annoying to remove them!
-    for (i = 0; i < GAME_TEXTURES; i++) {
-        if (!salvation_list[i]) {
-            mprintf("destroying number %d, id = %x and %x\n", i, TEXTURE_64_ID + i, TEXTURE_128_ID + i);
-            if (!ResInUse(TEXTURE_64_ID + i))
-                break;
-            else {
-                ResKill(TEXTURE_64_ID + i);
-                ResKill(TEXTURE_128_ID + i);
-            }
-        }
-    }
-
-    ResPack(fn);
-
-    ResCloseFile(fn);
-
-    texture_fnum = ResOpenFile("texture.res");
-
-    return (TRUE);
-}
-#pragma enable_message(202)
-#endif

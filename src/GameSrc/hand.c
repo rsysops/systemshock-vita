@@ -127,10 +127,6 @@ Ref get_handart(int *x_offset, int *y_offset, int *beam_x_offset, short mouse_x,
 
     *beam_x_offset = 0;
 
-#ifdef HANDART_ADJUST
-    extern ubyte hcount;
-#endif
-
     switch (player_struct.weapons[player_struct.actives[ACTIVE_WEAPON]].type) {
     case (GUN_SUBCLASS_PISTOL):
     case (GUN_SUBCLASS_AUTO):
@@ -141,10 +137,6 @@ Ref get_handart(int *x_offset, int *y_offset, int *beam_x_offset, short mouse_x,
     case (GUN_SUBCLASS_HANDTOHAND):
         type = player_struct.weapons[player_struct.actives[ACTIVE_WEAPON]].subtype;
         frame = hand2hand_info[type][handart_show - 1].handart_frame;
-#ifdef HANDART_ADJUST
-        if (hcount)
-            frame = hcount - 1;
-#endif
         hand_x = hand2hand_info[type][handart_show - 1].x_offset;
         hand_y = hand2hand_info[type][handart_show - 1].y_offset;
 

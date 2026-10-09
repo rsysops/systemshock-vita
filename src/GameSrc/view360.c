@@ -52,7 +52,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "cybstrng.h"
 #include "gamescr.h"
 
-#include "OpenGL.h"
 
 extern uchar dirty_inv_canvas;
 
@@ -122,8 +121,6 @@ extern grs_canvas _offscreen_mfd, _fullscreen_mfd, inv_view360_canvas;
 
 static uchar rendered_inv_fullscrn = FALSE;
 
-extern void shock_hflip_in_place(grs_bitmap *bm);
-
 int view360_fullscrn_draw_callback(void *v, void *vbm, int x, int y, int flg) {
     // KLC   shock_hflip_in_place((grs_bitmap *)vbm);
     return FALSE;
@@ -149,11 +146,9 @@ void view360_init(void) {
     y = MFD_VIEW_Y;
     w = MFD_VIEW_WID;
     h = MFD_VIEW_HGT;
-#ifdef SVGA_SUPPORT
     ss_point_convert(&x, &y, FALSE);
     ss_point_convert(&w, &h, FALSE);
     h = lg_min(h, 137);
-#endif
     view360_contexts[LEFT_CONTEXT] =
         fr_place_view(FR_NEWVIEW, FR_DEFCAM, canv, VIEW360_BASEFR | FR_CURVIEW_LEFT, 0, 0, x, y, w, h);
     c = view360_fullscreen_contexts[LEFT_CONTEXT] =
@@ -164,11 +159,9 @@ void view360_init(void) {
     y = MFD_VIEW_Y;
     w = MFD_VIEW_WID;
     h = MFD_VIEW_HGT;
-#ifdef SVGA_SUPPORT
     ss_point_convert(&x, &y, FALSE);
     ss_point_convert(&w, &h, FALSE);
     h = lg_min(h, 137);
-#endif
     view360_contexts[RIGHT_CONTEXT] =
         fr_place_view(FR_NEWVIEW, FR_DEFCAM, canv, VIEW360_BASEFR | FR_CURVIEW_RGHT, 0, 0, x, y, w, h);
     canv = _fullscreen_mfd.bm.bits;
@@ -180,10 +173,8 @@ void view360_init(void) {
     y = GAME_MESSAGE_Y;
     w = INV_FULL_WD;
     h = INV_FULL_HT;
-#ifdef SVGA_SUPPORT
     ss_point_convert(&x, &y, FALSE);
     ss_point_convert(&w, &h, FALSE);
-#endif
     canv = inv_view360_canvas.bm.bits;
     view360_contexts[MID_CONTEXT] =
         fr_place_view(FR_NEWVIEW, FR_DEFCAM, canv, VIEW360_BASEFR | FR_CURVIEW_BACK, 0, REAR_FOV, x, y, w, h);
@@ -208,7 +199,6 @@ void view360_update_screen_mode() {
 char update_string[30] = "";
 
 void view360_render(void) {
-    opengl_begin_sensaround(player_struct.hardwarez[CPTRIP(SENS_HARD_TRIPLE)]);
     uchar on = FALSE;
 
     if (inventory_page != INV_3DVIEW_PAGE && ACTIVE[MID_CONTEXT]) {
@@ -224,7 +214,6 @@ void view360_render(void) {
             char buf[sizeof(update_string)];
             short w, h;
             if (strlen(update_string) + 1 >= sizeof(update_string)) {
-                opengl_end_sensaround();
                 return;
             }
             if (update_string[0] == '\0')
@@ -251,7 +240,6 @@ void view360_render(void) {
             gr_pop_canvas();
             strcat(update_string, buf);
 
-            opengl_end_sensaround();
             return;
         }
         update_string[0] = '\0';
@@ -268,11 +256,6 @@ void view360_render(void) {
         if (ACTIVE[i]) {
             fr_rend(CONTEXT[i]);
             if (full_game_3d) {
-#ifdef STEREO_SUPPORT
-                if (convert_use_mode == 5)
-                    full_visible = VISIBLE_BIT(i);
-                else
-#endif
                     full_visible |= VISIBLE_BIT(i);
             }
             on = TRUE;
@@ -282,8 +265,6 @@ void view360_render(void) {
 
     if (on == !(player_struct.hardwarez_status[HARDWARE_360] & WARE_ON))
         use_ware(WARE_HARD, HARDWARE_360);
-
-    opengl_end_sensaround();
 }
 
 // ------------------

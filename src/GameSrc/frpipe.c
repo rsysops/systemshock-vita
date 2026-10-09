@@ -72,7 +72,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "refstuf.h"
 
-#include "OpenGL.h"
 
 // tell me tell me what you're after
 // cause i just want to get there faster
@@ -90,19 +89,6 @@ int _fr_x_cen, _fr_y_cen; /* center tile for eye */
 /*
 static uchar hack_off;
 */
-
-#ifdef _FR_TILEMAP
-static int tile_x, tile_y; /* tilemap x,y */
-#endif
-
-#ifdef PIPE_POINTUP
-// set_point_parms
-int (*set_point_parms)(g3s_phandle phd, int trans_off, int flrciel, int hgt);
-// actual point parm thingies
-int set_cspace_color(g3s_phandle phd, int trans_off, int flrciel, int hgt);
-int set_texture_i(g3s_phandle phd, int trans_off, int flrciel, int hgt);
-int set_null_vrtx(g3s_phandle phd, int trans_off, int flrciel, int hgt);
-#endif
 
 // see header file for defines/layout graph
 uchar quad_code_to_mask_2[] = {FMK_NW | FMK_EW | FMK_WW,         FMK_NW | FMK_WW, FMK_NW | FMK_EW,
@@ -169,9 +155,6 @@ int fr_pipe_resize(int x, int y, int z, void *mptr) {
     _fr_ret;
 }
 
-// currently all pipe memory is static, so this is easy
-int fr_pipe_freemem(void) { _fr_ret; }
-
 /* called at the beginning of every frame, sets up 3d variables for the world
  * also sets up the globals used in the clippers
  */
@@ -179,21 +162,6 @@ int fr_pipe_freemem(void) { _fr_ret; }
 int fr_pipe_start(int rad) {
     _fr_x_cen = coor(EYE_X) >> (8 + MAP_SH);
     _fr_y_cen = coor(EYE_Y) >> (8 + MAP_SH);
-#ifdef _FR_TILEMAP
-    {
-        LGPoint p;
-        TileMapGetCursor(NULL, &p);
-        tile_x = p.x;
-        tile_y = p.y;
-        if (fr_highlights) {
-            TileMapClearHighlights(NULL);
-            TileMapRedrawSquares(NULL, NULL);
-        }
-    }
-#endif // _FR_TILEMAP
-#ifdef NOT_IMPLEMENTED
-// hack_off=fr_detail_master; if (hack_off==3) hack_off=2;
-#endif
     fr_terr_frame_start();
     fr_clip_frame_start();
     fr_pts_frame_start();
@@ -392,10 +360,6 @@ int fr_pipe_go_3(void) {
         dumb_hack_for_now(_fdt_x, _fdt_y);
         fr_draw_tile();
     }
-#ifndef CLEAR_AS_WE_GO
-    for (j = 0; j < 64; j++)
-        span_count(j) = 0;
-#endif
 
     _fr_ret;
 }

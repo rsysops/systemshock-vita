@@ -31,9 +31,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "sndcall.h"
 #include "tools.h"
 #include "trigger.h"
-#ifdef AUDIOLOGS
 #include "audiolog.h"
-#endif
 
 #define NUM_DIGI_FX 114
 
@@ -46,32 +44,9 @@ char priorities[NUM_DIGI_FX];
 
 extern uchar curr_alog_vol;
 
-#ifdef NOT_YET
-
-//#define ASYNCH_DIGI
-
-int digi_timer_id;
-void start_asynch_digi_fx() {
-#ifdef ASYNCH_DIGI
-    if (sfx_on)
-        tm_activate_process(digi_timer_id);
-#endif
-}
-
-void stop_asynch_digi_fx() {
-#ifdef ASYNCH_DIGI
-    if (sfx_on)
-        tm_deactivate_process(digi_timer_id);
-#endif
-}
-
-#endif
-
 errtype stop_digi_fx() {
-#ifdef AUDIOLOGS
     if (audiolog_setting)
         audiolog_stop();
-#endif
     if (sfx_on) {
         snd_kill_all_samples();
         sound_frame_update();
@@ -227,46 +202,6 @@ void stop_terrain_elevator_sound(short sem)
   }
 }
 
-#ifdef NOT_YET //
-
-#pragma disable_message(202)
-int digifx_volume_shift(short x, short y, short z, short phi, short theta, int basevol) {
-    int retval;
-    // Note that "x" is really the object ID of the thing we care about
-    // unless phi is set, in which case phi and theta are a literal location to use
-    if (x != OBJ_NULL)
-        retval = compute_sfx_vol(objs[x].loc.x, objs[x].loc.y, objs[PLAYER_OBJ].loc.x, objs[PLAYER_OBJ].loc.y);
-    else if (phi != 0)
-        retval = compute_sfx_vol(phi, theta, objs[PLAYER_OBJ].loc.x, objs[PLAYER_OBJ].loc.y);
-    else
-        retval = VOL_FULL;
-
-    // Now normalize vs basevol
-    retval = basevol * retval / VOL_FULL;
-    return (retval);
-}
-
-int digifx_pan_shift(short x, short y, short z, short phi, short theta) {
-    int retval;
-    // Note that "x" is really the object ID of the thing we care about
-    // unless phi is set, in which case phi and theta are a literal location to use
-    if (x != OBJ_NULL)
-        retval = compute_sfx_pan(objs[x].loc.x, objs[x].loc.y, objs[PLAYER_OBJ].loc.x, objs[PLAYER_OBJ].loc.y,
-                                 objs[PLAYER_OBJ].loc.h << 8);
-    else if (phi != 0)
-        retval =
-            compute_sfx_pan(phi, theta, objs[PLAYER_OBJ].loc.x, objs[PLAYER_OBJ].loc.y, objs[PLAYER_OBJ].loc.h << 8);
-    else
-        retval = 128; // is this right??
-    retval = (retval + 64) >> 1;
-    Spew(DSRC_AUDIO_Testing, ("Modified PAN value=%d\n", retval));
-    return (retval);
-}
-#pragma enable_message(202)
-
-#endif // NOT_YET
-
-uchar sfx_volume_levels[] = {0, 0x9, 0xF};
 #define ALWAYS_QUEUE_TOLERANCE 2
 #define NO_GAIN_THRESHOLD 0x6A
 #define HARSH_GAIN_THRESHOLD 0xBA
@@ -286,14 +221,12 @@ int play_digi_fx_master(int sfx_code, int num_loops, ObjID id, ushort x, ushort 
     if ((sfx_code == -1) || (sfx_code == 255))
         return -1; // why do we call this with things we dont use?
 
-#ifdef AUDIOLOGS
     if (sfx_code > 255)
         sfx_code = 0;
     if (audiolog_playing(-1)) // what is this, really?
         if (sfx_code != real_code)
             audiolog_stop();
     if (sfx_code == real_code)
-#endif
     {
         // If the sound effect is too far away, don't even bother us
         if (id != OBJ_NULL) {
@@ -310,12 +243,10 @@ int play_digi_fx_master(int sfx_code, int num_loops, ObjID id, ushort x, ushort 
     s_dprm.loops = num_loops;
     s_dprm.pri = priorities[sfx_code];
     s_dprm.pan = secret_global_pan;
-#ifdef AUDIOLOGS
     if (sfx_code != real_code) {
         s_dprm.data = 0;
         s_dprm.vol = volumes[sfx_code] * curr_sfx_vol / 100;
     } else
-#endif
     {
         if (id != OBJ_NULL)
             s_dprm.data = id;

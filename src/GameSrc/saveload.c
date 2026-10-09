@@ -96,10 +96,7 @@ void extract_level_resource(Id id_num, int index, uint32_t version, void *ptr) {
 
 #define FIRST_CSPACE_LEVEL 14
 
-#define SAVE_AUTOMAP_STRINGS
 
-char saveload_string[30];
-uchar display_saveload_checkpoints = FALSE;
 uchar saveload_static = FALSE;
 uint dynmem_mask = DYNMEM_ALL;
 
@@ -424,7 +421,6 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
     // xx45 Other level data -- at resource id right after maps
     level_gamedata.size = sizeof(level_gamedata);
     REF_WRITE(id_num, idx++, level_gamedata);
-#ifdef SAVE_AUTOMAP_STRINGS
     //   REF_WRITE(id_num, idx++, amap_str_reref(0));
     // LZW later   ResMake(id_num + (idx++), &(amap_str_reref(0)), AMAP_STRING_SIZE, RTYPE_APP, fd,  RDF_LZW);
     ResMake(id_num + (idx++), (amap_str_reref(0)), AMAP_STRING_SIZE, RTYPE_APP, fd, 0, FORMAT_RAW);
@@ -432,7 +428,6 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
     ResUnmake(id_num + (idx - 1));
     goof = amap_str_deref(amap_str_next());
     REF_WRITE(id_num, idx++, goof);
-#endif
     idx++; // KLC - no need to be saved.   REF_WRITE(id_num, idx++, player_edms);
     // xx49-xx50 Paths
     REF_WRITE(id_num, idx++, paths);
@@ -712,21 +707,7 @@ void load_level_data() {
     load_small_texturemaps();
 }
 
-void SwapLongBytes(void *pval4);
-void SwapShortBytes(void *pval2);
 #define MAKE4(c0, c1, c2, c3) ((((ulong)c0) << 24) | (((ulong)c1) << 16) | (((ulong)c2) << 8) | ((ulong)c3))
-
-//      ---------------------------------------------------------
-// Â¥ Put this in some more appropriate, global place.
-void SwapLongBytes(void *pval4) {
-    long *temp = (long *)pval4;
-    *temp = MAKE4(*temp & 0xFF, (*temp >> 8) & 0xFF, (*temp >> 16) & 0xFF, *temp >> 24);
-}
-
-void SwapShortBytes(void *pval2) {
-    short *temp = (short *)pval2;
-    *temp = ((*temp & 0xFF) << 8) | ((*temp >> 8) & 0xFF);
-}
 
 //---------------------------------------------------------------------------------
 //  Loads in the map for a level, and all the other related resources (2+ MB worth).
@@ -1233,7 +1214,6 @@ errtype load_current_map(Id id_num) {
     // Get other level data at next id
     REF_READ(id_num, idx++, level_gamedata);
 
-#ifdef SAVE_AUTOMAP_STRINGS
     {
         int amap_magic_num;
         char *cp = amap_str_reref(0);
@@ -1243,7 +1223,6 @@ errtype load_current_map(Id id_num) {
         //    SwapLongBytes(&amap_magic_num);
         amap_str_startup(amap_magic_num);
     }
-#endif
 
     idx++; // Doesn't appear that this does anything
            /*
@@ -1361,18 +1340,6 @@ out:
     reload_motion_cursors(global_fullmap->cyber);
 
     // Debug print the map
-#ifdef DEBUG_MAP_PRINT
-    for (int y = 0; y < 64; y++) {
-        for (int x = 0; x < 64; x++) {
-            uchar tiletype = global_fullmap->map[x + y * 64].tiletype;
-            if (tiletype == 0)
-                printf("  ");
-            else
-                printf(" %i", tiletype);
-        }
-        printf("\n");
-    }
-#endif
 
     // KLC   physics_warmup();
 

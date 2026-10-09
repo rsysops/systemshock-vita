@@ -65,17 +65,6 @@ void olh_init_single_scan(fauxrend_context **outxt, fauxrend_context *intxt) {
     fr_set_callbacks(*outxt, NULL, NULL, NULL);
 }
 
-/*KLC - no longer used
-void olh_init_scan(void)
-{
-   olh_init_single_scan(&olh_full_context, (fauxrend_context *)full_game_fr_context);
-}
-*/
-void olh_free_scan(void) {
-    if (olh_full_context)
-        fr_free_view(olh_full_context);
-}
-
 fix x_mul = fix_make(1, 0), y_mul = fix_make(1, 0);
 void olh_svga_deal(void) {
     if (olh_full_context)
@@ -102,11 +91,7 @@ ushort olh_scan_objs(void) {
     // 0 not asked yet, 1 no, 2 yes. The answer is the object's, not the
     // pixel's, and an object seen from close covers thousands of them.
     uchar candidate[256] = {0};
-#ifdef SVGA_SUPPORT
     fauxrend_context *fr = olh_full_context;
-#else
-    fauxrend_context *fr = (full_game_3d) ? olh_full_context : olh_context;
-#endif
     ubyte save_radius = _frp.view.radius;
 
     // Do a monochrome render
@@ -127,12 +112,6 @@ ushort olh_scan_objs(void) {
         olh_radius = lg_max(olh_radius - 1, MIN_OLH_RADIUS);
 
     xl = yl = 0;
-
-#ifdef DEBUGGING_BLIT
-    gr_push_canvas(grd_screen_canvas);
-    gr_bitmap(&fr->draw_canvas.bm, 0, 200 - fr->draw_canvas.bm.h);
-    gr_pop_canvas();
-#endif
 
     olh_object.obj = OBJ_NULL;
     // collect samples
@@ -186,7 +165,6 @@ ushort olh_scan_objs(void) {
                 best_weight = weight;
             }
         }
-#ifdef SVGA_SUPPORT
         {
             fix tmp;
             tmp = fix_make(olh_object.loc.x, 0);
@@ -196,7 +174,6 @@ ushort olh_scan_objs(void) {
             tmp = fix_mul(tmp, y_mul);
             olh_object.loc.y = fix_int(tmp);
         }
-#endif
     } else
         olh_object.obj = OBJ_NULL;
     return OBJ_NULL;

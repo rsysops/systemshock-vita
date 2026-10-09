@@ -128,11 +128,7 @@ void load_string_array(Ref first, char *arry[], char buf[], int bufsz, int n) {
     }
 }
 
-#ifdef SVGA_SUPPORT
 static char cursor_buf[4096];
-#else
-static char cursor_buf[512];
-#endif
 
 void make_email_cursor(LGCursor *c, grs_bitmap *bm, uchar page, bool init) {
     grs_canvas gc;
@@ -140,19 +136,15 @@ void make_email_cursor(LGCursor *c, grs_bitmap *bm, uchar page, bool init) {
     int len;
     LGPoint p;
     char s[BUF_SIZ];
-#ifdef SVGA_SUPPORT
     short temp;
     uchar old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
     ss_set_hack_mode(2, &temp);
-#endif
 
     gr_font_char_size(ResGet(EMAIL_CURS_FONT), 'X', &w, &h);
     h += 2;
     w = EMAIL_CURS_WID;
-#ifdef SVGA_SUPPORT
     ss_point_convert(&w, &h, FALSE);
-#endif
     if (init)
         gr_init_bm(bm, NULL, BMT_FLAT8, BMF_TRANS, w, h);
     sprintf(s, "%s %d", get_string(REF_STR_WordPage, NULL, BUF_SIZ), page);
@@ -179,8 +171,6 @@ void make_email_cursor(LGCursor *c, grs_bitmap *bm, uchar page, bool init) {
     p.y = h / 2;
     uiMakeBitmapCursor(c, bm, p);
     MouseLock--;
-#ifdef SVGA_SUPPORT
     ss_set_hack_mode(0, &temp);
     gr2ss_override = old_over;
-#endif
 }

@@ -76,18 +76,11 @@ void gri_trans_lit_per_umap_hscan_scanline(grs_per_info *pi, grs_bitmap *bm) {
 
     l_y_fix = l_x * l_scan_slope + fix_make(pi->yp, 0xffff);
 
-#if InvDiv
     k = fix_div(fix_make(1, 0), pi->denom);
     l_u = pi->u0 + fix_mul_asm_safe(pi->unum, k);
     l_v = pi->v0 + fix_mul_asm_safe(pi->vnum, k);
     l_du = fix_mul_asm_safe(pi->dunum, k);
     l_dv = fix_mul_asm_safe(pi->dvnum, k);
-#else
-    l_u = pi->u0 + fix_div(pi->unum, pi->denom);
-    l_v = pi->v0 + fix_div(pi->vnum, pi->denom);
-    l_du = fix_div(pi->dunum, pi->denom);
-    l_dv = fix_div(pi->dvnum, pi->denom);
-#endif
 
     l_u += l_x * l_du;
     l_v += l_x * l_dv;
@@ -216,18 +209,11 @@ void gri_trans_lit_per_umap_vscan_scanline(grs_per_info *pi, grs_bitmap *bm) {
 
     l_x_fix = l_y * l_scan_slope + fix_make(pi->xp, 0xffff);
 
-#if InvDiv
     k = fix_div(fix_make(1, 0), pi->denom);
     l_u = pi->u0 + fix_mul_asm_safe(pi->unum, k);
     l_v = pi->v0 + fix_mul_asm_safe(pi->vnum, k);
     l_du = fix_mul_asm_safe(pi->dunum, k);
     l_dv = fix_mul_asm_safe(pi->dvnum, k);
-#else
-    l_u = pi->u0 + fix_div(pi->unum, pi->denom);
-    l_v = pi->v0 + fix_div(pi->vnum, pi->denom);
-    l_du = fix_div(pi->dunum, pi->denom);
-    l_dv = fix_div(pi->dvnum, pi->denom);
-#endif
 
     l_u += l_y * l_du;
     l_v += l_y * l_dv;

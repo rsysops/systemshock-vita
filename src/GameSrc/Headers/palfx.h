@@ -25,7 +25,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  * $Date: 1994/07/19 23:25:37 $
  */
 
-extern void palfx_fade_up(uchar do_now);
 extern void palfx_fade_down();
 extern void palfx_init();
 

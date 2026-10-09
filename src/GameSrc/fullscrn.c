@@ -60,38 +60,17 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Shock.h"
 #include "vprof.h"
 
-#ifdef NOT_YET // KLC stereo
-
-#include <config.h>
-
-#ifdef STEREO_SUPPORT
-#include <inp6d.h>
-#include <i6dvideo.h>
-#endif
-
-#endif // NOT_YET
-
 // -------
 // GLOBALS
 // -------
 uchar fullscrn_vitals = TRUE;
 uchar fullscrn_icons = TRUE;
 
-extern uchar inp6d_stereo_active;
-extern uchar inp6d_stereo;
-
-#ifdef SVGA_SUPPORT
 grs_screen *svga_screen = NULL;
 frc *svga_render_context = NULL;
 short svga_mode_data[] = {GRM_320x200x8, GRM_320x400x8, GRM_640x400x8, GRM_640x480x8, GRM_1024x768x8, GRM_320x200x8};
-char mickey_stupid[][2] = {{16, 8}, {16, 4}, {3, 1}, {2, 1}, {3, 1}, {16, 8}};
 short mode_id = 3; // KLC - start off in 640x480 in Mac version      old -  short mode_id=0;
-#endif
 
-#ifdef GADGET
-#include <gadgets.h>
-Gadget *fullroot_gadget;
-#endif
 uiSlab fullscreen_slab;
 
 #define CFG_TIME_VAR "time_passes"
@@ -218,13 +197,8 @@ void change_svga_screen_mode() {
     uchar mode_change = FALSE;
     short temp;
 
-#ifdef VITA
     // Black screen on startup with 320x200 resolution otherwise. On PC too
     mode_change = TRUE;
-#else
-    if (convert_use_mode != mode_id)
-        mode_change = TRUE;
-#endif
 
     if (mode_change) {
         int retval = -1;
@@ -359,14 +333,7 @@ void fullscreen_start() {
 
     inventory_region = inventory_region_full;
     pagebutton_region = pagebutton_region_full;
-#ifdef GADGET
-    _current_root = fullroot_gadget;
-#endif
 
-#ifdef STEREO_SUPPORT
-    if (inp6d_stereo)
-        mode_id = 5;
-#endif
     change_svga_screen_mode();
 
     inv_change_fullscreen(TRUE);
@@ -375,28 +342,6 @@ void fullscreen_start() {
     string_message_info(REF_STR_FSMode);
     mfd_force_update();
     draw_page_buttons(TRUE);
-#ifdef STEREO_SUPPORT
-    if (inp6d_stereo) {
-        //      uchar cur_pal[768];
-        //      gr_get_pal(0,256,&cur_pal[0]);
-        //      uiHideMouse(NULL);
-        //      gr_set_mode(i6d_ss->scr_mode,TRUE);
-        //      gr_set_pal(0,256,&cur_pal[0]);
-        if (i6d_ss->scr_mode == grd_mode) {
-            i6d_ss->stereo_screen = grd_screen->c;
-            i6_video(I6VID_SET_MODE, i6d_ss);
-            if (i6_video(I6VID_STR_SETUP, i6d_ss)) {
-                Warning(("Stereo setup failed"));
-                i6_video(I6VID_CLEAR_MODE, i6d_ss);
-                inp6d_stereo_active = FALSE;
-            } else
-                inp6d_stereo_active = TRUE;
-        }
-    }
-#endif
-#ifdef PALFX_FADES
-//   if (pal_fx_on) palfx_fade_up(FALSE);
-#endif
     // KLC   uiShowMouse(NULL);
 
     CaptureMouse(true);
@@ -406,23 +351,12 @@ void fullscreen_start() {
 // Restore all appropriate things to put us back in normal
 // screen mode
 void fullscreen_exit() {
-#ifdef SVGA_SUPPORT
     uchar cur_pal[768];
     extern grs_screen *cit_screen;
     uchar *s_table;
-#endif
 
-#ifdef STEREO_SUPPORT
-    if (mode_id == 5)
-        mode_id = 0;
-    if (inp6d_stereo_active) {
-        i6_video(I6VID_CLEAR_MODE, i6d_ss);
-        inp6d_stereo_active = FALSE;
-    }
-#endif
     uiHideMouse(NULL);
 
-#ifdef SVGA_SUPPORT
     if ((_new_mode != GAME_LOOP) && (_new_mode != FULLSCREEN_LOOP)) {
         s_table = gr_get_light_tab();
         gr_get_pal(0, 256, &cur_pal[0]);
@@ -432,7 +366,6 @@ void fullscreen_exit() {
         // KLC      change_svga_cursors();
         // KLC      status_bio_update_screenmode();
     }
-#endif
     if (_new_mode == -1)
         return;
     full_game_3d = FALSE;

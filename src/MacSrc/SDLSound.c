@@ -4,8 +4,6 @@
 
 static snd_digi_parms digi_parms_by_channel[SND_MAX_SAMPLES];
 
-#ifdef USE_SDL_MIXER
-
 #include <SDL_mixer.h>
 
 #define SND_CACHE_SIZE 256
@@ -45,8 +43,6 @@ void add_mix_chunk(int snd_ref, Mix_Chunk* mix_chunk)
     cached_chunks[free_index].snd_ref = snd_ref;
     cached_chunks[free_index].mix_chunk = mix_chunk;
 }
-
-static Mix_Chunk *samples_by_channel[SND_MAX_SAMPLES];
 
 extern struct MusicDevice *MusicDev;
 
@@ -115,17 +111,8 @@ int snd_sample_play(int snd_ref, int len, uchar *smp, struct snd_digi_parms *dpr
     int channel = Mix_PlayChannel(-1, sample, loops);
     if (channel < 0) {
         DEBUG("%s: Failed to play sample", __FUNCTION__);
-#ifndef VITA
-        Mix_FreeChunk(sample);
-#endif
         return ERR_NOEFFECT;
     }
-#ifndef VITA
-    if (samples_by_channel[channel])
-        Mix_FreeChunk(samples_by_channel[channel]);
-
-    samples_by_channel[channel] = sample;
-#endif
     digi_parms_by_channel[channel] = *dprm;
     snd_sample_reload_parms(&digi_parms_by_channel[channel]);
 
@@ -134,12 +121,6 @@ int snd_sample_play(int snd_ref, int len, uchar *smp, struct snd_digi_parms *dpr
 
 void snd_end_sample(int hnd_id) {
     Mix_HaltChannel(hnd_id);
-#ifndef VITA
-    if (samples_by_channel[hnd_id]) {
-        Mix_FreeChunk(samples_by_channel[hnd_id]);
-        samples_by_channel[hnd_id] = NULL;
-    }
-#endif
 }
 
 bool snd_sample_playing(int hnd_id) { return Mix_Playing(hnd_id); }
@@ -171,8 +152,6 @@ void snd_sample_reload_parms(snd_digi_parms *sdp) {
     uint8_t right = 2 * sdp->pan;
     Mix_SetPanning(channel, 254 - right, right);
 }
-
-int is_playing = 0;
 
 int MacTuneLoadTheme(char *theme_base, int themeID) {
     char filename[40];
@@ -221,24 +200,6 @@ int MacTuneLoadTheme(char *theme_base, int themeID) {
 
 void MacTuneKillCurrentTheme(void) { StopTheMusic(); }
 
-#else
-
-// Sound stubs that do nothing, when SDL Mixer is not found
-
-int snd_start_digital(void) { return OK; }
-int snd_sample_play(int snd_ref, int len, uchar *smp, struct snd_digi_parms *dprm) { return OK; }
-int snd_alog_play(int snd_ref, int len, uchar *smp, struct snd_digi_parms *dprm) { return OK; }
-void snd_end_sample(int hnd_id) {}
-void snd_kill_all_samples(void) {}
-int MacTuneLoadTheme(char *theme_base, int themeID) { return OK; }
-void MacTuneKillCurrentTheme(void) {}
-snd_digi_parms *snd_sample_parms(int hnd_id) { return &digi_parms_by_channel[0]; }
-bool snd_sample_playing(int hnd_id) { return false; }
-void snd_sample_reload_parms(snd_digi_parms *sdp) {}
-
-#endif
-
 // Unimplemented sound stubs
 
 void snd_startup(void) {}
-int snd_stop_digital(void) { return 1; }

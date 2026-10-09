@@ -58,38 +58,6 @@ short increment_shodan_value(ObjID oid, uchar game_stuff) {
 
     if (player_struct.level <= MAX_SHODOMETER_LEVEL) {
         switch (ID2TRIP(oid)) {
-#ifdef CREATURE_SHODOMETER
-        case CYBORG_DRONE_TRIPLE:
-            curr_shodan_val += CYBORG_DRONE_TRIPLE_VALUE;
-            break;
-        case WARRIOR_TRIPLE:
-            curr_shodan_val += WARRIOR_TRIPLE_VALUE;
-            break;
-        case ASSASSIN_TRIPLE:
-            curr_shodan_val += ASSASSIN_TRIPLE_VALUE;
-            break;
-        case CYBERBABE_TRIPLE:
-            curr_shodan_val += CYBERBABE_TRIPLE_VALUE;
-            break;
-        case ELITE_GUARD_TRIPLE:
-            curr_shodan_val += ELITE_GUARD_TRIPLE_VALUE;
-            break;
-        case CORTEX_REAVER_TRIPLE:
-            curr_shodan_val += CORTEX_REAVER_TRIPLE_VALUE;
-            break;
-        case MUTANT_BORG_TRIPLE:
-            curr_shodan_val += MUTANT_BORG_TRIPLE_VALUE;
-            break;
-        case SECURITY_BOT1_TRIPLE:
-            curr_shodan_val += SECURITY_BOT1_TRIPLE_VALUE;
-            break;
-        case SECURITY_BOT2_TRIPLE:
-            curr_shodan_val += SECURITY_BOT2_TRIPLE_VALUE;
-            break;
-        case EXECBOT_TRIPLE:
-            curr_shodan_val += EXECBOT_TRIPLE_VALUE;
-            break;
-#endif
         case CAMERA_TRIPLE:
             curr_shodan_val += CAMERA_TRIPLE_VALUE;
             break;
@@ -112,38 +80,6 @@ short decrement_shodan_value(ObjID oid, uchar game_stuff) {
 
     if (player_struct.level <= MAX_SHODOMETER_LEVEL) {
         switch (ID2TRIP(oid)) {
-#ifdef CREATURE_SHODOMETER
-        case CYBORG_DRONE_TRIPLE:
-            curr_shodan_val -= CYBORG_DRONE_TRIPLE_VALUE;
-            break;
-        case WARRIOR_TRIPLE:
-            curr_shodan_val -= WARRIOR_TRIPLE_VALUE;
-            break;
-        case ASSASSIN_TRIPLE:
-            curr_shodan_val -= ASSASSIN_TRIPLE_VALUE;
-            break;
-        case CYBERBABE_TRIPLE:
-            curr_shodan_val -= CYBERBABE_TRIPLE_VALUE;
-            break;
-        case ELITE_GUARD_TRIPLE:
-            curr_shodan_val -= ELITE_GUARD_TRIPLE_VALUE;
-            break;
-        case CORTEX_REAVER_TRIPLE:
-            curr_shodan_val -= CORTEX_REAVER_TRIPLE_VALUE;
-            break;
-        case MUTANT_BORG_TRIPLE:
-            curr_shodan_val -= MUTANT_BORG_TRIPLE_VALUE;
-            break;
-        case SECURITY_BOT1_TRIPLE:
-            curr_shodan_val -= SECURITY_BOT1_TRIPLE_VALUE;
-            break;
-        case SECURITY_BOT2_TRIPLE:
-            curr_shodan_val -= SECURITY_BOT2_TRIPLE_VALUE;
-            break;
-        case EXECBOT_TRIPLE:
-            curr_shodan_val -= EXECBOT_TRIPLE_VALUE;
-            break;
-#endif
         case CAMERA_TRIPLE:
             curr_shodan_val -= CAMERA_TRIPLE_VALUE;
             break;

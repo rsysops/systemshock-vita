@@ -1,7 +1,5 @@
 // The Vita's GPU as a filler for the rasterizer queue: see VitaGpu.h.
 
-#ifdef VITA
-
 #include <psp2/gxm.h>
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
@@ -1282,4 +1280,3 @@ int vgpu_available(void) { return ready && textured; }
 
 int vgpu_shades(void) { return vgpu_available() && shades; }
 
-#endif // VITA

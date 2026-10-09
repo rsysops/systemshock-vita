@@ -7,7 +7,6 @@ set(2D_SRC
 	2D/Source/bitmap.c
 	2D/Source/blend.c
 	2D/Source/canvas.c
-	2D/Source/close.c
 	2D/Source/cnvtab.c
 	2D/Source/context.c
 	2D/Source/detect.c
@@ -64,7 +63,6 @@ set(2D_SRC
 	2D/Source/Gen/genbox.c
 	2D/Source/Gen/genmono.c
 	2D/Source/Gen/genulin.c
-	2D/Source/Gen/gencnv.c
 	2D/Source/Gen/genuslin.c
 	2D/Source/Gen/genvpoly.c
 	2D/Source/Gen/general.c
@@ -84,7 +82,6 @@ set(2D_SRC
 	2D/Source/Flat8/fl8ll.c
 	2D/Source/Flat8/fl8s.c
 	2D/Source/Flat8/fl8hfl8.c
-	2D/Source/Flat8/fl8pnt.c
 	2D/Source/Flat8/fl8fl8m.c
 	2D/Source/Flat8/fl8ltp.c
 	2D/Source/Flat8/fl8fl8c.c
@@ -115,7 +112,6 @@ set(2D_SRC
 	2D/Source/Flat8/fl8tsmap.c
 	2D/Source/Flat8/fl8ply.c
 	2D/Source/Flat8/fl8sply.c
-	2D/Source/Flat8/fl8rect.c
 	2D/Source/Flat8/fl8gfl8.c
 	2D/Source/Flat8/fl8tl8.c
 	2D/Source/Flat8/fl8p24.c
@@ -203,7 +199,6 @@ set(DSTRUCT_SRC
 set(FIX_SRC
 	FIX/Source/f_exp.c
 	FIX/Source/fix.c
-	FIX/Source/fix_pow.c
 	FIX/Source/fix_sqrt.c
 	FIX/Source/MakeTables.c
 )
@@ -217,7 +212,6 @@ set(INPUT_SRC
 set(LG_SRC
 	LG/Source/LOG/src/log.c
 	LG/Source/lgslot.c
-	LG/Source/memall.c
 	LG/Source/stack.c
 	LG/Source/tmpalloc.c
 )
@@ -237,20 +231,10 @@ set(RES_SRC
 	RES/Source/resformat.c
 	RES/Source/resload.c
 	RES/Source/resmake.c
-	RES/Source/restypes.c
 )
 
 set(RND_SRC
 	RND/Source/rnd.c
-)
-
-set(SND_SRC
-	SND/Source/dig_init.c
-	SND/Source/dig_ops.c
-	SND/Source/master.c
-	SND/Source/mid_init.c
-	SND/Source/mid_ops.c
-	SND/Source/snd_util.c
 )
 
 set(UI_SRC
@@ -261,10 +245,6 @@ set(UI_SRC
 	UI/Source/region.c
 	UI/Source/slab.c
 	UI/Source/vmouse.c
-)
-
-set(FIXPP_SRC
-	FIXPP/Source/fixpp.cpp
 )
 
 set(EDMS_SRC
@@ -371,6 +351,5 @@ add_library(RES_LIB ${RES_SRC})
 add_library(RND_LIB ${RND_SRC})
 add_library(UI_LIB ${UI_SRC})
 add_library(VOX_LIB ${VOX_SRC})
-add_library(FIXPP_LIB ${FIXPP_SRC})
 add_library(EDMS_LIB ${EDMS_SRC})
 add_library(ADLMIDI_LIB ${ADLMIDI_SRC})

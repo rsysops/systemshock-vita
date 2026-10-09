@@ -138,12 +138,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "hudobj.h"
 #include "olhext.h"
 
-#ifdef STEREO_SUPPORT
-#include <inp6d.h>
-#include <i6dvideo.h>
-#endif
-
-#include "OpenGL.h"
 #include "VitaGpu.h"
 #include "vprof.h"
 #include "rastq.h"
@@ -171,11 +165,7 @@ void (*_fr_glob_horizon_call)(void *dest_bm, int flags) = NULL;
 void (*_fr_glob_render_call)(void *dest_bm, int flags) = NULL;
 
 //#define DOUBLE_DEF_STUPID_BLEND
-#ifdef DOUBLE_DEF_STUPID_BLEND
-uchar det_sizing[4][2] = {{0, 0}, {1, 0}, {0, 0}, {0, 0}}; /* setup for detail modes */
-#else
 uchar det_sizing[4][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}}; /* sizing for detail modes */
-#endif
 
 /* KLC - no stereo in Mac version
 extern uchar inp6d_headset;
@@ -203,49 +193,14 @@ int _fr_global_detail = 3;
 // startup and closedown functions, misc initialization and setup
 
 // first, for now, we make sure we have full texture context, and eat 8K to boot
-#define NO_FAKE_TMAPS
 
 void fr_closedown(void) {
     fr_global_mod_flag(0, 0xFFFFFFFF); // not totally sure this is right.
     _frp.lighting.global_mod = 0;
 }
 
-#ifndef NO_FAKE_TMAPS
-#include "3dinterp.h"
-
-grs_bitmap tmap_bm[FAKE_TMAPS]; // this is dumb, yea yea
-
-void _fr_init_all_tmaps(void) {
-    uchar *dummy_tm;
-    int i, x, y;
-
-    for (i = 0; i < FAKE_TMAPS; i++) {
-        int v1 = (rand() & 0xff), v2 = (rand() & 0xff), v3 = (rand() & 0xff), v4 = (rand() & 0xff);
-        dummy_tm = (uchar *)malloc(16 * 16);
-        for (x = 0; x < 16; x++)
-            for (y = 0; y < 16; y++)
-                dummy_tm[(x * 16) + y] =
-                    (((x >> 1) + (y >> 1)) & 1) ? ((2 * abs(8 - x)) > y) ? v1 : v2 : ((2 * abs(8 - x)) > y) ? v3 : v4;
-        gr_init_bm(tmap_bm + i, dummy_tm, BMT_FLAT8, 0, 16, 16);
-        g3_set_vtext(i, tmap_bm + i);
-    }
-#ifdef RANDOMLY_SET_VCOLORS
-    for (i = 0; i < 16; i++) // hack hack hack
-    {
-        g3_set_vcolor(i, 0x33 + (i << 2));
-    }
-#endif
-}
-
-void _fr_free_all_tmaps(void) {
-    int i;
-    for (i = 0; i < FAKE_TMAPS; i++)
-        free(tmap_bm[i].bits);
-}
-#else
 #define _fr_init_all_tmaps()
 #define _fr_free_all_tmaps()
-#endif
 
 extern int _game_fr_tmap;
 void fr_default_mouse(void) {}
@@ -254,11 +209,7 @@ int fr_pickup_idx(void) {
     gr_set_fill_parm(_game_fr_tmap + 1);
     return _game_fr_tmap + 1;
 }
-#ifndef NO_FAKE_TMAPS
-grs_bitmap *fr_default_tmap(void) { return &tmap_bm[fr_default_idx() % FAKE_TMAPS]; }
-#else
 grs_bitmap *fr_default_tmap(void) { return NULL; }
-#endif
 uchar fr_default_block(void *v, uchar *u, int *i) { return FALSE; }
 void fr_default_clip_start(uchar u) {}
 void fr_default_rend_start(void) {}
@@ -275,27 +226,13 @@ void fr_set_default_ptrs(void) {
 // actually init the 3d, as one might expect, also set up global statics for the renderer
 void fr_startup(void) {
 // should be dynamic and flippable....
-#ifdef STEREO_SUPPORT
-    g3_init_stereo(FR_PT_CNT, AXIS_ORDER);
-    g3_set_eyesep(FIX_UNIT / 35);
-#else
     g3_init(FR_PT_CNT, AXIS_ORDER);
-#endif
     _fr_init_all_tmaps();
     fr_tables_build();
     _fr_glob_flags = 0;
     _fr = _sr = NULL;
     fr_set_default_ptrs();
     fr_tfunc_grab_start();
-#ifdef _FR_PIXPROF
-    pixprof_setup();
-#endif
-}
-
-// lets hit the fucking road
-void fr_shutdown(void) {
-    _fr_free_all_tmaps();
-    g3_shutdown();
 }
 
 // you taught me everything about a poison apple
@@ -341,34 +278,6 @@ int fr_free_view(frc *view) {
     _fr_ret;
 }
 
-int fr_mod_cams(frc *fr, void *v_cam, int mod_fac) {
-    cams *cam = (cams *)v_cam;
-
-    _fr_top(fr);
-    _fr->viewer_zoom = fix_mul(_fr->viewer_zoom, mod_fac);
-    if (_fr->viewer_zoom == 0)
-        _fr->viewer_zoom = 1;
-    if ((unsigned long)_fr->viewer_zoom > 0x7fffffff)
-        _fr->viewer_zoom = 0x7fffffff;
-    if ((long)cam != -1) {
-        if (cam == NULL)
-            _fr->camptr = fr_camera_getdef();
-        else
-            _fr->camptr = cam;
-    }
-    _fr_ret;
-}
-// we put
-// eachother
-// down
-int fr_context_mod_flag(frc *fr, int pflags_on, int pflags_off) // change flags
-{
-    _fr_top(fr);
-    _fr->flags &= ~pflags_off;
-    _fr->flags |= pflags_on;
-    _fr_ret;
-}
-
 #if _fr_defdbg(ALTCAM)
 extern int _fr_altcamx, _fr_altcamy;
 int fr_mod_xtracam(frc *fr, void *v_xtra_cam) {
@@ -383,20 +292,6 @@ int fr_mod_xtracam(frc *fr, void *v_xtra_cam) {
 int fr_global_mod_flag(int flags_on, int flags_off) {
     _fr_glob_flags &= ~flags_off;
     _fr_glob_flags |= flags_on;
-    _fr_ret;
-}
-
-// we are all bigots
-// so filled with hatred
-// we release our poisons
-int fr_mod_size(frc *view, int xc, int yc, int wid, int hgt) // move us around
-{
-    int detail;
-    _fr_top(view);
-    // should leard to deal with built zoom and such, so on
-    detail = _fr->detail;
-    fr_place_view(_fr, _fr->camptr, NULL, _fr->flags, _fr->axis, _fr->fov, xc, yc, wid, hgt);
-    _fr->detail = detail;
     _fr_ret;
 }
 
@@ -498,45 +393,6 @@ void fr_use_global_detail(frc *view) {
         ((fauxrend_context *)view)->detail = FR_USE_GLOBAL_DETAIL;
 }
 
-int fr_view_resize(frc *view, int wid, int hgt) {
-    int nw, nh, nxt, nyt;
-    int detail;
-    _fr_top(view);
-    nw = _fr->xwid;
-    nh = _fr->ywid;
-    nxt = _fr->xtop;
-    nyt = _fr->ytop; /* get base new coors */
-    if ((nw + nxt <= wid) && (nh + nyt <= hgt))
-        ; /* all ok... */
-    else {
-        if (nw < wid)
-            nxt = (wid - nw) / 2;
-        else {
-            nw = wid;
-            nxt = 0;
-        } /* either center old size, or fill new */
-        if (nh < hgt)
-            nyt = (hgt - nh) / 2;
-        else {
-            nh = hgt;
-            nyt = 0;
-        } /* either center old size, or fill new */
-    }
-    detail = _fr->detail;
-    fr_place_view(_fr, _fr->camptr, NULL, _fr->flags, _fr->axis, _fr->fov, nxt, nyt, nw, nh);
-    _fr->detail = detail;
-    _fr_ret;
-}
-
-int fr_view_full(frc *view, int wid, int hgt) {
-    int detail;
-    _fr_top(view);
-    detail = _fr->detail;
-    fr_place_view(_fr, _fr->camptr, NULL, _fr->flags, _fr->axis, _fr->fov, 0, 0, wid, hgt);
-    _fr->detail = detail;
-    _fr_ret;
-}
-
 void *fr_get_canvas(frc *view) {
     _fr_top_cast(view, (void *));
     return &_fr->draw_canvas;
@@ -562,14 +418,6 @@ void _fr_update_context(int det) {
 void _fr_change_detail(int det) {
     // note: pixel_ratio 5 data types before scrw, if order is preserved
     int tmpz, fov;
-#ifdef DOUBLE_DEF_STUPID_BLEND
-    if ((det == 1) && (_fr_last_detail != 1)) { /*_fr->viewer_zoom<<=1; */
-        *(fix *)((&scrw) - 5) >>= 1;
-    }
-    if ((det != 1) && (_fr_last_detail == 1)) { /*_fr->viewer_zoom>>=1; */
-        *(fix *)((&scrw) - 5) <<= 1;
-    }
-#endif
     switch (det) {
     case 0:
         g3_set_tmaps_linear();
@@ -621,10 +469,6 @@ int fr_prepare_view(frc *view) {
     _fr_ret;
 }
 
-#ifdef STEREO_SUPPORT
-extern uchar hack_cameras_needed;
-#endif
-
 /* sets the 3d system up based upon the prepared context */
 #define FIXANG_EPS (FIXANG_PI >> 5)
 #define FIXANG_MASK (2 * FIXANG_PI - 1)
@@ -640,10 +484,6 @@ int fr_start_view(void) {
     uchar old_cam_type;
     int detail;
     uchar *gpu_bits = NULL; // the GPU's canvas, if this view is drawn into one
-
-    if(should_opengl_swap()) {
-        opengl_start_frame();
-    }
 
     // A frame the GPU will draw goes into a GPU canvas, not the view's own
     // memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only the
@@ -698,14 +538,7 @@ int fr_start_view(void) {
         detail = _fr_global_detail;
     else
         detail = _fr->detail;
-    if (use_opengl()) {
-        _fr_per_func = _fr_floor_func = _fr_wall_func = opengl_draw_tmap;
-        _fr_lit_per_func = _fr_lit_floor_func = _fr_lit_wall_func = opengl_light_tmap;
-        extern int (*g3_tmap_func)(int n, g3s_phandle *vp, grs_bitmap *bm);
-        g3_tmap_func = opengl_light_tmap;
-
-        opengl_set_viewport(_fr->xtop, _fr->ytop, _fr->xwid, _fr->ywid);
-    } else if (detail != 0) {
+    if (detail != 0) {
         /* check viewer orientation.  Use wall/floor/full perspective texture maps accordingly. */
         _fr_lit_per_func = g3_light_tmap;
         _fr_per_func = g3_draw_tmap;
@@ -743,28 +576,6 @@ int fr_start_view(void) {
         g3_set_tmaps_linear();
     }
 
-#ifdef _FR_PIXPROF
-    gr_start_frame();
-#endif
-
-#ifdef STEREO_SUPPORT
-    if (((_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) == 0) && inp6d_stereo_active &&
-        ((_fr_curflags & FR_CURVIEW_MASK) == FR_CURVIEW_STRT)) {
-        extern uchar g3d_stereo;
-        i6_video(I6VID_FRM_START, NULL); // lets go
-        i6_video(I6VID_FRM_INFIN, NULL); // begin infinite region
-        gr_set_canvas(i6d_ss->cf_infin);
-        //      gr_clear(0x78);
-        //      gr_clear(0);
-        i6_video(I6VID_FRM_STEREO, NULL); // now, the stereo set
-        gr_set_canvas(i6d_ss->cf_left);
-        if (i6d_device == I6D_CTM)
-            grd_cap->aspect <<= 1;
-        g3_set_eyesep(inp6d_stereo_div / 96); // stereo div is in fix inches...
-        g3_start_stereo_frame(i6d_ss->cf_right);
-        //      g3d_stereo=0;
-    } else
-#endif
         g3_start_frame();
 
     /*KLC - stereo
@@ -833,9 +644,6 @@ int fr_start_view(void) {
 
 //#define JUST_SHOW_THE_THING
 
-/* send the actual frame out a here.... */
-// you're so kind when it serves you well
-uchar smooth_double = FALSE;
 g3s_vector zvec = {0, 0, 0};
 
 extern uchar view360_is_rendering;
@@ -861,7 +669,6 @@ int fr_send_view(void) {
     // no stars in this scene it simply returns
     // spin it, spin it more when reactor blown
     // rotation every 20 minutes, every 1 minute after explosion
-    // with OpenGL, the starts have already been rendered before everything else
 
     VPROF_MARK_BEGIN(VPROF_STARS);
     g3_start_object_angles_y(&zvec, QUESTBIT_GET(0x14) ? player_struct.game_time * 3 : player_struct.game_time / 5);
@@ -893,29 +700,7 @@ int fr_send_view(void) {
         rastq_gpu_finish();
     }
 
-    if(should_opengl_swap()) {
-        opengl_end_frame();
-    }
-
     // stereo support - closedown ??
-#ifdef STEREO_SUPPORT
-    if (((_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) == 0) && inp6d_stereo_active &&
-        ((_fr_curflags & FR_CURVIEW_MASK) == FR_CURVIEW_STRT)) {
-        gr_set_canvas(grd_screen_canvas);
-        if (_fr->draw_call)
-            snd_frm = _fr->draw_call(grd_screen_canvas, &_fr->draw_canvas.bm, _fr->xtop, _fr->ytop, _fr_curflags);
-        gr_set_canvas(i6d_ss->cf_left);
-        (*fr_mouse_show)();
-        gr_set_canvas(i6d_ss->cf_right);
-        (*fr_mouse_show)();
-        i6_video(I6VID_FRM_DONE, NULL);
-        i6_video(I6VID_FRM_COPY, NULL); // send it's butt
-        gr_set_canvas(i6d_ss->cf_left);
-        if (i6d_device == I6D_CTM)
-            grd_cap->aspect >>= 1;
-        _fr_ret;
-    }
-#endif
 
     // If we're rendering just the quick mono bitmap (for clicking on items, on-line help, etc),
     // then return here.

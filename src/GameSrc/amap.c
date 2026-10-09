@@ -92,29 +92,19 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define DRAW_MASK_SENS 0x10
 
 //#define AMAP_SENS_TILEBOUND
-#define AMAP_SENS_CIRCLE
 
-#define CORRECT_PIXEL_RATIO
-#define FIX_PIXRATIO
 
 // beware the shifting version.  If pixratio_shf is negative,
 // C does not define what happens.  This does not happen to
 // occur in any of the screen modes we plan to support, and
 // might work right anyway.
 //
-#ifdef CORRECT_PIXEL_RATIO
-#ifdef FIX_PIXRATIO
 fix pixratio_yx = FIX_UNIT;
 fix pixratio_xy = FIX_UNIT;
 //#define coor_to_pix(y) fast_fix_mul(pixratio_yx,(y))	 KLC - Changed this
 //#define pix_to_coor(y) fast_fix_mul(pixratio_xy,(y))
 #define coor_to_pix(y) fix_mul(pixratio_yx, (y))
 #define pix_to_coor(y) fix_mul(pixratio_xy, (y))
-#else
-int pixratio_shf = 0;
-#define coor_to_pix(y) ((y) << pixratio_shf)
-#define pix_to_coor(y) ((y) >> pixratio_shf)
-#endif
 
 // fix times int can use regular multiply
 #define am_vline(x, y0, y1)         gr_vline(x, coor_to_pix(y0), coor_to_pix(y1))
@@ -123,14 +113,6 @@ int pixratio_shf = 0;
 #define am_int_line(x0, y0, x1, y1) gr_int_line(x0, coor_to_pix(y0), x1, coor_to_pix(y1))
 #define am_fix_line(x0, y0, x1, y1) gr_fix_line(x0, coor_to_pix(y0), x1, coor_to_pix(y1))
 #define am_int_circle(xc, yc, r)    gr_int_circle(xc, coor_to_pix(yc), r)
-#else
-#define am_vline      gr_vline
-#define am_hline      gr_hline
-#define am_rect       gr_rect
-#define am_int_line   gr_int_line
-#define am_fix_line   gr_fix_line
-#define am_int_circle gr_int_circle
-#endif
 
 //-------------------
 // Prototypes
@@ -196,49 +178,6 @@ void amap_settings_copy(curAMap *from, curAMap *to) {
     to->zoom = from->zoom;
 }
 
-#ifdef USE_COMPILED_WALLS
-uchar wall_seen_p(int wallcode, int csbits, MapElem *cur) {
-    // if(textprops[me_tmap_flr(cur)].force_dir==1)
-    // return 0;
-
-    if (wallcode < FMK_INT_INT) {
-        return csbits & wallcode;
-    } else {
-        int mo1, mo2, lb1, lb2, ck1, ck2;
-        switch (me_tiletype(cur)) {
-        case TILE_SOLID_NW:
-            mo1 = -MAP_XSIZE;
-            mo2 = 1;
-            ck1 = FMK_NW;
-            ck2 = FMK_WW;
-            break;
-        case TILE_SOLID_NE:
-            mo1 = -MAP_XSIZE;
-            mo2 = -1;
-            ck1 = FMK_NW;
-            ck2 = FMK_EW;
-            break;
-        case TILE_SOLID_SE:
-            mo1 = MAP_XSIZE;
-            mo2 = 1;
-            ck1 = FMK_SW;
-            ck2 = FMK_WW;
-            break;
-        case TILE_SOLID_SW:
-            mo1 = MAP_XSIZE;
-            mo2 = -1;
-            ck1 = FMK_SW;
-            ck2 = FMK_EW;
-            break;
-        default:
-            return 0;
-        }
-        lb1 = me_clearsolid(cur + mo1);
-        lb2 = me_clearsolid(cur + mo2);
-        return ((csbits & FMK_INT_XX) || (((lb1 | lb2) != 0) && (((lb1 & ck1) != 0) || ((lb2 & ck2) != 0))));
-    }
-}
-#else
 #include "fredge.h"
 uchar wall_seen_p(int wallcode, int csbits, MapElem *cur) {
     // if(textprops[me_tmap_flr(cur)].force_dir)
@@ -269,29 +208,8 @@ uchar wall_seen_p(int wallcode, int csbits, MapElem *cur) {
     }
     return 0;
 }
-#endif
 
-#ifdef REAL_XIST_CHECK
-uchar wall_xist_p(int wallcode, int csbits, MapElem *cur) {
-    if (wallcode < FMK_INT_INT)
-        return ((csbits & (wallcode >> 4)) == 0); // wow, this is super wacky (tm)? punt diags and go with?
-    else {
-        switch (me_tiletype(cur)) {
-        case TILE_SOLID_NW:
-            return 1;
-        case TILE_SOLID_NE:
-            return 1;
-        case TILE_SOLID_SE:
-            return 1;
-        case TILE_SOLID_SW:
-            return 1;
-        }
-        return 0;
-    }
-}
-#else
 #define wall_xist_p(wc, cs, cur) (wallcode < FMK_INT_INT)
-#endif
 
 void wall_draw(int xm, int ym, int wallcode, int size, MapElem *cur) {
     switch (wallcode) {
@@ -506,20 +424,12 @@ void obj_mess(curAMap *amptr, MapElem *curmp, int drw, int xm, int ym, int tsize
                                 }
                             }
                             gr_set_fcolor(BLACK + 1);
-#ifdef SVGA_SUPPORT
                             {
                                 extern uchar shadow_scale;
                                 shadow_scale = FALSE;
-#endif
-#ifdef CORRECT_PIXEL_RATIO
                                 draw_shadowed_string(buf, xm + 1, coor_to_pix(ym - tsize + 1), AQUA_8_BASE + col);
-#else
-                            draw_shadowed_string(buf, xm + 1, ym - tsize + 1, AQUA_8_BASE + col);
-#endif
-#ifdef SVGA_SUPPORT
                                 shadow_scale = TRUE;
                             }
-#endif
                             ResUnlock(RES_tinyTechFont);
                             gr_set_font(fon);
                         }
@@ -580,41 +490,18 @@ void draw_full_obj(curAMap *amptr, short OtoF, int col, int zeroscrx, int zerosc
     am_fix_line(rx, ry, tx, ty);
 }
 
-#ifdef AMAP_SENS_TILEBOUND
-static char facecheck[] = {(1 << NORTH) | (1 << WEST), (1 << NORTH) | (1 << EAST), (1 << SOUTH) | (1 << EAST),
-                           (1 << SOUTH) | (1 << WEST)};
-#endif
-
-#ifdef CORRECT_PIXEL_RATIO
 void amap_pixratio_set(fix ratio) {
     if (ratio == 0)
         ratio = fix_make(grd_screen_canvas->bm.h, 0) * STD_SCR_WID / (grd_screen_canvas->bm.w * STD_SCR_HGT);
 
-#ifdef FIX_PIXRATIO
     pixratio_yx = ratio;
     pixratio_xy = fix_div(FIX_UNIT, ratio);
-#else
-    // note once again that this only works if pixratio_shf is only
-    // ever intended to be positive.
-    pixratio_shf = 0;
-    while (ratio > FIX_UNIT) {
-        ratio = ratio >> 1;
-        pixratio_shf++;
-    }
-    if (ratio < ((FIX_UNIT * 707) / 1000)) { // root(2)/2, or half a shift
-        pixratio_shf--;
-    }
-#endif
 }
-#endif
 
 void amap_draw(curAMap *amptr, int expose) {
     int xc, yc, xm, ym, drw, static_drw, cv; // loop control, so on
     int zeroscrx, zeroscry, init_yc;         // x and y screen coordinate for 0,0 of map
     int tsize = 1 << amptr->zoom;
-#ifdef AMAP_SENS_TILEBOUND
-    int facemask;
-#endif
     int mt, pass;
     ushort sensor_x, sensor_y;
     MapElem *curmp = MAP_GET_XY(0, 0);
@@ -719,7 +606,6 @@ void amap_draw(curAMap *amptr, int expose) {
             if ((me_tiletype(curmp) != TILE_SOLID) && (drw != 0)) {
                 int csbits = me_clearsolid(curmp), loop;
 
-#ifndef REAL_XIST_CHECK
                 if (drw & DRAW_MASK_TERR) {
                     gr_set_fcolor(GREEN_BASE + 9);
                     wall_draw(xm, ym, FMK_INT_NW, tsize, curmp);
@@ -728,77 +614,17 @@ void amap_draw(curAMap *amptr, int expose) {
                     wall_draw(xm, ym, FMK_INT_WW, tsize, curmp);
                     gr_set_fcolor(GREEN_BASE + 2);
                 }
-#endif
 
                 gr_set_fcolor(GREEN_BASE + 2);
 
-#ifdef USE_COMPILED_WALLS
-                for (loop = (1 << 4); loop <= FMK_INT_INT; loop <<= 1)
-                    if (wall_seen_p(loop, csbits, curmp))
-                        put back in later.wall_draw(xm, ym, loop, tsize, curmp);
-#else
                 for (loop = (1 << 4), csbits = 0; loop <= FMK_INT_INT; csbits++, loop <<= 1)
                     if ((drw & DRAW_MASK_SEEN) &&
                         (cv = wall_seen_p(loop, csbits, curmp))) { // colors are gb+2,5,8 for wall,cliff,bigstep
                         gr_set_fcolor(GREEN_BASE + 2 + (2 * (cv - 1)));
                         wall_draw(xm, ym, loop, tsize, curmp);
                     }
-#endif
-
-#ifdef REAL_XIST_CHECK
-                    else if (amptr->flags & AMAP_SHOW_ALL)
-                        if (wall_xist_p(loop, csbits, curmp)) {
-                            gr_set_fcolor(GREEN_BASE + 9);
-                            wall_draw(xm, ym, loop, tsize, curmp);
-                            gr_set_fcolor(GREEN_BASE + 2);
-                        }
-#endif
 
             } // if !tile_solid
-#ifdef AMAP_SENS_TILEBOUND
-            if ((drw & DRAW_MASK_RAD) && (drw & DRAW_MASK_SENS)) {
-                if (fix_fast_pyth_dist((xc << 8) + 0x80 - sensor_x, (yc << 8) + 0x80 - sensor_y) + (1 << 8) >=
-                    amptr->sensor_rad) {
-                    facemask = 0;
-
-                    if (fix_fast_pyth_dist((xc << 8) + 0x80 - sensor_x, ((yc + 1) << 8) + 0x80 - sensor_y) >=
-                        amptr->sensor_rad)
-                        facemask |= (1 << NORTH);
-                    if (fix_fast_pyth_dist((xc << 8) + 0x80 - sensor_x, ((yc - 1) << 8) + 0x80 - sensor_y) >=
-                        amptr->sensor_rad)
-                        facemask |= (1 << SOUTH);
-                    if (fix_fast_pyth_dist((xc + 1 << 8) + 0x80 - sensor_x, (yc << 8) + 0x80 - sensor_y) >=
-                        amptr->sensor_rad)
-                        facemask |= (1 << EAST);
-                    if (fix_fast_pyth_dist((xc - 1 << 8) + 0x80 - sensor_x, (yc << 8) + 0x80 - sensor_y) >=
-                        amptr->sensor_rad)
-                        facemask |= (1 << WEST);
-
-                    if (facemask) {
-                        gr_set_fcolor(GRAY_8_BASE + 3);
-                        if (drw & DRAW_MASK_SEEN) {
-                            mt = me_tiletype(curmp);
-                            if (mt >= TILE_SOLID_NW && mt <= TILE_SOLID_SW) {
-                                mt -= TILE_SOLID_NW;
-                                if ((facemask & facecheck[mt]) == facecheck[mt]) {
-                                    wall_draw(xm, ym, FMK_INT_INT, tsize, curmp);
-                                    facemask ^= facecheck[mt];
-                                }
-                            }
-                        }
-
-                        if (facemask & (1 << NORTH))
-                            wall_draw(xm, ym, FMK_INT_NW, tsize, curmp);
-                        if (facemask & (1 << SOUTH))
-                            wall_draw(xm, ym, FMK_INT_SW, tsize, curmp);
-                        if (facemask & (1 << EAST))
-                            wall_draw(xm, ym, FMK_INT_EW, tsize, curmp);
-                        if (facemask & (1 << WEST))
-                            wall_draw(xm, ym, FMK_INT_WW, tsize, curmp);
-                    }
-                }
-            }
-#endif
         } // for y loop
 
     for (pass = 0; pass < NUM_OBJ_PASSES; pass++) {
@@ -820,7 +646,6 @@ void amap_draw(curAMap *amptr, int expose) {
     draw_full_obj(amptr, PLAYER_OBJ, RED_BASE + 3, zeroscrx, zeroscry);
     if ((amptr->flags & AMAP_TRACK_OBJ) && (amptr->obj_to_follow != PLAYER_OBJ))
         draw_full_obj(amptr, amptr->obj_to_follow, PURPLE_8_BASE + 3, zeroscrx, zeroscry);
-#ifdef AMAP_SENS_CIRCLE
     if (drw & DRAW_MASK_SENS) {
         int r = amptr->sensor_rad;
         // accound for needing to see the center of square and
@@ -830,7 +655,6 @@ void amap_draw(curAMap *amptr, int expose) {
         r = amptr->sensor_rad + (1 << 8) * 707 / 1000;
         draw_radius_obj(amptr, PLAYER_OBJ, GRAY_8_BASE + 4, zeroscrx, zeroscry, r);
     }
-#endif
 }
 
 // x and y are window relative, return the map square?
@@ -880,7 +704,6 @@ ObjID amap_loc_get_note(void *map_sq) {
     return OBJ_NULL;
 }
 
-#define MAP_LOOK_AROUND
 // sets to_do to AMAP_OFF_MAP, AMAP_HAVE_NOTE, AMAP_NO_NOTE
 // returns OBJ_NULL if NO_NOTE or OFF_MAP
 // returns Obj of the map_note if HAVE_NOTE
@@ -890,7 +713,6 @@ ObjID amap_loc_note_check(curAMap *amptr, void *curmp, int *x, int *y, int *to_d
         *to_do = AMAP_OFF_MAP;
         return OBJ_NULL;
     }
-#ifdef MAP_LOOK_AROUND
     map_note = amap_loc_get_note(curmp);
     if (map_note == OBJ_NULL) { // check around, in the traditional way - big zoom = small map
         int extloop, inloop, clen, dvec[2] = {0, 1}, rad = 2 * (3 - amptr->zoom), mx = *x, my = *y;
@@ -920,9 +742,6 @@ ObjID amap_loc_note_check(curAMap *amptr, void *curmp, int *x, int *y, int *to_d
             }
     }
 hack_breakout:
-#else
-    map_note = amap_loc_get_note(curmp);
-#endif
     if (map_note != OBJ_NULL) { // a note is there...
         *to_do = AMAP_HAVE_NOTE;
         return map_note;
@@ -1054,18 +873,8 @@ uchar amap_get_note(curAMap *amptr, char *buf) {
     uchar retval = TRUE;
 // later, do this for real
 // ie base on the string stuff
-#ifdef USE_OBJ
-    if (amptr->note_obj != 0) {
-        strcpy(buf, "map note 0000");
-        buf[9] = '0' + (((int)amptr->note_obj) / 1000) % 10;
-        buf[10] = '0' + (((int)amptr->note_obj) / 100) % 10;
-        buf[11] = '0' + (((int)amptr->note_obj) / 10) % 10;
-        buf[12] = '0' + (((int)amptr->note_obj) % 10);
-    }
-#else
     if (amptr->note_obj != 0)
         strcpy(buf, amap_note_string(amptr->note_obj));
-#endif
     else {
         retval = FALSE;
         strcpy(buf, get_temp_string(REF_STR_NoMapMessage));

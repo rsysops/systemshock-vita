@@ -220,13 +220,6 @@ uchar mfd_gump_handler(MFD *m, uiEvent *e) {
     row = (pos.y - FIRST_ITEM_Y) / CONTENTS_HGT;
     row = 2 * row + (pos.x - LEFT_MARGIN) / CONTENTS_WID;
 
-#ifdef RIGHT_BUTTON_GUMP_UI
-    if (LAST_INPUT_ROW != 0xFF && row != LAST_INPUT_ROW) {
-        if (e->mouse_data.buttons & (1 << MOUSE_RBUTTON)) {
-            return gump_pickup(LAST_INPUT_ROW);
-        }
-    }
-#endif // RIGHT_BUTTON_GUMP_UI
     if (row < 0 || row >= gump_num_objs)
         return FALSE;
     if (LAST_DOUBLE && (e->mouse_data.action & MOUSE_LUP)) {
@@ -234,10 +227,6 @@ uchar mfd_gump_handler(MFD *m, uiEvent *e) {
     }
     if (!(e->mouse_data.action & (MOUSE_LDOWN | UI_MOUSE_LDOUBLE)))
         return FALSE;
-#ifdef RIGHT_BUTTON_GUMP_UI
-    if (!(e->mouse_data.action & (MOUSE_LDOWN | MOUSE_RDOWN | UI_MOUSE_LDOUBLE)) && !(e->buttons & (1 << MOUSE_RBUTTON)))
-        return FALSE;
-#endif // RIGHT_BUTTON_GUMP_UI
     // Hey, this is a little extra work, but it gets the job done.
     bm = bitmaps_2d[OPNUM(gump_idlist[row])];
     x = LEFT_MARGIN + ((row % 2 == 0) ? 0 : CONTENTS_WID) + (CONTENTS_WID - bm->w) / 2;
@@ -265,15 +254,6 @@ uchar mfd_gump_handler(MFD *m, uiEvent *e) {
                 }
             }
         }
-#ifdef RIGHT_BUTTON_GUMP_UI
-        if (e->action & MOUSE_RDOWN) {
-            // KLC         mouse_constrain_xy(m->rect.ul.x,m->rect.ul.y,m->rect.lr.x-1,m->rect.lr.y-1);
-            LAST_INPUT_ROW = row;
-            return TRUE;
-        }
-        if (e->action & MOUSE_RUP)
-            return gump_pickup(row);
-#endif // RIGHT_BUTTON_GUMP_UI
     } else if (e->mouse_data.buttons & (1 << MOUSE_RBUTTON)) {
         return gump_pickup(row);
     }

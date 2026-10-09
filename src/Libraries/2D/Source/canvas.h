@@ -45,10 +45,5 @@ extern void gr_make_canvas (grs_bitmap *bm, grs_canvas *c);
 extern void gr_init_canvas (grs_canvas *c, uchar *p, int type, short w, short h);
 extern void gr_init_sub_canvas (grs_canvas *sc, grs_canvas *dc,
                                 short x, short y, short w, short h);
-extern grs_canvas *gr_alloc_canvas (int type, short w, short h);
-extern void gr_free_canvas (grs_canvas *c);
-extern grs_canvas *gr_alloc_sub_canvas (grs_canvas *c, short x, short y,
-                                        short w, short h);
-extern void gr_free_sub_canvas (grs_canvas *c);
 
 #endif /* !__CANVAS_H */

@@ -26,7 +26,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //#include "error.h"
 //#include "lg.h"
 
-extern errtype audiolog_init();
 extern errtype audiolog_play(int email_id);
 extern errtype audiolog_bark_play(int bark_id);
 extern void audiolog_stop();

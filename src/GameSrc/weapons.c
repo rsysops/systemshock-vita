@@ -63,10 +63,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frtypes.h"
 #include "doorparm.h"
 #include "gr2ss.h"
-#ifdef STEREO_SUPPORT
-#include <inp6d.h>
-#include <i6dvideo.h>
-#endif
 
 #define MIN_ENERGY_WPN_THRESHOLD 20
 #define FATIGUE_ACCURACY_RATIO 400
@@ -82,7 +78,6 @@ short mouse_attack_y = -1;
 //----------------
 //  Internal Prototypes
 //----------------
-void weapon_properties(int triple, ubyte *damage_modifier, ubyte *offense);
 ObjID do_effect_fix(ObjID owner, ubyte effect, ubyte start, Combat_Pt effect_point, short location);
 ObjID do_wall_hit(Combat_Pt *hit_point, Combat_Pt pt, int triple, short mouse_x, short mouse_y, uchar do_effect);
 uchar player_fire_handtohand(LGPoint *pos, ubyte slot, ObjID *what_hit, int gun_triple);
@@ -147,29 +142,6 @@ char *get_weapon_long_name(int type, int subtype, char *buf) {
     strcpy(buf, name);
 
     return buf;
-}
-
-// ---------------------------------------------------------------------
-// weapon_properties()
-//
-
-void weapon_properties(int triple, ubyte *damage_modifier, ubyte *offense) {
-    int wpn_class = TRIP2CL(triple);
-
-    switch (wpn_class) {
-    case (CLASS_GUN): // Beam weapon is the only gun with damage type
-        *damage_modifier = BeamGunProps[SCTRIP(triple)].damage_modifier;
-        *offense = BeamGunProps[SCTRIP(triple)].offense_value;
-        break;
-    case (CLASS_PHYSICS):
-        *damage_modifier = AmmoProps[CPTRIP(triple)].damage_modifier;
-        *offense = AmmoProps[CPTRIP(triple)].offense_value;
-        break;
-    case (CLASS_GRENADE):
-        *damage_modifier = GrenadeProps[CPTRIP(triple)].damage_modifier;
-        *offense = GrenadeProps[CPTRIP(triple)].offense_value;
-        break;
-    }
 }
 
 // -------------------------------------------------------------------------
@@ -811,8 +783,6 @@ byte gun_fire_offset = 0;
 #define AUTOFIRE_SPEED 1500
 #define SOFTWARE_SPEW_FIRE_RATE 60
 
-ulong software_fire_remainder = 0;
-
 char cspace_digi_fxs[] = {SFX_DRILL, SFX_DATASTORM, SFX_NONE, SFX_DISC, SFX_PULSER, SFX_NONE, SFX_NONE};
 int cspace_slow_projs[] = {DRILLSLOW_TRIPLE, SPEWSLOW_TRIPLE, 0, DISCSLOW_TRIPLE, CYBERSLOW_TRIPLE, 0, 0};
 
@@ -891,15 +861,6 @@ uchar fire_player_weapon(LGPoint *pos, LGRegion *r, uchar pull) {
     cp = realpos;
     if (!DoubleSize)
         ss_mouse_convert(&(cp.x), &(cp.y), TRUE);
-#ifdef STEREO_SUPPORT
-    if (convert_use_mode == 5) {
-        switch (i6d_device) {
-        case I6D_VFX1:
-            realpos.x = realpos.x << 1;
-            break;
-        }
-    }
-#endif
     if (!RECT_TEST_PT(&rc, cp)) {
         //realpos.x = r->abs_x + RectWidth(r->r) / 2;
         //realpos.y = r->abs_y + RectHeight(r->r) / 2;
@@ -1051,21 +1012,6 @@ uchar fire_player_weapon(LGPoint *pos, LGRegion *r, uchar pull) {
     }
     return (handart_ok);
 }
-
-#ifdef SELFRUN
-// ----------------------------------------------
-// demo_fire_weapon()
-//
-
-void demo_fire_weapon(short x, short y) {
-    LGPoint aimpos;
-
-    aimpos.x = x;
-    aimpos.y = y;
-    ui_mouse_put_xy(x, y);
-    fire_player_weapon(&aimpos, _current_view, TRUE);
-}
-#endif
 
 // ---------------------------------------------------------------
 // get_available_ammo_type()
@@ -1245,10 +1191,8 @@ void randomize_cursor_pos(LGPoint *cpos, LGRegion *reg, ubyte p)
   if (p < 2) return;
 
   LGRect r = *(reg->r);
-#ifdef SVGA_SUPPORT
   ss_mouse_convert(&(r.ul.x), &(r.ul.y), FALSE);
   ss_mouse_convert(&(r.lr.x), &(r.lr.y), FALSE);
-#endif
 
   short x, y, dx, dy;
 

@@ -46,19 +46,12 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // ------------------- 
 // Defines and Globals
 // -------------------
-errtype ui_init_slabs(void);
 
 uiSlab* uiCurrentSlab = NULL;
 
 // ---------
 // INTERNALS
 // ---------
-
-errtype ui_init_slabs(void)
-{
-   uiCurrentSlab = NULL;
-   return OK;
-}
 
 
 // -------------
@@ -79,23 +72,9 @@ errtype uiMakeSlab(uiSlab* slab, LGRegion* cursor_reg, LGCursor* default_cursor)
    return OK;
 }
 
-errtype uiDestroySlab(uiSlab* slab)
-{
-   slab->creg = NULL;
-   uiDestroyCursorStack(&slab->cstack);
-   array_destroy(&slab->fchain.chain);
-   return OK;
-}
-
 errtype uiSetCurrentSlab(uiSlab* slab)
 {
    uiCurrentSlab = slab;
-   return OK;
-}
-
-errtype uiGetCurrentSlab(uiSlab** slab)
-{
-   *slab = uiCurrentSlab;
    return OK;
 }
 

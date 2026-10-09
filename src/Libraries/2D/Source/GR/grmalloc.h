@@ -30,8 +30,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #ifndef __GRMALLOC_H
 #define __GRMALLOC_H
 
-extern void gr_set_malloc (void *(*malloc_func)(int bytes));
-extern void gr_set_free (void (*free_func)(void *mem));
 extern void *(*gr_malloc)(int n);
 extern void (*gr_free)(void *p);
 

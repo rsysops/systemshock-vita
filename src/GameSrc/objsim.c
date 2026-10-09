@@ -85,7 +85,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // Some useful constants
 
-#define OBSELETE_WARES_USELESS
 #define NUM_CONTENTS 4
 #define MAX_CONTAINER_OBJS NUM_CONTENTS
 
@@ -106,7 +105,6 @@ cams objmode_cam;
 uchar new_cyber_orient = TRUE;
 uchar ocp_settle_the_player = TRUE;
 
-uchar properties_changed = FALSE;
 uchar trigger_check = TRUE;
 ObjID physics_handle_id[MAX_OBJ];
 int physics_handle_max = -1;
@@ -141,20 +139,6 @@ errtype set_door_data(ObjID id) {
 
     return (OK);
 }
-
-#ifdef PLAYTEST
-int extra_object_frames(int triple) {
-#ifdef SPEW_ON
-    char temp[100];
-#endif
-    int retval;
-    retval = FRAME_NUM_3D(ObjProps[OPTRIP(triple)].bitmap_3d);
-    //   Spew(DSRC_OBJSIM_Editor, ("extra_frames for %x %s",triple, get_object_long_name(triple,temp,100)));
-    //   Spew(DSRC_OBJSIM_Editor, ("= %hd (from %hx) OTRIP=%d\n",
-    //   retval,ObjProps[OPTRIP(triple)].bitmap_3d,OPTRIP(triple)));
-    return (retval);
-}
-#endif
 
 Id critter_id_table[NUM_CRITTER];
 
@@ -694,19 +678,6 @@ char extract_object_special_color(ObjID id) {
     }
 }
 
-// Shutdown the object system and free up memory as appropriate
-errtype obj_shutdown() {
-    // Free the word-buffer bitmap
-    for (int i = 0; i < NUM_TEXT_BITMAPS; i++) {
-        if (text_bitmap_ptrs[i] != NULL)
-            free(text_bitmap_ptrs[i]);
-    }
-
-    obj_load_art(TRUE);
-
-    return (OK);
-}
-
 void spew_contents(ObjID id, int d1, int d2) {
     char i, num_objs;
     ObjLoc newloc;
@@ -726,10 +697,8 @@ uchar obj_is_useless(ObjID oid) {
     uchar useless;
 
     useless = (ObjProps[OPNUM(oid)].flags & USELESS_FLAG) != 0;
-#ifdef OBSELETE_WARES_USELESS
     if (!useless && objs[oid].obclass == CLASS_HARDWARE)
         useless = player_struct.hardwarez[CPTRIP(ID2TRIP(oid))] >= objHardwares[objs[oid].specID].version;
-#endif
     useless = useless && !(objs[oid].info.inst_flags & USEFUL_FLAG);
     return useless;
 }
@@ -1125,7 +1094,6 @@ errtype obj_move_to_vel(ObjID id, ObjLoc *newloc, uchar phys_tel, fix x_dot, fix
         }
 
         case EDMS_PELVIS: {
-#ifdef DIRAC_EDMS
             if (global_fullmap->cyber) {
                 Dirac_frame new_dirac;
                 EDMS_get_Dirac_frame_parameters(objs[id].info.ph, &new_dirac);
@@ -1134,13 +1102,8 @@ errtype obj_move_to_vel(ObjID id, ObjLoc *newloc, uchar phys_tel, fix x_dot, fix
                 // Bleh, got to figure out the right size.  Ack!
                 // Note that this is completely not the right thing at all.
                 // DIRAC_FIX
-#ifdef WE_HAD_ANY_IDEA
-               xsize = ysize = obj_coord_from_fix(fix_mul(new_dirac.?????, COMPRESSION_FACTOR));
-#else
                 xsize = ysize = 0;
-#endif
             } else
-#endif
             {
                 Pelvis new_pelvis;
                 EDMS_get_pelvis_parameters(objs[id].info.ph, &new_pelvis);
@@ -1228,9 +1191,7 @@ errtype obj_create_player(ObjLoc *plr_loc) {
     uchar use_new = FALSE;
     physics_handle ph;
     Pelvis player_pelvis;
-#ifdef DIRAC_EDMS
     Dirac_frame player_dirac;
-#endif
     fix pos_list[3];
 
     player_struct.rep = obj_create_base(PLAYER_TRIP);
@@ -1263,13 +1224,11 @@ errtype obj_create_player(ObjLoc *plr_loc) {
         new_state.gamma = 0;
     }
 
-#ifdef DIRAC_EDMS
     if (global_fullmap->cyber) {
         instantiate_dirac(PLAYER_TRIP, &player_dirac);
         objs[PLAYER_OBJ].info.ph = ph = EDMS_make_Dirac_frame(&player_dirac, &new_state);
         new_cyber_orient = TRUE;
     } else
-#endif
     {
         instantiate_pelvis(PLAYER_TRIP, &player_pelvis);
         objs[PLAYER_OBJ].info.ph = ph = EDMS_make_pelvis(&player_pelvis, &new_state);
@@ -2288,9 +2247,6 @@ ushort obj_floor_compute(ObjID id, uchar flrh) {
     fix newsize;
 
     if (ObjProps[OPNUM(id)].render_type == FAUBJ_TEXTPOLY
-#ifndef NO_ANTIGRAV_CRATES
-        || ObjProps[OPNUM(id)].render_type == FAUBJ_SPECIAL
-#endif
     )
         newsize = 0;
     else {
@@ -2319,427 +2275,6 @@ errtype obj_floor_func(ObjID id) {
     edms_delete_go();
     return (OK);
 }
-
-#ifdef NOT_YET // later
-
-#ifdef PLAYTEST
-#pragma disable_message(202)
-uchar global_settle_func(short keycode, ulong context, void *data) {
-    ObjID oid;
-    message_info("settling all objects.");
-    FORALLOBJS(oid) { obj_settle_func(oid); }
-    return (FALSE);
-}
-
-uchar global_floor_func(short keycode, ulong context, void *data) {
-    ObjID oid;
-    message_info("flooring all objects.");
-    FORALLOBJS(oid) { obj_floor_func(oid); }
-    return (FALSE);
-}
-
-uchar check_objsys_func(short keycode, ulong context, void *data) {
-    int i;
-    char buf[64];
-    extern char *get_object_lookname(ObjID id, char use_string[], int sz);
-    Warning(("Checking objsys, looking for bad geninv\n"));
-    for (i = 0; i < NUM_GENERAL_SLOTS; i++) {
-        if (player_struct.inventory[i] != OBJ_NULL) {
-            if (!objs[player_struct.inventory[i]].active)
-                Warning(("HEY, geninv %d, id 0x%x, is not active!  Ack!!!\n", i, player_struct.inventory[i]));
-            else
-                Warning(("%d: %s\n", i, get_object_lookname(player_struct.inventory[i], buf, 64)));
-        }
-    }
-    if (ObjSysOkay())
-        message_info("ObjSys OKAY");
-    else
-        message_info("ObjSys BAD!");
-    return (FALSE);
-}
-
-    // Just compile in whichever hack it is you want to
-    // use to munge all the objects on the level
-
-    //#define TEXTURE_CRUNCH_HACK
-    //#define DELTA_FILENAME  "changepx.lst"
-    //#define SEVERED_HEAD_MUNGE
-    //#define NO_REFS_MUNGE
-    //#define CLEAR_CREATURE_PATHFIND
-    //#define CRITTER_HP_CONVERT
-    //#define CRITTER_FLAG_CLEAR
-    //#define CRITTER_HP_SETNORM
-    //#define NULL_OBJ_OBJREF_HACK
-    //#define REFLOOR_CRATES_HACK
-    //#define DOOR_HEIGHT_SQUARE
-    //#define ELDER_DEMON_EXORCISM
-    //#define TEETH
-    //#define ELEVATOR_CHECKERBOARD
-    //#define PARAMETER_DESTRUCTION
-
-#ifdef PARAMETER_DESTRUCTION
-#include <tilename.h>
-#include <mprintf.h>
-#endif
-
-#ifdef ELDER_DEMON_EXORCISM
-#define MAX_EXOR 10
-#endif
-
-#ifdef CRITTER_HP_CONVERT
-static short old_critter_hp[] = {25,  325, 400, 160, 200, 65,  60,  300, 150, 0,   50, 20,  160,
-                                 0,   125, 225, 450, 15,  110, 60,  0,   65,  180, 45, 275, 400,
-                                 550, 450, 30,  60,  250, 250, 150, 400, 60,  750, 400};
-#endif
-
-errtype obj_level_munge() {
-    short count = 0;
-#ifdef ELDER_DEMON_EXORCISM
-    ObjID oid;
-    ObjRefID oref;
-    short x, y;
-    MapElem *pme;
-    uchar found;
-    char buf[128];
-    ObjID exorcism[MAX_EXOR];
-    char exorcise_count = 0;
-#endif
-#ifdef REFLOOR_CRATES_HACK
-    ObjID oid;
-#endif
-#ifdef NO_REFS_MUNGE
-    ObjID oid, next;
-#endif
-#ifdef CLEAR_CREATURE_PATHFIND
-    ObjSpecID osid;
-    ObjID id;
-#endif
-#ifdef NULL_OBJ_OBJREF_HACK
-    ObjRefID orefid, nextref, oref2;
-    short x, y;
-#endif
-#ifdef ELEVATOR_CHECKERBOARD
-    short x, y;
-    MapElem *pme;
-
-    for (x = 0; x < MAP_XSIZE; x++) {
-        for (y = 0; y < MAP_YSIZE; y++) {
-            pme = MAP_GET_XY(x, y);
-            if ((count % 2) == 0)
-                me_bits_music_set(pme, 7);
-            count++;
-        }
-    }
-
-#endif
-
-#ifdef PARAMETER_DESTRUCTION
-    {
-        short x, y;
-        MapElem *pme;
-        uchar par, chgt, mir, tt;
-
-        for (x = 0; x < MAP_XSIZE; x++) {
-            for (y = 0; y < MAP_YSIZE; y++) {
-                pme = MAP_GET_XY(x, y);
-                tt = me_tiletype(pme);
-
-                if (tt < TILE_SLOPEUP_N && (par = me_param(pme)) != 0) {
-                    mir = me_bits_mirror(pme);
-                    if (mir == MAP_MATCH || mir == MAP_FFLAT) {
-                        chgt = me_height_ceil(pme) + par;
-                        if (chgt >= MAP_HEIGHTS)
-                            chgt = MAP_HEIGHTS - 1;
-                        me_height_ceil_set(pme, chgt);
-                    }
-                    me_param_set(pme, 0);
-                }
-            }
-        }
-    }
-#endif
-#ifdef ELDER_DEMON_EXORCISM
-    FORALLOBJS(oid) {
-#ifdef TEETH
-        Warning(("checking id %x\n", oid));
-#endif
-        found = FALSE;
-        for (x = 0; x < MAP_XSIZE; x++) {
-            for (y = 0; y < MAP_YSIZE; y++) {
-                pme = MAP_GET_XY(x, y);
-                oref = me_objref(pme);
-                while (oref != OBJ_REF_NULL) {
-                    if (objRefs[oref].obj == oid) {
-                        found = TRUE;
-                        x = MAP_XSIZE;
-                        y = MAP_YSIZE;
-                        break;
-                    }
-                    oref = objRefs[oref].next;
-                }
-            }
-        }
-        if (!found) {
-            extern char *get_object_lookname(ObjID id, char use_string[], int sz);
-            Warning(("HEY, id %x, a %s, may have the taint of Shadow!\n", oid, get_object_lookname(oid, buf, 128)));
-            Warning(("id %x, ref = %x\n", oid, objs[oid].ref));
-            exorcism[exorcise_count++] = oid;
-        }
-    }
-    Warning(("done scanning...\n"));
-#ifdef TEETH
-    for (x = 0; x < exorcise_count; x++) {
-        extern ObjID ObjRefFree(ObjRefID this, uchar cleanup);
-        oref = objs[exorcism[x]].ref;
-        objRefs[oref].next = OBJ_REF_NULL;
-        ObjRefFree(oref, TRUE);
-        Warning(("Hey, deleted the ref (%x) for %x!\n", oref, exorcism[x]));
-    }
-    for (x = 0; x < exorcise_count; x++) {
-        objs[exorcism[x]].ref = OBJ_REF_NULL;
-        obj_destroy(exorcism[x]);
-        //      ObjDel(exorcism[x]);
-        Warning(("deleted object %x!\n", exorcism[x]));
-    }
-#endif
-    Warning(("done with ritual (ok = %d)!\n", ObjSysOkay()));
-#endif
-
-#ifdef REFLOOR_CRATES_HACK
-    for (oid = (objs[OBJ_NULL]).headused; oid != OBJ_NULL; oid = objs[oid].next) {
-        switch (ID2TRIP(oid)) {
-        case SML_CRT_TRIPLE:
-        case LG_CRT_TRIPLE:
-        case SECURE_CONTR_TRIPLE:
-        case RAD_BARREL_TRIPLE:
-        case TOXIC_BARREL_TRIPLE:
-        case CHEM_TANK_TRIPLE:
-            obj_floor_func(oid);
-            break;
-        }
-    }
-#endif
-
-#ifdef NULL_OBJ_OBJREF_HACK
-    for (x = 0; x < MAP_XSIZE; x++) {
-        for (y = 0; y < MAP_YSIZE; y++) {
-            orefid = me_objref(MAP_GET_XY(x, y));
-            while (orefid != OBJ_REF_NULL) {
-                nextref = objRefs[orefid].next;
-                if (objRefs[orefid].obj == OBJ_NULL) {
-                    Warning(("****** Deleting objref %d!\n", orefid));
-                    me_objref_set(MAP_GET_XY(x, y), OBJ_REF_NULL);
-                    oref2 = objRefs[0].next;
-                    while (objRefs[oref2].next != OBJ_REF_NULL) {
-                        mprintf(".");
-                        oref2 = objRefs[oref2].next;
-                    }
-                    Warning(("objRefs[%d].next = %d\n", oref2, objRefs[oref2].next));
-                    objRefs[oref2].next = orefid;
-                    Warning(("after: objRefs[%d].next = %d\n", oref2, objRefs[oref2].next));
-                    objRefs[orefid].next = OBJ_REF_NULL;
-                }
-                orefid = nextref;
-            }
-        }
-    }
-#endif
-
-#ifdef CRITTER_FLAG_CLEAR
-    ObjSpecID osid;
-    ObjID id;
-    osid = objCritters[0].id;
-    while (osid != OBJ_SPEC_NULL) {
-        id = objCritters[osid].id;
-        objCritters[osid].flags = 0;
-        osid = objCritters[osid].next;
-    }
-#endif
-
-#ifdef DOOR_HEIGHT_SQUARE
-    {
-        ObjSpecID osid;
-        ObjID id;
-        int z;
-
-        osid = objDoors[0].id;
-        while (osid != OBJ_SPEC_NULL) {
-            id = objDoors[osid].id;
-
-            if (objs[id].loc.p == 0) {
-                z = objs[id].loc.z;
-                z = (z + 4) & (~7);
-                objs[id].loc.z = z;
-            }
-            osid = objDoors[osid].next;
-        }
-    }
-#endif
-
-#ifdef CLEAR_CREATURE_PATHFIND
-    osid = objCritters[0].id;
-    while (osid != OBJ_SPEC_NULL) {
-        id = objCritters[osid].id;
-        objCritters[osid].path_id = -1;
-        objCritters[osid].des_speed = 0;
-        objCritters[osid].urgency = 0;
-        osid = objCritters[osid].next;
-    }
-    used_paths = 0;
-#endif
-
-#ifdef TEXTURE_CRUNCH_HACK
-    extern errtype texture_crunch_go();
-    texture_crunch_go();
-#endif
-
-#ifdef SEVERED_HEAD_MUNGE
-    ObjSpecID osid;
-    ObjID id;
-
-    osid = objSmallstuffs[0].id;
-    while (osid != OBJ_SPEC_NULL) {
-        id = objSmallstuffs[osid].id;
-        if (ID2TRIP(id) == HEAD_TRIPLE || ID2TRIP(id) == HEAD2_TRIPLE) {
-            objs[id].info.make_info = 0;
-        }
-        osid = objSmallstuffs[osid].next;
-    }
-#endif
-
-#ifdef CRITTER_HP_CONVERT
-    {
-        ObjSpecID osid;
-        ObjID id;
-        int hp;
-
-        osid = objCritters[0].id;
-        while (osid != OBJ_SPEC_NULL) {
-            id = objCritters[osid].id;
-            hp = objs[id].info.current_hp;
-            {
-                hp *= ObjProps[OPNUM(id)].hit_points;
-                hp /= old_critter_hp[get_nth_from_triple(ID2TRIP(id))];
-                objs[id].info.current_hp = hp;
-            }
-
-            osid = objCritters[osid].next;
-        }
-    }
-#endif
-
-#ifdef CRITTER_HP_SETNORM
-    {
-        ObjSpecID osid;
-        ObjID id;
-        int hp;
-
-        osid = objCritters[0].id;
-        while (osid != OBJ_SPEC_NULL) {
-            id = objCritters[osid].id;
-            objs[id].info.current_hp = ObjProps[OPNUM(id)].hit_points;
-
-            osid = objCritters[osid].next;
-        }
-    }
-#endif
-
-#ifdef NO_REFS_MUNGE
-    for (oid = objs[OBJ_NULL].headused; oid != OBJ_NULL; oid = next) {
-        next = objs[oid].next;
-        if (objs[oid].ref == OBJ_REF_NULL) {
-            ObjDel(oid);
-        }
-    }
-#endif
-
-#ifdef LEVEL_MUNGE_HP_HACK
-    ObjID id;
-    ObjSpecID osid;
-
-    osid = objBigstuffs[0].id;
-    while (osid != OBJ_SPEC_NULL) {
-        id = objBigstuffs[osid].id;
-        switch (ID2TRIP(id)) {
-        case GENE_SPLICER_TRIPLE:
-        case LARGCPU_TRIPLE:
-        case SCREEN_TRIPLE:
-        case BIGSCREEN_TRIPLE:
-        case SUPERSCREEN_TRIPLE:
-            if (objs[id].info.current_hp != 0) {
-                objs[id].info.current_hp = ObjProps[OPNUM(id)].hit_points;
-                count++;
-            }
-            break;
-        }
-        osid = objBigstuffs[osid].next;
-    }
-#endif
-
-#ifdef APPLY_SIZE_DELTA_HACK
-    short size_conv[NUM_OBJECT];
-    FILE *f;
-    short i, sc;
-    char temp1[50];
-    fix old_ht;
-    ObjID oid;
-
-    // Fill it up with vomitous spew
-    f = fopen(DELTA_FILENAME, "r");
-    i = 0;
-    while (!feof(f) && (i < NUM_OBJECT)) {
-        fgets(temp1, 50, f);
-        size_conv[i] = atoi(temp1);
-        Spew(DSRC_TESTING_Test4, ("size_conv[%d] = %d  temp1=%s", i, size_conv[i], temp1));
-        i++;
-    }
-    fclose(f);
-
-    FORALLOBJS(oid) {
-        if ((ObjProps[OPNUM(oid)].render_type == FAUBJ_BITMAP) ||
-            (ObjProps[OPNUM(oid)].render_type == FAUBJ_MULTIVIEW)) {
-            sc = size_conv[OPNUM(oid)];
-            if (sc != 0) {
-                count++;
-
-                old_ht = fix_from_obj_height(oid);
-                objs[oid].loc.z = obj_height_from_fix(old_ht + (fix_make(sc, 0) / PHYSICS_RADIUS_UNIT));
-            }
-        }
-    }
-#endif
-
-#ifdef FRESHEN_CORPSES_HACK
-    ObjID oid;
-    FORALLOBJS(oid) {
-        if ((ID2TRIP(oid) >= CORPSE1_TRIPLE) && (ID2TRIP(oid) <= CORPSE8_TRIPLE)) {
-            objs[oid].info.inst_flags |= CLASS_INST_FLAG;
-            count++;
-        }
-    }
-#endif
-
-    Spew(DSRC_EDITOR_Modify, ("munged %d objects!\n", count));
-    Spew(DSRC_TESTING_Test4, ("munged %d objects!\n", count));
-
-    return (OK);
-}
-#pragma enable_message(202)
-#endif
-
-#ifdef LOUD_REFRESH
-void spew_about_stuff(char *txt, ObjID id) {
-    State new_state;
-    EDMS_get_state(objs[id].info.ph, &new_state);
-    mprintf("id %x %s: %x %x %x %x %x %x \n     dots %x %x %x %x %x %x\n", id, txt, new_state.X, new_state.Y,
-            new_state.Z, new_state.alpha, new_state.beta, new_state.gamma, new_state.X_dot, new_state.Y_dot,
-            new_state.Z_dot, new_state.alpha_dot, new_state.beta_dot, new_state.gamma_dot);
-}
-#else
-#define spew_about_stuff(txt, id)
-#endif
-
-#endif // NOT_YET
 
 extern uchar robot_antisocial;
 

@@ -60,9 +60,7 @@ typedef short ObjSpecID;
 #define OBJ_SPEC_NULL 0
 
 // Now that we have some basic typedef's, we include the application-specific ones.
-#ifndef OBJAPP_H
 #include "objapp.h"
-#endif
 
 #pragma pack(push,2)
 
@@ -223,10 +221,8 @@ typedef struct ObjLocState {
 // extra state.  The list is terminated by an ObjRefState with a null bin.
 
 // Physics puts information about objects that have moved in objLocStates.
-extern ObjLocState objLocStates[MAX_OBJS_CHANGING];
 
 // numObjLocStates contains the number of entries of objLocStates that are valid.
-extern uchar numObjLocStates;
 
 //////////////////////////////
 //
@@ -239,51 +235,6 @@ extern uchar numObjLocStates;
 //
 // Hashing stuff
 //
-
-#ifdef HASH_OBJECTS
-
-typedef short ObjHashElemID;
-
-typedef struct ObjHashElem {
-    ObjRefID ref;
-    ObjHashElemID next;
-} ObjHashElem;
-
-// The entries which can actually be accessed by the hash function
-// range from OBJ_HASH_HEAD_ENTRIES_START to that + OBJ_HASH_HEAD_ENTRIES.
-// We don't start at zero because we want to reserve the zeroth element
-// to be null.
-
-extern ObjHashElem objHashTable[OBJ_HASH_ENTRIES];
-
-// ObjGetHashElem() is called by the macro ObjRefHead(), which tends
-// to be called in inner loops.  Thus, making it a function slows things
-// down a lot.  The solution used here is to make it a macro that handles
-// the simple cases (which happen most of the time) and that calls a function
-// when it encounters the complicated case (a chain is hanging off of the
-// entry).  This seems to speed up code which calls ObjRefHead() repeatedly
-// by a factor of two.
-//
-// See the full ObjGetHashElem() function in objects.c for a commented
-// version of what this is doing.
-//
-// The global variable is a pain but I don't see a way to get rid of it.
-
-#ifdef USE_FUNCTION_FOR_HASH_GET
-ObjHashElemID ObjGetHashElem(ObjRefStateBin thebin, uchar create);
-#else
-extern ObjHashElemID HASHENTRY; // global, found in objects.c
-#define ObjGetHashElem(thebin, create)                                                   \
-    (HASHENTRY = OBJ_HASH_FUNC(thebin),                                                  \
-     (objHashTable[HASHENTRY].ref == OBJ_REF_NULL                                        \
-          ? (create ? HASHENTRY : 0)                                                     \
-          : (ObjRefStateBinEqual(objRefs[objHashTable[HASHENTRY].ref].state.bin, thebin) \
-                 ? HASHENTRY                                                             \
-                 : ObjGetHashElemFromChain(thebin, create, HASHENTRY))))
-ObjHashElemID ObjGetHashElemFromChain(ObjRefStateBin bin, uchar create, ObjHashElemID firstentry);
-#endif
-
-#endif // HASH_OBJECTS
 
 //////////////////////////////
 //

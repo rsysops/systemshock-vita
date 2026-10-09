@@ -64,17 +64,14 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "faketime.h"
 #include "hkeyfunc.h"
 
-#ifdef AUDIOLOGS
 #include "audiolog.h"
 #include "vprof.h"
-#endif
 
 extern uchar tmap_big_buffer[];
 
 // prototypes
 void do_secret_fx(void);
 void gamesys_render_effects(void);
-uchar use_ir_hack(void);
 void draw_single_static_line(uchar *line_base, int lx, int rx, int c_base);
 void draw_line_static(grs_bitmap *stat_dest, int dens1, int color1);
 
@@ -282,11 +279,9 @@ void do_secret_fx(void) { // boy is this a hack....
                 mfd_change_slot(MFD_LEFT, MFD_INFO_SLOT);
                 mfd_change_slot(MFD_RIGHT, MFD_INFO_SLOT);
 // KLC-duplicate mail               add_email_datamunge(FAKEWIN_EMAIL_MUNGE, FALSE);
-#ifdef AUDIOLOGS
                 if (audiolog_setting)
                     audiolog_play(FAKEWIN_EMAIL_MUNGE);
                 if (audiolog_setting != 1)
-#endif
                     read_email(RES_paper0, FAKEWIN_PAPER);
                 fr_global_mod_flag(0, FR_SFX_MASK);
                 secret_render_fx++;
@@ -459,8 +454,6 @@ void gamesys_render_effects(void) {
         fullscreen_overlay();
 }
 
-uchar use_ir_hack(void) { return (WareActive(player_struct.hardwarez_status[HARDWARE_GOGGLE_INFRARED])); }
-
 //#pragma aux c_ror_by_5 = "ror eax,5" parm [eax] modify exact [eax];
 
 // stolen from RND.LIB, without shift gruesomeness...
@@ -471,13 +464,6 @@ void draw_single_static_line(uchar *line_base, int lx, int rx, int c_base) {
     uchar *cur_pix;
     int our_seed = rand();
     for (cur_pix = line_base + lx; lx < rx; lx++, cur_pix++) {
-#ifdef SIMPLE_LC_WAY
-        our_seed = (our_seed * LC16_MULT) + LC16_ADD;
-        if (our_seed & 0x300) // 3/4 are colored
-            *cur_pix = c_base + (our_seed & 0x7);
-        else // 1/4 black
-            *cur_pix = 0;
-#else
         if (our_seed & 0x300) {
             *cur_pix = c_base + (our_seed & 0x7);
             our_seed += (long)cur_pix;
@@ -487,7 +473,6 @@ void draw_single_static_line(uchar *line_base, int lx, int rx, int c_base) {
             our_seed += (our_seed * LC16_MULT) + LC16_ADD;
         }
 //       { *cur_pix=0; our_seed+=rand(); }
-#endif
     }
 }
 
@@ -664,7 +649,6 @@ int gamesys_draw_func(void *fake_dest_canvas, void *fake_dest_bm, int x, int y, 
                 shodan_draw_bits = shodan_draw_normal.bits;
             }
             if ((thresh_fail) || ((rand() & 0x1FF) == 1)) {
-#ifdef SVGA_SUPPORT
                 if (convert_use_mode) {
                     grs_bitmap temp_bm;
 
@@ -678,13 +662,11 @@ int gamesys_draw_func(void *fake_dest_canvas, void *fake_dest_bm, int x, int y, 
                     // Copy in and scale up the snowy bitmap
                     ss_bitmap(&temp_bm, 0, 0);
                 } else
-#endif
                 {
                     for (i = 0; i < dest_bm->h * dest_bm->w; i = i + ((thresh_fail) ? 1 : 2))
                         *(dest_bm->bits + i) = *(shodan_draw_bits + i);
                 }
             } else {
-#ifdef SVGA_SUPPORT
                 if (convert_use_mode) {
                     grs_bitmap temp_bm;
 
@@ -701,7 +683,6 @@ int gamesys_draw_func(void *fake_dest_canvas, void *fake_dest_bm, int x, int y, 
                     // Copy in and scale up the snowy bitmap
                     ss_bitmap(&temp_bm, 0, 0);
                 } else
-#endif
                 {
                     for (i = 0; i < dest_bm->h * dest_bm->w; i++) {
                         if (SHODAN_CONQUER_GET(shodan_bitmask, i))

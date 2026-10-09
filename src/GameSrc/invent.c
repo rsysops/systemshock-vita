@@ -341,17 +341,8 @@ grs_canvas *ppage_canvas = &inv_gamepage_canvas;
 
 #define NUM_PAGE_BTTNS NUM_PAGE_BUTTONS
 
-#ifdef OLD_BUTTON_CURSORS
-LGCursor invent_bttn_cursors[NUM_PAGE_BTTNS];
-grs_bitmap invent_bttn_bitmaps[NUM_PAGE_BTTNS];
-Ref invent_bttn_curs_ids[NUM_PAGE_BTTNS] = {
-    REF_IMG_bmInventWeapon, REF_IMG_bmInventHardware,   REF_IMG_bmInventGeneral,
-    REF_IMG_bmTargetCursor, REF_IMG_bmInventCombatSoft, REF_IMG_bmInventMiscSoft,
-};
-#else
 LGCursor invent_bttn_cursor;
 grs_bitmap invent_bttn_bitmap;
-#endif
 
 static char *cursor_strings[NUM_PAGE_BUTTONS];
 static char cursor_string_buf[128];
@@ -379,11 +370,9 @@ ubyte weapons_add_func(inv_display *dp, int row, ObjID *objP, uchar select);
 void weapon_drop_func(inv_display *dp, int itemnum);
 ubyte generic_add_func(inv_display *dp, int row, ObjID *idP, uchar select);
 void generic_drop_func(inv_display *dp, int row);
-char *null_name_func(inv_display *dp, int n, char *buf);
 static char *grenade_name_func(void *vdp, int n, char *buf);
 uchar grenade_use_func(inv_display *dp, int row);
 ubyte grenade_add_func(inv_display *dp, int row, ObjID *idP, uchar select);
-char *drug_name_func(inv_display *dp, int n, char *buf);
 uchar drug_use_func(inv_display *dp, int row);
 char *ammo_name_func(void *, int n, char *buf);
 void hardware_add_specials(int n, int ver);
@@ -400,7 +389,6 @@ uchar inv_select_general(inv_display *dp, int w);
 void email_more_draw(inv_display *dp);
 uchar email_more_use(inv_display *dp, int);
 uchar email_use_func(inv_display *dp, int row);
-void email_select_func(inv_display *dp, int row);
 ubyte email_add_func(inv_display *, int, ObjID *idP, uchar select);
 void email_drop_func(inv_display *, int);
 char *log_name_func(void *, int num, char *buf);
@@ -413,8 +401,6 @@ uchar inventory_handle_leftbutton(uiEvent *ev, inv_display *dp, int row);
 uchar inventory_handle_rightbutton(uiEvent *ev, LGRegion *reg, inv_display *dp, int row);
 uchar inventory_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t);
 uchar pagebutton_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t);
-uchar invent_hotkey_func(ushort, uint32_t, intptr_t data);
-void init_invent_hotkeys(void);
 void gen_log_displays(int pgnum);
 void absorb_object_on_cursor(ushort keycode, uint32_t context, intptr_t data);
 uchar gen_inv_page(int pgnum, int *i, inv_display **dp);
@@ -605,24 +591,6 @@ int get_item_at_pixrow(inv_display *dp, int row) {
     int y_step;
     int r1, r2;
 
-#ifdef STEREO_SUPPORT
-    if (convert_use_mode == 5) {
-        switch (i6d_device) {
-        case I6D_CTM:
-            ipanel_y = 1;
-            y_step = Y_STEP << 2;
-            break;
-        case I6D_VFX1:
-            ipanel_y = INVENTORY_PANEL_Y >> 1;
-            //            ipanel_y = (200 - inv_fullscrn_canvas.bm.h);
-            //            y_step = Y_STEP << 1;
-            y_step = 10;
-            break;
-        default:
-            break;
-        }
-    } else
-#endif
     {
         ipanel_y = INVENTORY_PANEL_Y;
         y_step = Y_STEP;
@@ -745,10 +713,8 @@ void draw_weapons_list(inv_display *dp) {
 uchar inventory_select_weapon(inv_display *dp, int w) {
     uchar retval = FALSE;
     int aw = player_struct.actives[ACTIVE_WEAPON];
-#ifndef NO_DUMMIES
     inv_display *newdisp;
     newdisp = dp;
-#endif // NO_DUMMIES
     if (player_struct.weapons[w].type == EMPTY_WEAPON_SLOT)
         goto out;
     if (aw != w) {
@@ -896,10 +862,8 @@ ubyte generic_add_func(inv_display *dp, int row, ObjID *idP, uchar select) {
     int trip = ID2TRIP(id);
     int n = OPTRIP(trip) - OPTRIP(dp->basetrip);
     int obclass = objs[id].obclass;
-#ifndef NO_DUMMIES
     int guf;
     guf = row;
-#endif // NO_DUMMIES
     play_digi_fx(SFX_INVENT_ADD, 1);
     if (n >= 0 && n < dp->listlen) {
         ubyte *quants = (ubyte *)&player_struct + dp->offset;
@@ -949,21 +913,10 @@ void generic_drop_func(inv_display *dp, int row) {
 }
 
 static char *generic_quant_func(inv_display *dp, int n, int q, char *buf) {
-#ifndef NO_DUMMIES
     char *dummy;
     dummy = n + (char*)dp;
-#endif // NO_DUMMIES
     //  itoa(q,buf,10);
     sprintf(buf, "%d", q);
-    return buf;
-}
-
-char *null_name_func(inv_display *dp, int n, char *buf) {
-#ifndef NO_DUMMIES
-    char *goof;
-    goof = (char*)dp + n;
-#endif // NO_DUMMIES
-    *buf = '\0';
     return buf;
 }
 
@@ -980,24 +933,14 @@ extern uiSlab fullscreen_slab;
 extern uiSlab main_slab;
 
 grs_bitmap grenade_bmap;
-#ifdef SVGA_SUPPORT
 char grenade_bmap_buffer[8700];
-#else
-char grenade_bmap_buffer[700];
-#endif
 
 void push_live_grenade_cursor(ObjID obj) {
     short w, h;
     extern LGCursor object_cursor;
     char live_string[22];
-#ifdef CURSOR_BACKUPS
-    extern grs_bitmap backup_object_cursor;
-    extern uchar *backup[NUM_BACKUP_BITS];
-#endif
-#ifdef SVGA_SUPPORT
     uchar old_over = gr2ss_override;
     short temp;
-#endif
     grs_canvas cursor_canvas;
     LGPoint hotspot;
     grs_bitmap *bmap = bitmaps_2d[OPNUM(obj)];
@@ -1009,7 +952,6 @@ void push_live_grenade_cursor(ObjID obj) {
     gr_string_size(live_string, &w, &h);
     w++;
     h++; // compensate for shadowing
-#ifdef SVGA_SUPPORT
     gr2ss_override = OVERRIDE_ALL;
     ss_set_hack_mode(2, &temp);
     if (convert_use_mode != 0) {
@@ -1018,12 +960,9 @@ void push_live_grenade_cursor(ObjID obj) {
         grenade_bmap.w = SCONV_X(grenade_bmap.w);
         grenade_bmap.h = SCONV_Y(grenade_bmap.h);
     } else {
-#endif
         grenade_bmap.w = lg_max(bmap->w, w);
         grenade_bmap.h = bmap->h + h;
-#ifdef SVGA_SUPPORT
     }
-#endif
     //   mprintf("bsize = %d, w * h = %d\n",sizeof(grenade_bmap_buffer), grenade_bmap.w * grenade_bmap.h);
     if (sizeof(grenade_bmap_buffer) < grenade_bmap.w * grenade_bmap.h)
         critical_error(0x3006);
@@ -1033,34 +972,26 @@ void push_live_grenade_cursor(ObjID obj) {
     gr_push_canvas(&cursor_canvas);
     gr_set_font(ResGet(ITEM_FONT));
     gr_clear(0);
-#ifdef SVGA_SUPPORT
     if (convert_use_mode > 0) {
         ss_bitmap(bmap, (INV_SCONV_X(grenade_bmap.w) - bmap->w) / 2, 0);
         gr_set_fcolor(0x4c);
         draw_shadowed_string(live_string, (INV_SCONV_X(grenade_bmap.w) - w) / 2, INV_SCONV_Y(grenade_bmap.h) - h, TRUE);
     } else {
-#endif
         ss_bitmap(bmap, (grenade_bmap.w - bmap->w) / 2, 0);
         gr_set_fcolor(0x4c);
         draw_shadowed_string(live_string, (grenade_bmap.w - w) / 2 + 1, grenade_bmap.h - h, TRUE);
-#ifdef SVGA_SUPPORT
     }
-#endif
     ResUnlock(ITEM_FONT);
     gr_pop_canvas();
-#ifdef SVGA_SUPPORT
     ss_set_hack_mode(0, &temp);
     gr2ss_override = old_over;
     if (convert_use_mode != 0) {
         hotspot.x = grenade_bmap.w / 2;
         hotspot.y = grenade_bmap.h / 2;
     } else {
-#endif
         hotspot.x = grenade_bmap.w / 2;
         hotspot.y = grenade_bmap.h / 2;
-#ifdef SVGA_SUPPORT
     }
-#endif
     uiHideMouse(NULL);
     uiMakeBitmapCursor(&object_cursor, &grenade_bmap, hotspot);
     uiPushSlabCursor(&fullscreen_slab, &object_cursor);
@@ -1113,14 +1044,6 @@ ubyte grenade_add_func(inv_display *dp, int row, ObjID *idP, uchar select) {
 // ----------
 #define DRUG_CLASSES (1 << CLASS_DRUG)
 #define DRUG_TRIP MAKETRIP(CLASS_DRUG, 0, 0)
-
-char *drug_name_func(inv_display *dp, int n, char *buf) {
-#ifndef NO_DUMMIES
-    inv_display *dummy;
-    dummy = dp;
-#endif // NO_DUMMIES
-    return get_drug_name(n, buf);
-}
 
 uchar drug_use_func(inv_display *dp, int row) {
     uchar retval = FALSE;
@@ -1302,52 +1225,6 @@ ubyte ware_add_func(inv_display *dp, int nn, ObjID *idP, uchar select) {
 }
 
 void ware_drop_func(inv_display *dp, int n) {
-#ifndef GAMEONLY
-    int itemnum = dp->lines[row].num;
-    ObjID obj;
-    int triple;
-    uchar oneshot;
-    ubyte *quant;
-    extern int nth_after_triple(int, uchar);
-    if (itemnum < 0 || itemnum >= dp->listlen)
-        return;
-    quant = (ubyte *)&player_struct + dp->offset;
-    if (quant[itemnum] == 0)
-        return;
-    triple = nth_after_triple(dp->basetrip, itemnum);
-    oneshot = TRIP2CL(triple) == CLASS_SOFTWARE && TRIP2SC(triple) == SOFTWARE_SUBCLASS_ONESHOT;
-    obj = obj_create_base(triple);
-    if (obj == OBJ_NULL) {
-        return;
-    }
-    if (dp->mfdtype == MFD_INV_HARDWARE)
-        objHardwares[objs[obj].specID].version = quant[itemnum];
-    else
-        objSoftwares[objs[obj].specID].version = quant[itemnum];
-    // If the ware was on, turn it off
-    if ((dp->mfdtype == MFD_INV_HARDWARE) && (player_struct.hardwarez_status[itemnum] & WARE_ON))
-        use_ware(WARE_HARD, itemnum); // actually toggles, not uses
-    if (oneshot)
-        quant[itemnum]--;
-    else
-        quant[itemnum] = 0;
-    push_cursor_object(obj);
-    if (player_struct.actives[dp->activenum] == itemnum) {
-        player_struct.actives[dp->activenum] = 0xFF;
-        // Tell the item mfd that what it was looking at may no longer be there
-        set_inventory_mfd(dp->mfdtype, MFD_INV_NOTYPE, FALSE);
-    }
-    INVENT_CHANGED;
-
-    // Tell the side icons that things are no longer what they were
-    side_icon_expose_all();
-
-    mfd_notify_func(NOTIFY_ANY_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
-
-    // If we no longer have an automapper, let the mfd know
-    if (player_struct.hardwarez[HARDWARE_AUTOMAP] == 0)
-        mfd_notify_func(MFD_EMPTY_FUNC, MFD_MAP_SLOT, TRUE, MFD_EMPTY, TRUE);
-#endif // !GAME_ONLY
 }
 
 char *null_quant_func(inv_display *dp, int n, int q, char *buf) {
@@ -1380,35 +1257,6 @@ static char *soft_quant_func(inv_display *dp, int n, int q, char *buf) {
     // COMPUTRON SUPPORT
 
 #define CTRON_WD 10
-
-#ifdef COMPUTRONS
-char *computron_quant_func(inv_display *dp, int n, int q, char *buf) {
-#ifdef REALLY_DO_COMPUTRONS
-    ubyte exists, ctrons;
-
-    switch (dp->mfdtype) {
-    case MFD_INV_SOFT_COMBAT:
-        exists = player_struct.softs.combat[n];
-        ctrons = player_struct.softs_ctrons.combat[n];
-        break;
-    case MFD_INV_SOFT_DEFENSE:
-        exists = player_struct.softs.defense[n];
-        ctrons = player_struct.softs_ctrons.defense[n];
-        break;
-    case MFD_INV_SOFT_MISC:
-        exists = player_struct.softs.misc[n];
-        ctrons = player_struct.softs_ctrons.misc[n];
-        break;
-    }
-    if (exists == 0 || ctrons == 0)
-        *buf = '\0';
-    else
-        itoa(ctrons, buf, 10);
-#endif
-    *buf = '\0';
-    return buf;
-}
-#endif // COMPUTRONS
 
     // ------------------------------
     // GENERAL INVENTORY -- FUN! FUN!
@@ -1729,14 +1577,6 @@ uchar email_use_func(inv_display *dp, int row) {
     return retval;
 }
 
-void email_select_func(inv_display *dp, int row) {
-    int n = dp->lines[row].num;
-    if (n < dp->listlen) {
-        play_digi_fx(SFX_INVENT_SELECT, 1);
-        select_email(n, TRUE);
-    }
-}
-
 void add_email_datamunge(short mung, uchar select) {
     int n;
     uchar flash_email = TRUE;
@@ -1961,43 +1801,27 @@ errtype inventory_clear(void) {
     return (OK);
 }
 
-errtype inventory_full_redraw() {
-    int i;
-    inv_last_page = -1;
-    for (i = 0; i < NUM_PAGE_BUTTONS; i++)
-        old_button_state[i] = BttnDummy;
-    return (inventory_draw());
-}
-
 errtype inventory_draw(void) {
     uchar full = inventory_page != inv_last_page;
-#ifdef SVGA_SUPPORT
     uchar old_over;
     short temp;
-#endif
     if (inventory_page < 0)
         return OK;
     gr_push_canvas(&inv_canvas);
-#ifdef SVGA_SUPPORT
     old_over = gr2ss_override;
     //   if (full_game_3d)
     //      gr2ss_override = OVERRIDE_FONT|OVERRIDE_CLIP;
     //   else
     gr2ss_override = OVERRIDE_ALL;
-#endif
     if (global_fullmap->cyber)
         inventory_page = INV_SOFTWARE_PAGE;
     if (full)
         inventory_clear();
     draw_page_buttons(full_game_3d || full);
-#ifdef SVGA_SUPPORT
     ss_set_hack_mode(2, &temp);
-#endif
     inventory_draw_page(inventory_page);
-#ifdef SVGA_SUPPORT
     ss_set_hack_mode(0, &temp);
     gr2ss_override = old_over;
-#endif
     gr_pop_canvas();
     inv_last_page = inventory_page;
     return (OK);
@@ -2007,11 +1831,6 @@ errtype inventory_draw_new_page(int pgnum) {
     inv_last_page = -1;
     inventory_page = pgnum;
     if (full_game_3d) {
-#ifdef STEREO_SUPPORT
-        if (convert_use_mode == 5)
-            full_visible = FULL_INVENT_MASK;
-        else
-#endif
             full_visible |= FULL_INVENT_MASK;
         full_raise_region(inventory_region_full);
         chg_set_sta(FULLSCREEN_UPDATE);
@@ -2070,10 +1889,8 @@ void add_object_on_cursor(inv_display *dp, int row) {
 
 uchar inventory_handle_leftbutton(uiEvent *ev, inv_display *dp, int row) {
     uchar retval = FALSE;
-#ifndef NO_DUMMIES
     void *dummy;
     dummy = ev;
-#endif // NO_DUMMIES
     switch (input_cursor_mode) {
     case INPUT_NORMAL_CURSOR:
         if (dp != NULL && row >= 0) {
@@ -2151,23 +1968,10 @@ uchar inventory_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
     int i;
     int row = -1;
     extern uchar game_paused;
-#ifdef SVGA_SUPPORT
     short temp;
-#endif
     if (game_paused)
         return (TRUE);
 
-#ifdef STEREO_SUPPORT
-    if (convert_use_mode == 5) {
-        if (i6d_device == I6D_CTM)
-            relx = ev->pos.x - 1;
-        else {
-            relx = (ev->pos.x - ((320 - inv_fullscrn_canvas.bm.w) / 2)) >> 1;
-            //         Warning(("relx: %d = %d - %d = %d >> 1\n",relx,ev->pos.x,((320-inv_fullscrn_canvas.bm.w)/2),
-            //             (ev->pos.x - ((320-inv_fullscrn_canvas.bm.w)/2))));
-        }
-    } else
-#endif
     {
         relx = ev->pos.x - INVENTORY_PANEL_X;
     }
@@ -2185,43 +1989,22 @@ uchar inventory_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
             short rel_y;
             short x, y;
             short smx, smy;
-#ifdef STEREO_SUPPORT
-            if (convert_use_mode == 5) {
-                switch (i6d_device) {
-                case I6D_CTM:
-                    rel_y = ev->pos.y - 1;
-                    break;
-                case I6D_VFX1:
-                    rel_y = ev->pos.y - (INVENTORY_PANEL_Y >> 1);
-                    //                     rel_y = ev->pos.y - (200 - inv_fullscrn_canvas.bm.h);
-                    break;
-                default:
-                    break;
-                }
-            } else
-#endif
                 rel_y = ev->pos.y - INVENTORY_PANEL_Y;
             gr_push_canvas(&inv_fullscrn_canvas);
             smx = SEARCH_MARGIN;
             smy = SEARCH_MARGIN;
-#ifdef SVGA_SUPPORT
             ss_set_hack_mode(2, &temp);
             ss_point_convert(&smx, &smy, FALSE);
-#endif
             for (x = relx - smx; !found && x <= relx + smx; x++)
                 for (y = rel_y - smy; !found && y <= rel_y + smy; y++) {
                     short usex, usey;
                     usex = x;
                     usey = y;
-#ifdef SVGA_SUPPORT
                     ss_point_convert(&usex, &usey, FALSE);
-#endif
                     if (gr_get_pixel(usex, usey) != 0) // found non-transparent pixel
                         found = TRUE;
                 }
-#ifdef SVGA_SUPPORT
             ss_set_hack_mode(0, &temp);
-#endif
             gr_pop_canvas();
             if (!found) {
                 return FALSE;
@@ -2285,12 +2068,8 @@ uchar pagebutton_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
         if ((page_button_state[cnum] == BttnDummy) || !popup_cursors)
             c = NULL;
         last_invent_cnum = cnum;
-#ifdef SVGA_SUPPORT
         free(invent_bttn_bitmap.bits);
         make_popup_cursor(c, &invent_bttn_bitmap, cursor_strings[cnum], POPUP_DOWN, TRUE, offset);
-#else
-        make_popup_cursor(c, &invent_bttn_bitmap, cursor_strings[cnum], POPUP_DOWN, FALSE, offset);
-#endif
         uiSetRegionDefaultCursor(r, c);
     }
 
@@ -2315,11 +2094,6 @@ uchar pagebutton_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
                     gr_push_canvas(pinv_canvas);
                     gr_clear(0);
                     gr_pop_canvas();
-#ifdef STEREO_SUPPORT
-                    if (convert_use_mode == 5)
-                        full_visible = FULL_INVENT_MASK;
-                    else
-#endif
                         full_visible |= FULL_INVENT_MASK;
                     inv_last_page = -1;
                     full_raise_region(inventory_region_full);
@@ -2336,40 +2110,6 @@ uchar pagebutton_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
 
 #define MAX_HOTKEY_PAGES 6
 #define EMPTY_PAGE(i) (page_button_state[i] == BttnDummy)
-
-uchar invent_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
-    if (inventory_page < 0)
-        inventory_page = MAX_HOTKEY_PAGES;
-    if (inventory_page >= MAX_HOTKEY_PAGES)
-        inventory_page = -1;
-    if (data == 0) {
-        inventory_page--;
-        if (inventory_page < 0)
-            inventory_page = MAX_HOTKEY_PAGES - 1;
-        while (EMPTY_PAGE(inventory_page))
-            inventory_page--;
-    } else {
-        inventory_page++;
-        if (inventory_page >= MAX_HOTKEY_PAGES)
-            inventory_page = 0;
-        while (EMPTY_PAGE(inventory_page))
-            inventory_page++;
-    }
-    play_digi_fx(SFX_INVENT_BUTTON, 1);
-    if (!(full_visible & FULL_INVENT_MASK)) {
-        gr_push_canvas(pinv_canvas);
-        gr_clear(0);
-        gr_pop_canvas();
-#ifdef SVGA_SUPPORT
-        if (convert_use_mode == 5)
-            full_visible = FULL_INVENT_MASK;
-        else
-#endif
-            full_visible |= FULL_INVENT_MASK;
-    }
-    INVENT_CHANGED;
-    return TRUE;
-}
 
 uchar cycle_weapons_func(ushort keycode, uint32_t context, intptr_t data) {
     if (global_fullmap->cyber) {
@@ -2404,19 +2144,6 @@ uchar cycle_weapons_func(ushort keycode, uint32_t context, intptr_t data) {
 #define PAGEUP_KEY KEY_PAD_PGUP | KB_FLAG_DOWN
 #define PAGEDN_KEY KEY_PAD_PGDN | KB_FLAG_DOWN
 
-void init_invent_hotkeys(void) {
-    /*  later
-    //   hotkey_add(PAGEUP_KEY,DEMO_CONTEXT,invent_hotkey_func,0);
-       hotkey_add(PAGEUP_KEY|KB_FLAG_2ND,DEMO_CONTEXT,invent_hotkey_func,0);
-       hotkey_add(KB_FLAG_DOWN|KB_FLAG_ALT|'[',DEMO_CONTEXT,invent_hotkey_func,0);
-    //   hotkey_add(PAGEDN_KEY,DEMO_CONTEXT,invent_hotkey_func,1);
-       hotkey_add(PAGEDN_KEY|KB_FLAG_2ND,DEMO_CONTEXT,invent_hotkey_func,1);
-       hotkey_add(KB_FLAG_DOWN|KB_FLAG_ALT|']',DEMO_CONTEXT,invent_hotkey_func,1);
-    */
-    hotkey_add(KEY_TAB | KB_FLAG_DOWN, DEMO_CONTEXT, cycle_weapons_func, 1);
-    hotkey_add(KEY_TAB | KB_FLAG_DOWN | KB_FLAG_SHIFT, DEMO_CONTEXT, cycle_weapons_func, -1);
-}
-
 void invent_language_change(void) {
     load_string_array(REF_STR_InvCursor, cursor_strings, cursor_string_buf, sizeof(cursor_string_buf),
                       NUM_PAGE_BUTTONS);
@@ -2432,14 +2159,6 @@ LGRegion *create_invent_region(LGRegion *root, LGRegion **pbuttons, LGRegion **p
     LGRegion *invreg = (LGRegion *)malloc(sizeof(LGRegion));
     LGRegion *pagereg = (LGRegion *)malloc(sizeof(LGRegion));
     FrameDesc *f;
-#ifdef OLD_BUTTON_CURSORS
-    LGPoint pt;
-    int i;
-#endif
-#ifdef CURSOR_BACKUPS
-    extern uchar *backup[NUM_BACKUP_BITS];
-    extern grs_bitmap backup_invent_bttn_cursors[NUM_PAGE_BTTNS];
-#endif
 
     // Create the panel region
     invrect.ul.x = INVENTORY_PANEL_X;
@@ -2590,7 +2309,6 @@ void inv_update_fullscreen(uchar full) {
     short a, b, c, d;
     STORE_CLIP(a, b, c, d);
     if (full) {
-#ifdef SVGA_SUPPORT
 
         if (inv_is_360_view()) {
             ss_noscale_bitmap(&inv_view360_canvas.bm, GAME_MESSAGE_X, GAME_MESSAGE_Y);
@@ -2617,16 +2335,6 @@ void inv_update_fullscreen(uchar full) {
             ss_noscale_bitmap(&(inv_fullscrn_canvas.bm), INVENTORY_PANEL_X, INVENTORY_PANEL_Y);
             inv_fullscrn_canvas.bm.flags &= ~BMF_TRANS;
         }
-#else
-        if (inv_is_360_view()) {
-            ss_noscale_bitmap(&inv_view360_canvas.bm, GAME_MESSAGE_X, GAME_MESSAGE_Y);
-        } else {
-            inv_fullscrn_canvas.bm.flags |= BMF_TRANS;
-            //         ss_bitmap(&(inv_fullscrn_canvas.bm),INVENTORY_PANEL_X,INVENTORY_PANEL_Y);
-            ss_noscale_bitmap(&(inv_fullscrn_canvas.bm), INVENTORY_PANEL_X, INVENTORY_PANEL_Y);
-            inv_fullscrn_canvas.bm.flags &= ~BMF_TRANS;
-        }
-#endif
     }
     region_set_invisible(inventory_region_full, !full);
     bm = &inv_fullpage_canvas.bm;
@@ -2922,28 +2630,6 @@ inv_display inv_display_list[] = {
      NULL,
      0,
      generic_lines},
-#ifdef NEED_THIRD_LOGLVL_PAGE
-    {7, 2,
-     CENTER_X + LEFT_MARGIN, RIGHT_X, TOP_MARGIN - Y_STEP,
-     TITLE_COLOR, ITEM_COLOR,
-     0, ITEMS_PER_PAGE, NUM_LOG_LEVELS - 1,
-     REF_STR_Null,
-     NULL_ACTIVE,
-     FIELD_OFFSET(logs),
-     MFD_INV_NULL,
-     log_name_func,
-     generic_quant_func,
-     generic_draw_list,
-     log_use_func,
-     log_use_func,
-     SOFT_CLASSES,
-     email_add_func,
-     email_drop_func,
-     EMAIL_TRIP,
-     NULL,
-     0,
-     generic_lines},
-#endif
     // Page 8, Data
     {8, 0,
      LEFT_MARGIN, ONETHIRD_X - RIGHT_MARGIN, TOP_MARGIN,
@@ -3335,22 +3021,6 @@ inv_display inv_display_list[] = {
 
     // Hey these pages MUST BE LAST.
     LOG_PAGE(0),
-#ifdef EXPLICIT_LOG_PAGES
-    LOG_PAGE(1),
-    LOG_PAGE(2),
-    LOG_PAGE(3),
-    LOG_PAGE(4),
-    LOG_PAGE(5),
-    LOG_PAGE(6),
-    LOG_PAGE(7),
-    LOG_PAGE(8),
-    LOG_PAGE(9),
-    LOG_PAGE(10),
-    LOG_PAGE(11),
-    LOG_PAGE(12),
-    LOG_PAGE(13),
-    LOG_PAGE(14),
-#endif // EXPLICIT_LOG_PAGES
 
 };
 

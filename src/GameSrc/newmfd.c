@@ -183,10 +183,8 @@ void screen_init_mfd_draw() {
     return;
 }
 
-#ifdef SVGA_SUPPORT
 #define MAX_WD(x) (fix_int(fix_mul_div(fix_make((x), 0), fix_make(1024, 0), fix_make(320, 0))))
 #define MAX_HT(y) (fix_int(fix_mul_div(fix_make((y), 0), fix_make(768, 0), fix_make(200, 0))))
-#endif
 
 // ---------------------------------------------------------------------------
 // screen_init_mfd();
@@ -296,7 +294,6 @@ void screen_init_mfd(uchar fullscrn) {
     return;
 }
 
-#ifdef SVGA_SUPPORT
 errtype mfd_update_screen_mode() {
     if (convert_use_mode == 0) {
         gr_init_canvas(&_offscreen_mfd, mfd_canvas_bits, BMT_FLAT8, MFD_VIEW_WID, MFD_VIEW_HGT);
@@ -335,7 +332,6 @@ errtype mfd_clear_all() {
     }
     return (OK);
 }
-#endif
 
 // ---------------------------------------------
 // mfd_change_fullscreen(uchar on);
@@ -357,29 +353,6 @@ void mfd_change_fullscreen(uchar on) {
         RefUnlock(REF_IMG_bmBlankMFD);
         LG_memcpy(_fullscreen_mfd.bm.bits, bm->bits, bm->w * bm->h);
     }
-}
-
-// ---------------------------------------------------------------------------
-// keyboard_init_mfd()
-//
-// Tell the function keys that they're supposed to map to our button panels.
-// (Called from init_input() in input.c)
-
-void keyboard_init_mfd() {
-    /* KLC leave out F-keys and char codes.
-
-       hotkey_add(KEY_F1, DEMO_CONTEXT,mfd_button_callback_kb,0);
-       hotkey_add(KEY_F2, DEMO_CONTEXT,mfd_button_callback_kb,1);
-       hotkey_add(KEY_F3, DEMO_CONTEXT,mfd_button_callback_kb,2);
-       hotkey_add(KEY_F4, DEMO_CONTEXT,mfd_button_callback_kb,3);
-       hotkey_add(KEY_F5, DEMO_CONTEXT,mfd_button_callback_kb,4);
-       hotkey_add(KEY_F6, DEMO_CONTEXT,mfd_button_callback_kb,5);
-       hotkey_add(KEY_F7, DEMO_CONTEXT,mfd_button_callback_kb,6);
-       hotkey_add(KEY_F8, DEMO_CONTEXT,mfd_button_callback_kb,7);
-       hotkey_add(KEY_F9, DEMO_CONTEXT,mfd_button_callback_kb,8);
-       hotkey_add(KEY_F10,DEMO_CONTEXT,mfd_button_callback_kb,9);
-    */
-    install_keypad_hotkeys();
 }
 
 // --------------
@@ -447,22 +420,18 @@ void mfd_notify_func(ubyte fnum, ubyte snum, uchar Grab, MFD_Status stat, uchar 
     player_struct.mfd_func_status[fnum] |= MFD_CHANGEBIT;
     if (Full) {
         void mfd_default_mru(uchar func);
-#ifdef SVGA_SUPPORT
         uchar old_over = gr2ss_override;
         short temp;
         gr2ss_override = OVERRIDE_ALL;
         ss_set_hack_mode(MFD_STEREO_HACK_MODE, &temp);
-#endif
 
         for (i = 0; i < NUM_MFDS; i++) {
             if (oldf != fnum && player_struct.mfd_current_slots[i] == snum) {
                 mfd_funcs[oldf].expose(&(mfd[i]), 0);
             }
         }
-#ifdef SVGA_SUPPORT
         ss_set_hack_mode(0, &temp);
         gr2ss_override = old_over;
-#endif
         player_struct.mfd_func_status[fnum] |= MFD_CHANGEBIT_FULL;
         mfd_default_mru(fnum);
     }
@@ -566,11 +535,6 @@ void mfd_set_slot(ubyte mfd_id, ubyte newSlot, uchar OnOff) {
                 gr_clear(0);
                 gr_pop_canvas();
             }
-#ifdef STEREO_SUPPORT
-            if (convert_use_mode == 5)
-                full_visible = visible_mask(mfd_id);
-            else
-#endif
             {
                 full_visible |= visible_mask(mfd_id);
             }
@@ -613,7 +577,6 @@ void mfd_change_slot(ubyte mfd_id, ubyte new_slot) {
     return;
 }
 
-#ifdef VITA
 void mfd_next_slot(ubyte mfd_id) {
     int new_slot = player_struct.mfd_current_slots[mfd_id] + 1;
     if (new_slot >= MFD_NUM_BTTNS) {
@@ -629,7 +592,6 @@ void mfd_previous_slot(ubyte mfd_id) {
     }
     mfd_change_slot(mfd_id, new_slot);
 }
-#endif
 
 // ---------------------------------------------------------------------------
 // mfd_grab()
@@ -885,28 +847,8 @@ uchar mfd_view_callback(uiEvent *e, LGRegion *r, intptr_t udata) {
         return TRUE;
     for (i = 0; i < f->handler_count; i++) {
         LGPoint pos = e->pos;
-#ifdef STEREO_SUPPORT
-        if (convert_use_mode == 5) {
-            pos.y -= m->rect.ul.y;
-            switch (i6d_device) {
-            case I6D_CTM:
-                if (which_mfd == 0)
-                    pos.x -= m->rect.ul.x;
-                else
-                    pos.x -= (m->rect.ul.x << 1);
-                break;
-            case I6D_VFX1:
-                Warning(("original pos.x = %d, m->rect.ul.x = %d!\n", pos.x, m->rect.ul.x));
-                pos.x -= (m->rect.ul.x);
-                break;
-            }
-        } else {
-#endif
             pos.x -= m->rect.ul.x;
             pos.y -= m->rect.ul.y;
-#ifdef STEREO_SUPPORT
-        }
-#endif
         if (RECT_TEST_PT(&f->handlers[i].r, pos))
             if (f->handlers[i].proc(m, e, &f->handlers[i]))
                 return TRUE;
@@ -925,10 +867,8 @@ uchar mfd_button_callback(uiEvent *e, LGRegion *r, intptr_t udata) {
     int cnum, which_panel, which_button;
     div_t result;
 
-#ifndef NO_DUMMIES
     LGRegion dummy;
     dummy = *r;
-#endif
 
     if (global_fullmap->cyber) {
         uiSetRegionDefaultCursor(r, NULL);
@@ -1062,10 +1002,8 @@ void mfd_update() {
         // Check only current slots, and look at flag to see
         // if they need constant update
 
-#ifndef BAD_BITS_BUG_FIXED
     _fullscreen_mfd.bm.bits = mfd_background.bits;
     _offscreen_mfd.bm.bits = mfd_canvas_bits;
-#endif // BAD_BITS_BUG_FIXED
 
     // This code totally depends on our item func implementation.
     i = NUM_MFDS;
@@ -1121,12 +1059,10 @@ uchar mfd_update_current_slot(ubyte mfd_id, ubyte status, ubyte num_steps) {
     // and enough time has gone by, then we need to expose
 
     {
-#ifdef SVGA_SUPPORT
         uchar old_over = gr2ss_override;
         short temp;
         gr2ss_override = OVERRIDE_ALL;
         ss_set_hack_mode(MFD_STEREO_HACK_MODE, &temp);
-#endif
         control = (num_steps << 4) | MFD_EXPOSE;
         if (full_game_3d || (status & MFD_CHANGEBIT_FULL))
             control |= MFD_EXPOSE_FULL;
@@ -1142,10 +1078,8 @@ uchar mfd_update_current_slot(ubyte mfd_id, ubyte status, ubyte num_steps) {
         }
 
         f->expose(m, control); // pass # steps + flags to
-#ifdef SVGA_SUPPORT
         ss_set_hack_mode(0, &temp);
         gr2ss_override = old_over;
-#endif
 
         return TRUE;
     }
@@ -1194,9 +1128,7 @@ void fullscreen_refresh_mfd(ubyte mfd_id) {
     LGRect r;
     MFD *m = &mfd[mfd_id];
     uchar visible = (full_visible & visible_mask(mfd_id)) != 0;
-#ifdef SVGA_SUPPORT
     uchar old_over = gr2ss_override;
-#endif
     if (visible) {
         pmfd_canvas = (mfd_id == MFD_RIGHT) ? &_fullscreen_mfd : &_offscreen_mfd;
 
@@ -1204,38 +1136,12 @@ void fullscreen_refresh_mfd(ubyte mfd_id) {
         r.lr = MakePoint(MFD_VIEW_WID, MFD_VIEW_HGT);
         RECT_MOVE(&r, m->rect.ul);
         STORE_CLIP(a, b, c, d);
-#ifdef SVGA_SUPPORT
         gr2ss_override = OVERRIDE_ALL;
-#endif
-#ifdef STEREO_SUPPORT
-        if (convert_use_mode == 5) {
-            pmfd_canvas->bm.flags |= BMF_TRANS;
-            if (mfd_id == 0) {
-                ss_safe_set_cliprect(r.ul.x, 0, r.lr.x << 1, r.lr.y);
-                if (i6d_device == I6D_CTM)
-                    ss_noscale_bitmap(&(pmfd_canvas->bm), m->rect.ul.x, -5);
-                else
-                    ss_noscale_bitmap(&(pmfd_canvas->bm), m->rect.ul.x, m->rect.ul.y);
-            } else {
-                ss_safe_set_cliprect(r.ul.x >> 1, 0, r.lr.x, r.lr.y);
-                if (i6d_device == I6D_CTM)
-                    ss_noscale_bitmap(&(pmfd_canvas->bm), m->rect.ul.x >> 1, -5);
-                else
-                    ss_noscale_bitmap(&(pmfd_canvas->bm), m->rect.ul.x >> 1, m->rect.ul.y);
-            }
-            pmfd_canvas->bm.flags &= ~BMF_TRANS;
-        } else {
-#endif
             ss_safe_set_cliprect(r.ul.x, r.ul.y, r.lr.x, r.lr.y);
             pmfd_canvas->bm.flags |= BMF_TRANS;
             ss_noscale_bitmap(&(pmfd_canvas->bm), m->rect.ul.x, m->rect.ul.y);
             pmfd_canvas->bm.flags &= ~BMF_TRANS;
-#ifdef STEREO_SUPPORT
-        }
-#endif
-#ifdef SVGA_SUPPORT
         gr2ss_override = old_over;
-#endif
         RESTORE_CLIP(a, b, c, d);
     }
     region_set_invisible(&m->reg2, !visible);
@@ -1250,16 +1156,12 @@ void fullscreen_refresh_mfd(ubyte mfd_id) {
 //
 // Draws a button in a given color code depending on its status.
 
-uchar cyber_button_back_door = FALSE;
-
 void mfd_draw_button(ubyte mfd_id, ubyte b) {
     MFD *m;
     LGRect r;
     ubyte slot;
-#ifdef SVGA_SUPPORT
     uchar old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
-#endif
 
     if (global_fullmap->cyber && full_game_3d)
         return;
@@ -1298,9 +1200,7 @@ void mfd_draw_button(ubyte mfd_id, ubyte b) {
         short		by = 333 + (b*26);
         gr_rect(bx, by, bx+6, by+17);
 }*/
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
     uiShowMouse(&r);
 
     return;
@@ -1667,11 +1567,6 @@ void restore_mfd_slot(int mfd_id) {
     set_mfd_from_defaults(mfd_id, func, slot);
     player_struct.mfd_save_slot[mfd_id] = -1;
     full_visible &= ~(visible_mask(mfd_id));
-#ifdef STEREO_SUPPORT
-    if (convert_use_mode == 5)
-        full_visible = (player_struct.mfd_save_vis & visible_mask(mfd_id));
-    else
-#endif
     {
         full_visible |= (player_struct.mfd_save_vis & visible_mask(mfd_id));
     }

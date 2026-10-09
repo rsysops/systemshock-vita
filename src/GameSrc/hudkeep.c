@@ -21,7 +21,7 @@ static unsigned long keep_clock; // counts uses, to find the one unused the long
 
 static int fill_is_normal(void) { return gr_get_fill_type() == FILL_NORM; }
 
-#if defined(VITA) && defined(VITA_PROFILE)
+#ifdef VITA_PROFILE
 #define CHECK_MARGIN 8
 #define CHECK_BYTES (1100 * 160)
 static uchar check_before[CHECK_BYTES], check_copied[CHECK_BYTES];
@@ -253,7 +253,7 @@ int hudkeep_outlined(char *s, short x, short y, uchar shadow) {
     if (t->bm.bits == NULL)
         return 1;
 
-#if defined(VITA) && defined(VITA_PROFILE)
+#ifdef VITA_PROFILE
     {
         static unsigned count;
         check_area a;
@@ -368,7 +368,7 @@ int hudkeep_scaled(grs_bitmap *bm, short x, short y, short w, short h) {
         hudkeep_stats.scaled_hits++;
     k->last = ++keep_clock;
 
-#if defined(VITA) && defined(VITA_PROFILE)
+#ifdef VITA_PROFILE
     {
         static unsigned count;
         check_area a;

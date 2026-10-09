@@ -16,14 +16,7 @@ You should have received a copy of the GNU General Public License
 along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 */
-#ifdef VIS_FROM_NEWAI
-#define VISIBLE_MASS  0
-#define VISIBLE_SIZE  fix_make(0, 0x0a00)
-#define VISIBLE_SPEED 0
-#define VISIBLE_RANGE fix_make(100, 0)
-#else
 #define VISIBLE_MASS  0
 #define VISIBLE_SIZE  fix_make(0, 0x1000)
 #define VISIBLE_SPEED fix_make(10, 0)
 #define VISIBLE_RANGE fix_make(20, 0)
-#endif

@@ -163,13 +163,11 @@ extern ubyte effect_matrix[CRIT_HIT_NUM][AMMO_TYPES][SEVERITIES];
 typedef void (*AnimlistCB)(ObjID id, intptr_t user_data);
 
 // do_special_effect
-ObjID do_special_effect(ObjID owner, ubyte effect, ubyte start, ObjID obj, short location);
 ObjID do_special_effect_location(ObjID owner, ubyte effect, ubyte start, ObjLoc *loc, short location);
 void advance_animations(void);
 errtype add_obj_to_animlist(ObjID id, uchar repeat, uchar reverse, uchar cycle, short speed, int cb_id, intptr_t user_data,
                             short cbtype);
 errtype remove_obj_from_animlist(ObjID id);
-errtype animlist_clear();
 uchar anim_data_from_id(ObjID id, bool *reverse, bool *cycle);
 
 #define MAX_ANIMLIST_SIZE 64

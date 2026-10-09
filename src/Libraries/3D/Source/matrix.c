@@ -304,10 +304,6 @@ void scale_view_matrix(void) {
     // scale set matrix scale vector based on window and pixel ratio
     temp_long = fix_mul_div(window_height, pixel_ratio, window_width);
 
-#ifdef stereo_on
-    _g3d_eyesep = fix_mul(-temp_long, _g3d_eyesep_raw); // calculate true eyesep
-#endif
-
     if (temp_long <= f1_0)
         _matrix_scale.gX = fix_mul(_matrix_scale.gX, temp_long);
     else
@@ -397,24 +393,6 @@ void g3_transpose(g3s_matrix *m) // transpose in place
     SwapFix(m->m2, m->m4);
     SwapFix(m->m3, m->m7);
     SwapFix(m->m6, m->m8);
-}
-
-// transpose the matrix at esi into matrix at edi
-// trashes eax
-void g3_copy_transpose(g3s_matrix *dest, g3s_matrix *src) // copy and transpose
-{
-    dest->m1 = src->m1;
-    dest->m5 = src->m5;
-    dest->m9 = src->m9;
-
-    dest->m2 = src->m4;
-    dest->m4 = src->m2;
-
-    dest->m3 = src->m7;
-    dest->m7 = src->m3;
-
-    dest->m6 = src->m8;
-    dest->m8 = src->m6;
 }
 
 // MLA- oh no I've got LookingGlass disease, I'm making multi-line #defines!

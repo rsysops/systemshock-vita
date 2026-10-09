@@ -62,12 +62,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <string.h>
 
 // prototypes
-void gr_rsd8_blit(uchar *rsd_src, uchar *dst, int grd_bm_row, int bm_w);
-
-//### MLA- not supposed to be used (PC code is in RSDBLT.ASM)
-void gr_rsd8_blit(uchar *rsd_src, uchar *dst, int grd_bm_row, int bm_w) {
-    DEBUG("%s: ask mark", __FUNCTION__);
-}
 
 void gri_flat8_rsd8_ubitmap(grs_bitmap *bm, short x, short y) {
     /*   uchar *p_dst;

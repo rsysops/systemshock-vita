@@ -60,9 +60,6 @@ extern void gri_flat8_uvline_xor(short, short, short, long, long);
 extern void gri_flat8_uvline_blend(short, short, short, long, long);
 
 extern void gri_flat8_ucline_norm(long, long, grs_vertex *, grs_vertex *);
-extern void gri_flat8_ucline_clut(long, long, grs_vertex *, grs_vertex *);
-extern void gri_flat8_ucline_xor(long, long, grs_vertex *, grs_vertex *);
-extern void gri_flat8_ucline_blend(long, long, grs_vertex *, grs_vertex *);
 
 extern void gri_flat8_usline_norm(long, long, grs_vertex *, grs_vertex *);
 extern void gri_flat8_usline_clut(long, long, grs_vertex *, grs_vertex *);

@@ -95,7 +95,6 @@ ubyte vmail_len[NUM_VMAIL] = {
 //
 
 extern grs_canvas *anim_offscreen;
-uchar copied_background = FALSE;
 grs_bitmap *vmail_background = NULL;
 
 #pragma disable_message(202)
@@ -116,12 +115,6 @@ void vmail_intro(LGRect *area, ubyte flags)
 #pragma disable_message(202)
 void vmail_anim_end(ActAnim *paa, AnimCode ancode, AnimCodeData *pdata)
 {
-#ifdef PLAYTEST
-   if (current_vmail == -1)
-   {
-      Warning(("Trying to end vmail, with no current vmail!\n"));
-   }
-#endif
    current_vmail = -1;
 }
 #pragma enable_message(202)
@@ -133,12 +126,6 @@ void vmail_anim_end(ActAnim *paa, AnimCode ancode, AnimCodeData *pdata)
 #pragma disable_message(202)
 void vmail_start_anim_end(ActAnim *paa, AnimCode ancode, AnimCodeData *pdata)
 {
-#ifdef PLAYTEST
-   if (current_vmail == -1)
-   {
-      Warning(("Trying to end vmail, with no current vmail!\n"));
-   }
-#endif
    current_vmail = -1;
 }
 #pragma enable_message(202)
@@ -185,7 +172,6 @@ errtype play_vmail_intro(uchar use_texture_buffer)
 
    gr_init_bm(vmail_background, p, BMT_FLAT8, 0, w,h);
    uiHideMouse(NULL);
-#ifdef SVGA_SUPPORT
    if (convert_use_mode)
    {
       grs_canvas tempcanv;
@@ -195,7 +181,6 @@ errtype play_vmail_intro(uchar use_texture_buffer)
       gr_pop_canvas();
    }
    else
-#endif
       gr_get_bitmap(vmail_background, VINTRO_X, VINTRO_Y);
    uiShowMouse(NULL);
 
@@ -203,17 +188,11 @@ errtype play_vmail_intro(uchar use_texture_buffer)
    current_vmail = INTRO_VMAIL;
    play_digi_fx(SFX_VMAIL, 1);
 
-#ifdef LOTS_O_SPEW
-   mprintf("*PLAY INTRO*");
-#endif
    while (current_vmail != -1)
    {
       AnimRecur();
       tight_loop(TRUE);
    }
-#ifdef LOTS_O_SPEW
-   mprintf("*DONE INTRO*");
-#endif
    vmail_background = NULL;
 
    return(OK);
@@ -274,10 +253,6 @@ errtype play_vmail(byte vmail_no)
    //MemStats(&data);
    //use_texture_buffer = (data.free.sizeMax < MAX_VMAIL_SIZE);
 
-#ifdef LOTS_O_SPEW
-   mprintf("\nBUFFER:(%d)\n", use_texture_buffer);
-#endif
-
    // if we're not using the texture buffer - then we can probably
    // preload the animations
    if (!use_texture_buffer)
@@ -322,18 +297,12 @@ errtype play_vmail(byte vmail_no)
             ResUnlock(RES_FRAMES_vintro);
             ResDrop(RES_FRAMES_vintro);
             use_texture_buffer = TRUE;
-#ifdef LOTS_O_SPEW
-            mprintf("**TRIED TO PRELOAD-CAN'T PRELOAD**\n");
-#endif
          }
       }
    }
    else
       preload_animation = FALSE;
 
-#ifdef LOTS_O_SPEW
-   mprintf("**PREL:(%d) INTRO:(%d)**", preload_animation, use_texture_buffer);
-#endif
    intro_error = play_vmail_intro(use_texture_buffer);
    if (preload_animation)
    {
@@ -378,19 +347,10 @@ errtype play_vmail(byte vmail_no)
       uiFlush();
       while (current_vmail != -1)
       {
-#ifdef LOTS_O_SPEW
-//         mprintf("R");
-#endif
          AnimRecur();
-#ifdef LOTS_O_SPEW
-//         mprintf("S");
-#endif
          if(citadel_check_input())
          {
             early_exit = TRUE;
-#ifdef LOTS_O_SPEW
-            mprintf("Early Exit\n");
-#endif
             AnimKill(main_anim);
          }
          tight_loop(TRUE);
@@ -408,26 +368,13 @@ errtype play_vmail(byte vmail_no)
    }
    ResCloseFile(vmail_animfile_num);
 
-#ifdef LOTS_O_SPEW
-      mprintf("T");
-#endif
    uiFlush();
-#ifdef LOTS_O_SPEW
-      mprintf("U");
-#endif
 
    if (use_texture_buffer)
    {
-#ifdef LOTS_O_SPEW
-      mprintf("V");
-#endif
       load_textures();
-#ifdef LOTS_O_SPEW
-      mprintf("W");
-#endif
    }
 
-#ifndef CONTINUOUS_VMAIL_TEST
    if (!early_exit && vmail_wait_for_input)
       while (!citadel_check_input()) {
          uiHideMouse(NULL); //trick to prevent
@@ -436,7 +383,6 @@ errtype play_vmail(byte vmail_no)
          SDLDraw();
          tight_loop(FALSE); //keep the music playing
       }
-#endif
 
    email_page_exit();
 
@@ -451,42 +397,14 @@ errtype play_vmail(byte vmail_no)
    player_struct.auto_fire_click = player_struct.game_time + 60;
    time_passes = TRUE;
 
-#ifdef LOTS_O_SPEW
-      mprintf("X");
-#endif
    uiPopSlabCursor(&fullscreen_slab);
    uiPopSlabCursor(&main_slab);
-#ifdef LOTS_O_SPEW
-      mprintf("Y");
-#endif
    chg_set_flg(DEMOVIEW_UPDATE);
 
    return(OK);
 }
 #pragma enable_message(202)
 
-byte test_vmail = 0;
 #pragma disable_message(202)
-uchar shield_test_func(short keycode, ulong context, void* data)
-{
-   int   i;
-   vmail_wait_for_input = FALSE;
-   for (i=0;i<5; i++)
-   {
-      play_vmail(test_vmail);
-      test_vmail = (test_vmail+1)%NUM_VMAIL;
-   }
-   vmail_wait_for_input = TRUE;
-   return(TRUE);
-}
 #pragma enable_message(202)
 
-#ifdef PLAYTEST
-#pragma disable_message(202)
-uchar shield_off_func(short keycode, ulong context, void* data)
-{
-   return(TRUE);
-}
-#pragma enable_message(202)
-
-#endif

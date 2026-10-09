@@ -54,19 +54,12 @@ typedef struct {
     short doDetail;     // 0 - Min, 1-Low, 2-High, 3-Max
     short doGamma;
     bool doUseQD;
-    bool doUseOpenGL;
-    // 0 => unfiltered
-    // 1 => bilinear
-    // TODO: add trilinear, anisotropic?
-    short doTextureFilter;
 
-#ifdef VITA
     bool gyroAiming;
     short gyroAimingSpeed;
     short controllerAimingSpeed;
     bool showCursor; // draw the cursor in menus and let the right stick move it there
     unsigned char renderer; // what fills the 3D view's pixels: VITA_RENDERER_*
-#endif
 } ShockPrefs;
 
 //--------------------
@@ -80,7 +73,6 @@ extern ShockPrefs gShockPrefs;
 void SetDefaultPrefs(void);
 int16_t LoadPrefs(void);
 int16_t SavePrefs(void);
-#ifdef VITA
 // The original drawing, call by call on one core; the passes recorded and
 // their pixels filled on three cores (docs/PERFORMANCE-CPU.md); or recorded
 // and drawn by the GPU (docs/PERFORMANCE-GPU.md), which is three cores again
@@ -88,7 +80,6 @@ int16_t SavePrefs(void);
 enum { VITA_RENDERER_1_CORE, VITA_RENDERER_3_CORES, VITA_RENDERER_GPU, VITA_RENDERERS };
 // Makes the renderer follow gShockPrefs.renderer.
 void VitaApplyRenderer(void);
-#endif
 
 //-------------------
 //  Enums
@@ -96,14 +87,9 @@ void VitaApplyRenderer(void);
 enum OPT_SEQ_ { // Must be in the same order as in wraper.h
     OPT_SEQ_ADLMIDI = 0,
     OPT_SEQ_NativeMI,
-#ifdef USE_FLUIDSYNTH
-    OPT_SEQ_FluidSyn,
-#endif // USE_FLUIDSYNTH
     OPT_SEQ_Max
 };
 
-#ifdef VITA
 // The Vita has no native MIDI, so its slot picks ADLMIDI's other OPL3 emulator.
 #define OPT_SEQ_DOSBox OPT_SEQ_ADLMIDI
 #define OPT_SEQ_Nuked  OPT_SEQ_NativeMI
-#endif

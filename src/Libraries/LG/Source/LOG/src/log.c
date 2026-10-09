@@ -28,7 +28,7 @@
 
 #include "log.h"
 
-#ifdef VITA
+#ifdef __vita__
 #include <psp2/kernel/clib.h>
 #endif
 
@@ -116,7 +116,7 @@ void log_log(int level, const char *file, int line, const char *fmt, ...) {
     fprintf(stderr, "%s %-5s %s:%d: ", buf, level_names[level], file, line);
 #endif
     va_start(args, fmt);
-#ifdef VITA
+#ifdef __vita__
     char msg[200];
     vsprintf(msg, fmt, args);
     sceClibPrintf("%s\n", msg);

@@ -139,14 +139,9 @@ int gri_lin_umap_loop(grs_tmap_loop_info *tli) {
         if ((d = fix_ceil(tli->right.x) - fix_ceil(tli->left.x)) > 0 && gr_row_in_band(tli, tli->y)) {
             d = fix_ceil(tli->left.x) - tli->left.x;
 
-#if InvDiv
             k = fix_div(fix_make(1, 0), dx);
             du = fix_mul_asm_safe(du, k);
             dv = fix_mul_asm_safe(dv, k);
-#else
-            du = fix_div(du, dx);
-            dv = fix_div(dv, dx);
-#endif
             u += fix_mul(du, d);
             v += fix_mul(dv, d);
 

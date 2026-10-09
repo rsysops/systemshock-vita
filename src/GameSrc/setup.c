@@ -27,17 +27,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <SDL.h>
 
 // TODO: extract this into a compatibility header
-#ifdef _MSC_VER
-#ifndef F_OK
-#define F_OK 0
-#endif
-#else
 #include <unistd.h>
-#endif
 
-#ifdef SVGA_SUPPORT
 #include "fullscrn.h"
-#endif
 
 #include "archiveformat.h"
 #include "setup.h"
@@ -79,10 +71,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Shock.h"
 #include "Xmi.h"
 
-#ifdef PLAYTEST
-#include <mprintf.h>
-#endif
-
 #define KEYBOARD_FOCUS_COLOR (RED_BASE + 3)
 #define NORMAL_ENTRY_COLOR (RED_BASE + 7)
 #define CURRENT_DIFF_COLOR (RED_BASE + 3)
@@ -116,9 +104,7 @@ extern uchar fullscrn_icons;
 extern uchar map_notes_on;
 extern uchar audiolog_setting;
 extern uchar mouseLefty;
-#ifdef AUDIOLOGS
 extern char curr_alog_vol;
-#endif
 
 errtype draw_difficulty_char(int char_num);
 errtype draw_difficulty_description(int which_cat, int color);
@@ -228,10 +214,8 @@ errtype difficulty_draw(uchar full) {
         curr_diff = 0;
         player_struct.name[0] = 0;
 
-#ifdef VITA
         // game start text input
         VitaStartTextInput(1);
-#endif
     }
 
     uiHideMouse(NULL);
@@ -304,7 +288,6 @@ void flash_username(void) {
     uiShowMouse(&name_rect);
 }
 
-#ifdef VITA
 // clear the name and reopen the on-screen keyboard to retype it
 static void difficulty_rename(void) {
     draw_username(0, player_struct.name); // erase the currently-displayed name first
@@ -319,7 +302,6 @@ static void difficulty_rename(void) {
     curr_diff = 0;
     difficulty_draw(FALSE);
 }
-#endif
 
 // Up/Down focus order on the difficulty screen: name, categories 0..3, Start (wrapping)
 #define DIFF_FOCUS_NAME 0
@@ -344,16 +326,6 @@ static void difficulty_focus_set(int focus) {
     if (!name_selected && !start_selected)
         curr_diff = focus - 1;
     difficulty_draw(FALSE);
-}
-
-errtype draw_difficulty_line(int which_line) {
-    int i;
-
-    for (i = 0; i < 4; i++)
-        draw_difficulty_char((which_line * 4) + i);
-    draw_difficulty_description(which_line, NORMAL_ENTRY_COLOR);
-
-    return OK;
 }
 
 errtype draw_difficulty_description(int which_cat, int color) {
@@ -407,11 +379,7 @@ errtype draw_difficulty_char(int char_num) {
 
 #define REF_IMG_bmJourneyOnwards 0x26c0000
 
-#ifdef DEMO
-char curr_setup_line = 1;
-#else
 char curr_setup_line = 0;
-#endif
 
 int journey_y[8] = {JOURNEY_OPT1_TOP, JOURNEY_OPT1_BOT, JOURNEY_OPT2_TOP, JOURNEY_OPT2_BOT,
                     JOURNEY_OPT3_TOP, JOURNEY_OPT3_BOT, JOURNEY_OPT4_TOP, JOURNEY_OPT4_BOT};
@@ -441,16 +409,10 @@ errtype journey_draw(char part) {
             else
                 col = NORMAL_ENTRY_COLOR;
 
-#ifdef DEMO
-            if ((i == NUM_SETUP_LINES - 1) || (i == 0))
-#else
             if (i == NUM_SETUP_LINES - 1) // why is NUM_SETUP_LINES-1 necessarily continue?
-#endif
             {
 
-#ifndef DEMO
                 if (!save_game_exists)
-#endif
 
                     col = UNAVAILABLE_COLOR;
             }
@@ -467,10 +429,6 @@ errtype journey_draw(char part) {
 
 errtype journey_intro_func(uchar draw_stuff) {
 
-#ifdef DEMO
-    uiShowMouse(NULL); // need to leave it hidden
-    return OK;
-#else
     if (draw_stuff)
         res_draw_string(RES_citadelFont, SETUP_STRING_BASE, JOURNEY_OPT_LEFT + 15, JOURNEY_OPT1_TOP + 2);
     uiShowMouse(NULL); // need to leave it hidden
@@ -478,7 +436,6 @@ errtype journey_intro_func(uchar draw_stuff) {
     MacTuneKillCurrentTheme();
 
     return play_cutscene(START_CUTSCENE, FALSE);
-#endif
 }
 
 errtype journey_newgame_func(void) {
@@ -523,8 +480,6 @@ errtype journey_difficulty_func(uchar draw_stuff) {
 
 int credits_inp = 0;
 
-void *credits_txtscrn;
-
 int CreditsTune;
 
 // set this when game is won, then stats will be shown once before credits
@@ -564,12 +519,10 @@ int WaitForKey(ulong ticks) {
 
         kbs_event ev = kb_next();
         ch = ev.ascii;
-#ifdef VITA
         // the pad's START sends End in the main menu loop (see MenuKeyForButton() in
         // sdl_events.c); on the win stats and credits it's still Esc
         if (ch == KEY_END)
             ch = KEY_ESC;
-#endif
         ticks = (ulong)TickCount();
 
         if ((ch == 27 || ch == ' ' || ch == '\r') && ticks >= key_ticks)
@@ -587,26 +540,14 @@ static const struct {
     const char *congrats, *completed, *credits, *stats, *time, *kills, *regens, *difficulty, *score;
 } win_stats_text[] = {
     {"CONGRATULATIONS!", "YOU HAVE COMPLETED SYSTEM SHOCK!",
-#ifdef VITA
      "PRESS START TO VIEW CREDITS.",
-#else
-     "HIT ESC TO VIEW CREDITS.",
-#endif
      "STATISTICS", "TIME: %u", "KILLS: %d", "REGENERATIONS: %d", "DIFFICULTY INDEX: %d", "SCORE: %d"},
     {"F\x90LICITATIONS !", "VOUS AVEZ TERMIN\x90 SYSTEM SHOCK !",
-#ifdef VITA
      "APPUYEZ SUR START POUR LE G\x90N\x90RIQUE.",
-#else
-     "APPUYEZ SUR ECHAP POUR LE G\x90N\x90RIQUE.",
-#endif
      "STATISTIQUES", "TEMPS : %u", "VICTIMES : %d", "R\x90G\x90N\x90RATIONS : %d", "INDICE DE DIFFICULT\x90 : %d",
      "SCORE : %d"},
     {"GL\x9A" "CKWUNSCH!", "SIE HABEN SYSTEM SHOCK BEENDET!",
-#ifdef VITA
      "START DR\x9A" "CKEN F\x9AR DEN ABSPANN.",
-#else
-     "ESC DR\x9A" "CKEN F\x9AR DEN ABSPANN.",
-#endif
      "STATISTIK", "ZEIT: %u", "ABSCH\x9ASSE: %d", "REGENERATIONEN: %d", "SCHWIERIGKEITSGRAD: %d", "PUNKTZAHL: %d"},
 };
 
@@ -956,7 +897,6 @@ errtype load_that_thar_game(int which_slot) {
 
 errtype journey_continue_func(uchar draw_stuff) {
 
-#ifndef DEMO
     if (save_game_exists) {
         // draw_raw_res_bm_extract(REF_IMG_bmContinueScreen, 0, 0);
 
@@ -977,7 +917,6 @@ errtype journey_continue_func(uchar draw_stuff) {
         setup_mode = SETUP_CONTINUE;
         draw_savegame_names();
     }
-#endif
 
     uiShowMouse(NULL);
 
@@ -989,7 +928,6 @@ errtype journey_continue_func(uchar draw_stuff) {
 
 // SETUP
 
-#define DO_FADES
 
 #define SECRET_MISSION_DIFFICULTY_QB 0xB0
 
@@ -1012,12 +950,10 @@ void go_and_start_the_game_already(void) {
 
     char i;
 
-#ifdef GAMEONLY
     if (strlen(player_struct.name) == 0) {
         flash_username();
         return;
     }
-#endif
 
     uiHideMouse(NULL);
     gr_set_fcolor(SELECTED_COLOR);
@@ -1026,17 +962,13 @@ void go_and_start_the_game_already(void) {
 
     journey_newgame_func();
 
-#ifdef SVGA_SUPPORT
     QUESTVAR_SET(SCREENMODE_QVAR, convert_use_mode);
-#endif
 
     QUESTVAR_SET(MUSIC_VOLUME_QVAR, (curr_vol_lev * curr_vol_lev) / 100);
     QUESTVAR_SET(SFX_VOLUME_QVAR, (curr_sfx_vol * curr_sfx_vol) / 100);
 
-#ifdef AUDIOLOGS
     QUESTVAR_SET(ALOG_VOLUME_QVAR, (curr_alog_vol * curr_alog_vol) / 100);
     QUESTVAR_SET(ALOG_OPT_QVAR, audiolog_setting);
-#endif
 
     QUESTVAR_SET(FULLSCRN_ICON_QVAR, fullscrn_icons);
     QUESTVAR_SET(FULLSCRN_VITAL_QVAR, fullscrn_vitals);
@@ -1075,13 +1007,8 @@ static void intro_mouse_hover(LGPoint pos) {
         }
         if (i == NUM_SETUP_LINES || i == curr_setup_line)
             break;
-#ifdef DEMO
-        if (i == 0 || i == NUM_SETUP_LINES - 1)
-            break;
-#else
         if (i == NUM_SETUP_LINES - 1 && !save_game_exists) // continue is disabled without saves
             break;
-#endif
         {
             char old_setup_line = curr_setup_line;
             curr_setup_line = i;
@@ -1136,10 +1063,8 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
     int old_diff;
     uchar diff_changed;
 
-#ifndef NO_DUMMIES
     intptr_t dummy = user_data;
     LGRegion *dummy2 = r;
-#endif
 
     // The intro cutscene is queued but the loop hasn't switched yet: swallow input
     // so the menu can't be used during that last frame
@@ -1218,13 +1143,11 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             else if ((ev->pos.x > DIFF_DONE_X1) && (ev->pos.x < DIFF_DONE_X2) && (ev->pos.y > DIFF_DONE_Y1) &&
                      (ev->pos.y < DIFF_DONE_Y2))
                 go_and_start_the_game_already();
-#ifdef VITA
             else if ((ev->pos.x > DIFF_NAME_TEXT_X) && (ev->pos.x < DIFF_NAME_X2) && (ev->pos.y > DIFF_NAME_Y) &&
                      (ev->pos.y < DIFF_NAME_Y2)) {
                 // let the player reopen the keyboard to retype the name without leaving the screen
                 difficulty_rename();
             }
-#endif
             break;
         }
     }
@@ -1247,7 +1170,6 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             return OK;
         }
 
-#ifdef VITA
         // the pad's START (see MenuKeyForButton() in sdl_events.c): starts the game from the
         // New Game screen, whatever has the focus, and does nothing on the other screens
         if (code == KEY_END) {
@@ -1255,7 +1177,6 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 go_and_start_the_game_already();
             return TRUE;
         }
-#endif
 
         switch (setup_mode) {
         case SETUP_JOURNEY:
@@ -1265,16 +1186,9 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             case KEY_DOWN:
                 n++;
                 curr_setup_line = (curr_setup_line + n) % NUM_SETUP_LINES;
-#ifdef DEMO
-                if (curr_setup_line == NUM_SETUP_LINES - 1) // why is NUM_SETUP_LINES-1 necessarily continue?
-                    curr_setup_line = 2;
-                if (curr_setup_line == 0)
-                    curr_setup_line = 1;
-#else
                 if (curr_setup_line == NUM_SETUP_LINES - 1) // why is NUM_SETUP_LINES-1 necessarily continue?
                     if (!save_game_exists)
                         curr_setup_line = (curr_setup_line + n) % NUM_SETUP_LINES;
-#endif
                 journey_draw(old_setup_line + 1);
                 journey_draw(curr_setup_line + 1);
                 break;
@@ -1353,7 +1267,6 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 break;
 
             case KEY_ENTER:
-#ifdef VITA
                 if (name_selected) {
                     difficulty_rename();
                     break;
@@ -1361,7 +1274,6 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 // On Vita, closing the on-screen keyboard after naming the character can deliver
                 // its own Enter event; only treat Enter as "launch" if Start is actually focused.
                 if (start_selected)
-#endif
                     go_and_start_the_game_already();
                 break;
 
@@ -1405,12 +1317,7 @@ errtype load_savegame_names(void) {
         if (access(save_game_name, F_OK) != -1) {
             file = ResOpenFile(save_game_name);
             if (ResInUse(OLD_SAVE_GAME_ID_BASE)) {
-#ifdef OLD_SG_FORMAT
-                ResExtract(OLD_SAVE_GAME_ID_BASE, FORMAT_RAW, comments[i]);
-                valid_save |= (1 << i);
-#else
                 strcpy(comments[i], "<< BAD VERSION >>");
-#endif
             } else {
                 if (ResInUse(SAVELOAD_VERIFICATION_ID)) {
                     int verify_cookie;
@@ -1444,10 +1351,6 @@ errtype load_savegame_names(void) {
 }
 
 errtype setup_init(void) {
-#ifndef GAMEONLY
-    int data[1];
-    int cnt;
-#endif
 
     generic_reg_init(TRUE, &setup_root_region, NULL, &setup_slab, intro_key_handler, intro_mouse_handler);
     // also feed cursor movement to it, so hovering an entry focuses it
@@ -1455,19 +1358,6 @@ errtype setup_init(void) {
         int callid;
         uiInstallRegionHandler(&setup_root_region, UI_EVENT_MOUSE_MOVE, intro_mouse_handler, 0, &callid);
     }
-
-#ifndef GAMEONLY
-    cnt = 1;
-    // if (config_get_value("intro", CONFIG_INT_TYPE, data, &cnt))
-    {
-        physics_running = TRUE;
-        time_passes = TRUE;
-        _current_loop = SETUP_LOOP;
-    }
-    if (!config_get_raw(CFG_NAME_VAR, player_struct.name, 40))
-        strcpy(player_struct.name, get_temp_string(REF_STR_DefaultPlayName));
-    load_savegame_names();
-#endif
 
     setup_mode = SETUP_JOURNEY;
 
@@ -1515,9 +1405,7 @@ void splash_draw(bool show_splash) {
 
     // Set screen mode
 
-#ifdef SVGA_SUPPORT
     change_svga_screen_mode();
-#endif
 
     // clear the screen
     gr_clear(0);
@@ -1527,9 +1415,7 @@ void splash_draw(bool show_splash) {
 
     // Draw Origin Logo
 
-#ifdef DO_FADES
     do_fades = true && pal_fx_on;
-#endif
 
     uiHideMouse(NULL);
     draw_full_res_bm(REF_IMG_bmOriginSplash, 0, 0, do_fades);
@@ -1659,9 +1545,7 @@ void setup_start(void) {
     MacTuneKillCurrentTheme();
 
     // Check to see whether or not to play the intro cut scene
-#ifdef GAMEONLY
     load_savegame_names();
-#endif
 
     save_game_exists = (valid_save != 0);
 
@@ -1678,20 +1562,13 @@ void setup_start(void) {
         closedown_game(TRUE);
     start_first_time = FALSE;
 
-#ifdef GADGET
-    // got rid of pointer type mismatch since one was a region and the other a gadget
-    // someone should probably go and figure it out
-    _current_root = NULL;
-#endif
     _current_3d_flag = ANIM_UPDATE;
     _current_fr_context = NULL;
     _current_view = &setup_root_region;
     static_change_copy();
     message_info("");
 
-#ifdef SVGA_SUPPORT
     change_svga_screen_mode();
-#endif
 
     // clear the screen
     gr_clear(0);
@@ -1709,9 +1586,6 @@ void setup_start(void) {
     load_da_palette();
 
     if (do_i_svg != -1) {
-#ifdef PLAYTEST
-        player_invulnerable = i_invuln;
-#endif
         uiShowMouse(NULL);
     } else if (!play_intro_anim) {
         uiShowMouse(NULL);
@@ -1741,15 +1615,6 @@ void setup_start(void) {
 void setup_exit(void) {
     ResCloseFile(intro_num);
     ResCloseFile(splash_num);
-
-#ifdef PALFX_FADES
-    if (pal_fx_on)
-        palfx_fade_down();
-    else {
-        gr_set_fcolor(BLACK);
-        gr_rect(0, 0, 320, 200);
-    }
-#endif
 
     // must get rid of mouse - to maintain hidden mouse after loop
     if (!direct_into_cutscene)

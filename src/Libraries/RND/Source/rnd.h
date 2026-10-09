@@ -79,8 +79,6 @@ long RndRange(RndStream *prs, long low, long high);
 
 //	Get next random # and scale into low->high range
 
-fix RndRangeFix(RndStream *prs, fix low, fix high);
-
 //	Prototypes for current set of random stream classes
 
 ulong RndLc16(RndStream *prs);

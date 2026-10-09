@@ -76,7 +76,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "3d.h"
 #include "GlobalV.h"
 #include "lg.h"
-#include "OpenGL.h"
 #include "rastq.h"
 #include <stdbool.h>
 
@@ -89,7 +88,6 @@ fix _g3d_bitmap_y_scale = 0x010000;
 // fix _g3d_bitmap_y_iscale = 0x010000;
 long _g3d_bitmap_u_anchor = 0;
 long _g3d_bitmap_v_anchor = 0;
-fix _g3d_roll_matrix[6];
 uchar *_g3d_bitmap_clut;
 int _g3d_light_flag;
 
@@ -119,20 +117,6 @@ void g3_set_bitmap_scale(fix u_scale, fix v_scale) {
     // _g3d_bitmap_y_iscale = fix64_div(fix64_make(1, 0), _g3d_bitmap_y_scale);
 }
 
-grs_vertex **g3_full_light_bitmap(grs_bitmap *bm, grs_vertex **p) {
-    _g3d_light_flag = 1;
-    _g3d_bitmap_poly = p;
-    return (do_bitmap(bm, (g3s_phandle)p));
-}
-
-grs_vertex **g3_full_light_anchor_bitmap(grs_bitmap *bm, grs_vertex **p, short u_anchor, short v_anchor) {
-    _g3d_light_flag = 1;
-    _g3d_bitmap_u_anchor = u_anchor;
-    _g3d_bitmap_v_anchor = v_anchor;
-    _g3d_bitmap_poly = p;
-    return (g3_bitmap_common(bm, (g3s_phandle)p));
-}
-
 grs_vertex **g3_light_anchor_bitmap(grs_bitmap *bm, g3s_phandle p, short u_anchor, short v_anchor) {
     _g3d_light_flag = 2;
     _g3d_bitmap_u_anchor = u_anchor;
@@ -145,20 +129,6 @@ grs_vertex **g3_light_anchor_bitmap(grs_bitmap *bm, g3s_phandle p, short u_ancho
 grs_vertex **g3_light_bitmap(grs_bitmap *bm, g3s_phandle p) {
     _g3d_light_flag = 2;
     _g3d_bitmap_clut = (p->i & 0x00ff00) + grd_screen->ltab;
-    _g3d_bitmap_poly = vpl;
-    return (do_bitmap(bm, p));
-}
-
-grs_vertex **g3_anchor_bitmap(grs_bitmap *bm, g3s_phandle p, short u_anchor, short v_anchor) {
-    _g3d_light_flag = 0;
-    _g3d_bitmap_u_anchor = u_anchor;
-    _g3d_bitmap_v_anchor = v_anchor;
-    _g3d_bitmap_poly = vpl;
-    return (g3_bitmap_common(bm, p));
-}
-
-grs_vertex **g3_bitmap(grs_bitmap *bm, g3s_phandle p) {
-    _g3d_light_flag = 0;
     _g3d_bitmap_poly = vpl;
     return (do_bitmap(bm, p));
 }
@@ -185,23 +155,6 @@ grs_vertex **g3_bitmap_common(grs_bitmap *bm, g3s_phandle p) {
     long rm1;
     long rm2;
     long rm3;
-
-#ifdef stereo_on
-    if (_g3d_stereo & 1) {
-
-        ;
-        edi is point handle pushm edi,
-            esi call g3_bitmap_common_raw set_rt_canv
-
-                popm edi,
-            esi add edi,
-            _g3d_stereo_base call g3_bitmap_common_raw set_lt_canv
-
-                ret
-
-                    g3_bitmap_common_raw:
-    }
-#endif
 
     if ((p->p3_flags & PF_PROJECTED) == 0)
         if (g3_project_point(p) == 0)
@@ -393,25 +346,14 @@ grs_vertex **g3_bitmap_common(grs_bitmap *bm, g3s_phandle p) {
                     }
 
                     tmap_info.tmap_type = GRC_POLY;
-                    if (!use_opengl()) {
-                        rastq_hmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
-                    } else {
-                        int opengl_bitmap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
-                        opengl_bitmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
-                    }
+                    rastq_hmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
                     return (_g3d_bitmap_poly);
                 }
             }
         }
     }
     tmap_info.tmap_type = (_g3d_light_flag << 1) + GRC_BILIN;
-    extern bool use_opengl();
-    if (!use_opengl()) {
-        rastq_hmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
-    } else {
-        int opengl_bitmap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
-        opengl_bitmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
-    }
+    rastq_hmap(bm, 4, _g3d_bitmap_poly, &tmap_info);
 
     return (_g3d_bitmap_poly);
 }

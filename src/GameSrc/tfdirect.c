@@ -40,11 +40,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "objprop.h"
 #include "render.h"
 
-#define USE_OLD_PASSING
 //#define SAFETY_RETURN
 //#define DIAGONAL_CORNERS
-#define STAIRS_NEAR_THE_TOP
-#define STAIRS_ABOVE_DA_TOP
 
 // i love us
 uchar v_to_cur[] = {
@@ -81,7 +78,6 @@ int ss_edms_bcd_param;
 
 // globals...
 fix (*tf_vert_2d)[2]; // 2d vertices of the face, when reset
-char tf_norm_hnts[4]; // normal hints for strange param stuff
 fix *tf_pt;           // 3 elements: first 2 in plane, 3 is distance from plane
 fix tf_loc_pt[3];     // localized relative to current map tile
 fix tf_raw_pt[3];     // raw world location of object
@@ -104,43 +100,12 @@ static fix tfunc_minz, tfunc_maxz;
 // no unreachables...
 // dbg system stuff
 
-#ifdef TF_TALK_SYSTEM
-
-#define FletList (1 << 0)
-#define FletSet  (1 << 1)
-#define IntChk   (1 << 2)
-#define BordChk  (1 << 3)
-#define AlignFce (1 << 4)
-#define RemetFce (1 << 5)
-#define Grab     (1 << 6)
-#define Calls    (1 << 7)
-#define Area     (1 << 8)
-#define Ret      (1 << 9)
-#define Cylinder (1 << 10)
-
-//#define DEFAULT_TALK        Ret|FletList
-#define DEFAULT_TALK 0
-#define TF_TALK_STATICS 0xffff
-
-int tf_talk = DEFAULT_TALK, tf_tmp;
-
-#define tf_talk_setup()    tf_talk = DEFAULT_TALK
-#define tf_turn_on(flg)    tf_tmp = tf_talk, tf_talk |= (flg)
-#define tf_talk_check(flg) ((flg & TF_TALK_STATICS) && (tf_talk & flg))
-#define tf_undo_set(flg)   tf_talk = tf_tmp | (flg)
-
-#define do_tf_Spew(flg, dat) mprintf dat
-#define tf_Spew(flg, dat)   \
-    if (tf_talk_check(flg)) \
-    do_tf_Spew(flg, dat)
-#else
 #define tf_talk_setup()
 #define tf_turn_on(flg)
 #define tf_talk_check(flg) FALSE
 #define tf_undo_set(flg)
 #define do_tf_Spew(flg, dat)
 #define tf_Spew(flg, dat)
-#endif
 #define tf_Stat(dat)
 #define terrfunc_it_calls_inc()
 
@@ -167,9 +132,7 @@ uchar _tf_set_flet(int flags, fix att, fix dist, fix *norm) {
     switch (flags & SS_BCD_AXIS_MASK) {
     case SS_BCD_PRIM_MULTI:
         *(g3s_vector *)cur_fc->norm = *(g3s_vector *)norm; //    _memcpy32l(cur_fc->norm,norm,3);
-#ifdef USE_OLD_PASSING
         goto i_hate_everyone;
-#endif
         return TRUE;
     case SS_BCD_PRIM_XAXIS:
         pv = 0;
@@ -184,7 +147,6 @@ uchar _tf_set_flet(int flags, fix att, fix dist, fix *norm) {
 
     LG_memset(cur_fc->norm, 0, 3 * 4); //  _memset32l(cur_fc->norm,0,3);
     cur_fc->norm[pv] = full_norms[flags & SS_BCD_PRIM_NEG];
-#ifdef USE_OLD_PASSING
 i_hate_everyone : {
     int which, prim;
     which = ((flags & SS_BCD_TYPE_MASK) == SS_BCD_TYPE_WALL)
@@ -198,7 +160,6 @@ i_hate_everyone : {
     //         flags&=~SS_BCD_MISC_STAIR;    // no stair bit when attenuated
     ss_edms_bcd_flags |= flags;
 }
-#endif
     //   if (ss_edms_bcd_flags&SS_BCD_MISC_CLIMB)
     //      tf_talk|=Ret|FletList;
     return TRUE;
@@ -284,14 +245,8 @@ fix _tf_border_check_2d(void) {
         // ok, if we are here, we have already made sure _1d_pt[1] is tween 0 and -tf_cur_rad
         // now we hack it totally for now, since we are lame... basically, just grow square
         tf_Spew(BordChk, ("gc2: face %d 1d case pt0 %x pt1 %x endpt0 %x\n", i, _1d_pt[0], _1d_pt[1], _1d_endpt[0]));
-#ifdef DIAGONAL_CORNERS
-        if ((_1d_pt[0] >= -tf_cur_rad + tf_pt[2]) &&
-            (_1d_pt[0] <= _1d_endpt[0] + tf_cur_rad - tf_pt[2])) // over the attenuated facelet
-            return -_1d_pt[1];
-#else
         if ((_1d_pt[0] >= -tf_cur_rad) && (_1d_pt[0] <= _1d_endpt[0] + tf_cur_rad)) // over the attenuated facelet
             return -_1d_pt[1];
-#endif
     }
     return 0;
 }
@@ -365,27 +320,12 @@ fix tf_solve_2d_case(int flags) {
                 yd = tf_pt[1] - tf_vert_2d[0][1]; // note reverse of 2 and 0 since
             if (yd < 0)
                 yd = 0; //  cartesian in lower left
-#ifndef SET_FLAGS_ON_BOX
             if ((xd | yd) == 0)
                 return fix_make(1, 0); // flags|=TF_FLG_ICHK_INT;
             aval = (xd > yd) ? xd : yd;
             if (aval > tf_cur_rad)
                 return 0;                                  // flags|=TF_FLG_ICHK_OUT;
             return fix_div(tf_cur_rad - aval, tf_cur_rad); // flags|=TF_FLG_ICHK_EDGE;
-#else
-            if ((xd | yd) == 0)
-                flags |= TF_FLG_ICHK_INT;
-            else {
-                aval = (xd > yd) ? xd : yd;
-                if (aval > tf_cur_rad)
-                    flags |= TF_FLG_ICHK_OUT;
-                else {
-                    flags |= TF_FLG_ICHK_EDGE;
-                    return fix_div(tf_cur_rad - aval, tf_cur_rad);
-                }
-            }
-            goto parse_ichk;
-#endif
         }
     }
 
@@ -402,9 +342,6 @@ fix tf_solve_2d_case(int flags) {
             flags |= TF_FLG_ICHK_EDGE;
     }
 
-#ifdef SET_FLAGS_ON_BOX
-parse_ichk:
-#endif
     switch (flags & TF_FLG_ICHK_MASK) {
     case TF_FLG_ICHK_INT: // return distance, set struct and all
         return fix_make(1, 0);
@@ -433,25 +370,17 @@ int _stair_check(fix walls[4][2], int flags) {
             return flags;
         else if (ad < STAIR_TOLERANCE)
             return flags | SS_BCD_MISC_STAIR;
-#ifdef STAIRS_NEAR_THE_TOP
         ad = walls[0][1] - tf_pt[1];
-#ifdef STAIRS_ABOVE_DA_TOP
         if (ad < tf_cur_rad)
-#else
-        if ((ad > 0) && (ad < tf_cur_rad))
-#endif
         {
             //         mprintf("Pseudo-stair %x from %x and %x\n",ad,tf_pt[1],walls[0][1]);
             return flags | SS_BCD_MISC_STAIR;
         }
 //      else mprintf("no-pseudo-stair %x from %x and %x\n",ad,tf_pt[1],walls[0][1]);
-#endif
     } else {
         if (tf_pcnt == 4) {
             fix lv, rv, ad;
-#ifdef STAIRS_NEAR_THE_TOP
             fix xd, yd, slp, y;
-#endif
             lv = walls[0][1] - walls[3][1];
             rv = walls[1][1] - walls[2][1];
             ad = (lv + rv) >> 1;
@@ -459,7 +388,6 @@ int _stair_check(fix walls[4][2], int flags) {
                 return flags;
             if (ad < STAIR_TOLERANCE)
                 return flags | SS_BCD_MISC_STAIR;
-#ifdef STAIRS_NEAR_THE_TOP
             xd = walls[1][0] - walls[0][0];
             yd = walls[1][1] - walls[0][1];
             if (yd != 0) {
@@ -471,17 +399,12 @@ int _stair_check(fix walls[4][2], int flags) {
             } else
                 y = walls[0][1];
             ad = y - tf_pt[1];
-#ifdef STAIRS_ABOVE_DA_TOP
             if (ad < tf_cur_rad)
-#else
-            if ((ad > 0) && (ad < tf_cur_rad))
-#endif
             {
                 //            mprintf("Pseudo-stair %x from %x and %x\n",ad,tf_pt[1],y);
                 return flags | SS_BCD_MISC_STAIR;
             }
 //         else mprintf("no-pseudo-stair %x from %x and %x\n",ad,tf_pt[1],y);
-#endif
         }
     }
     return flags;
@@ -604,10 +527,6 @@ uchar tf_solve_cylinder(fix pt[3], fix irad, fix height) {
             //         tf_turn_on(Ret|FletList);
         }
     }
-#ifdef TF_TALK_SYSTEM
-    if (rv)
-        tf_Spew(Cylinder, ("\n"));
-#endif
     return rv;
 }
 
@@ -657,9 +576,7 @@ TerrainHit tf_direct(fix fix_x, fix fix_y, fix fix_z, fix rad, int32_t ph, TFTyp
 
     ObjsClearDealt();
     tf_talk_setup();
-#ifdef USE_OLD_PASSING
     facelet_clear();
-#endif
 
     // find bounding map box
     tf_rad = rad;
@@ -729,9 +646,7 @@ TerrainHit tf_direct(fix fix_x, fix fix_y, fix fix_z, fix rad, int32_t ph, TFTyp
             }
     }
     if (tf_type == TFD_FULL) { // actually figure out what is up with the facelets, send and all
-#ifdef USE_OLD_PASSING
         facelet_send();
-#endif
     }
     tf_Spew(Ret, ("at %x %x %x r %x ret flg %x nrm %x %x %x, %x %x %x, %x %x %x\n", fix_x, fix_y, fix_z, rad,
                   ss_edms_bcd_flags, terrain_info.cx, terrain_info.cy, terrain_info.cz, terrain_info.fx,

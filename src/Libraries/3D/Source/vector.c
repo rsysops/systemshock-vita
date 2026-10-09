@@ -49,13 +49,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 // prototypes
 void g3_compute_normal_quick(g3s_vector *v, g3s_vector *v0, g3s_vector *v1, g3s_vector *v2);
 
-// adds two vectors:  edi = esi + ebx
-void g3_vec_add(g3s_vector *dest, g3s_vector *src1, g3s_vector *src2) {
-    dest->gX = src1->gX + src2->gX;
-    dest->gY = src1->gY + src2->gY;
-    dest->gZ = src1->gZ + src2->gZ;
-}
-
 // subtracts two vectors:  edi = esi - ebx. trashes eax
 void g3_vec_sub(g3s_vector *dest, g3s_vector *src1, g3s_vector *src2) {
     dest->gX = src1->gX - src2->gX;
@@ -82,14 +75,6 @@ fix g3_vec_dotprod(g3s_vector *v0, g3s_vector *v1) {
     int64_t result = fix64_mul(v0->gX, v1->gX) + fix64_mul(v0->gY, v1->gY) + fix64_mul(v0->gZ, v1->gZ);
 
     return fix64_to_fix(result);
-}
-
-// compute normalized surface normal from three points.
-// takes edi=dest, eax,edx,ebx = points. fills in [edi].
-// trashes eax,ebx,ecx,edx,esi
-void g3_compute_normal(g3s_vector *norm, g3s_vector *v0, g3s_vector *v1, g3s_vector *v2) {
-    g3_compute_normal_quick(norm, v0, v1, v2);
-    g3_vec_normalize(norm); // now normalize
 }
 
 // normalizes the vector at esi. trashes all but esi,ebp

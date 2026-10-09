@@ -34,14 +34,6 @@ ubyte current_num_hudobjs = 0;
 // API FUNCTIONS
 // -------------
 
-void hudobj_set_subclass(ubyte obclass, ubyte subclass, uchar val) {
-    ushort mask = (subclass == HUDOBJ_ALL_SUBCLASSES) ? 0xFFFF : (1 << subclass);
-    if (val)
-        hudobj_classes[obclass] |= mask;
-    else
-        hudobj_classes[obclass] &= ~mask;
-}
-
 void hudobj_set_id(short id, uchar val) {
     if (id == OBJ_NULL)
         return;

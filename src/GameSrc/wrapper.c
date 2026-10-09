@@ -59,12 +59,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Prefs.h"
 #include "VitaGpu.h"
 
-#include "OpenGL.h"
 
 
-#ifdef AUDIOLOGS
 #include "audiolog.h"
-#endif
 
 #include "mfdart.h" // for the slider bar
 
@@ -93,10 +90,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define STATUS_HEIGHT 20
 #define STATUS_WIDTH  312
 
-#ifdef VITA
 #include "sdl_events.h"
 void vita_input_init(uchar butid);
-#endif
 
 LGCursor option_cursor;
 grs_bitmap option_cursor_bmap;
@@ -107,18 +102,7 @@ uchar clear_panel = TRUE, wrapper_panel_on = FALSE;
 grs_font *opt_font;
 uchar olh_temp;
 static bool digi_gain = true; // enable sfx volume slider
-errtype (*wrapper_cb)(int num_clicked);
-errtype (*slot_callback)(int num_clicked);
 static uchar cursor_loaded = FALSE;
-#if defined(VFX1_SUPPORT) || defined(CTM_SUPPORT)
-uchar headset_track = TRUE;
-#define HEADSET_FOV_MIN 30
-#define HEADSET_FOV_MAX 180
-// these 3 should all be initialized for real elsewhere...
-int inp6d_real_fov = 60;
-int hack_headset_fov = 30;
-#endif
-int inp6d_curr_fov = 60;
 
 errtype music_slots();
 errtype wrapper_do_save();
@@ -154,9 +138,7 @@ static void (*wrapper_return_screen)(void) = NULL;
 // Keyboard / D-pad navigation: one focused widget per screen, moved with the arrow keys or by
 // hovering it with the cursor; Enter activates it, Home goes back, PgUp/PgDn switch page.
 enum { PAGE_LOAD, PAGE_SAVE, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, PAGE_VIDEO,
-#ifdef VITA
        PAGE_VITA,
-#endif
        NUM_PAGES };
 
 #define PAGE_NONE -1           // main list: PgUp/PgDn do nothing there
@@ -193,7 +175,6 @@ void draw_button(uchar butid);
 
 #define OPTIONS_FONT RES_tinyTechFont
 
-errtype (*verify_callback)(int num_clicked) = NULL;
 char savegame_verify;
 char comments[NUM_SAVE_SLOTS + 1][SAVE_COMMENT_LEN];
 uchar pause_game_func(ushort keycode, uint32_t context, intptr_t data);
@@ -355,13 +336,9 @@ void verify_screen_init(void (*verify)(uchar butid), slorker slork);
 #define MAX_OPTION_BUTTONS 12
 #define BR(i) (OButtons[i].rect)
 
-#ifdef STATIC_BUTTON_STORE
-opt_button OButtons[MAX_OPTION_BUTTONS];
-#else
 extern grs_canvas _offscreen_mfd;
 opt_button *OButtons;
 uchar fv;
-#endif
 
 #define OPTIONS_COLOR RED_BROWN_BASE + 4
 
@@ -387,19 +364,10 @@ static struct {
     int num;
     char text[3][16];
 } custom_strings[] = {
-    {REF_STR_Renderer, {"Renderer", "Rendu", "Renderer"}},
-    {REF_STR_Software, {"Software", "Logiciel", "Software"}},
-    {REF_STR_OpenGL, {"OpenGL", "OpenGL", "OpenGL"}},
-
-    {REF_STR_TextFilt, {"Tex Filter", "Filtrage", "Texturfilter"}},
-    {REF_STR_TFUnfil, {"Unfiltered", "Aucun", "Ungefiltert"}},
-    {REF_STR_TFBilin, {"Bilinear", "Bilin\x82" "aire", "Bilinear"}},
-
     {REF_STR_MousLook, {"Mouselook", "Vue souris", "Mausblick"}},
     {REF_STR_MousNorm, {"Normal", "Normale", "Normal"}},
     {REF_STR_MousInv, {"Inverted", "Invers\x82" "e", "Invertiert"}},
 
-#ifdef VITA
     // the German is too wide for one line, and wrapping only breaks at spaces
     {REF_STR_VitaOptions, {"Vita Options", "Options Vita", "Vita-\nOptionen"}},
     {REF_STR_GyroAiming, {"Gyro Aiming", "Vis\x82" "e gyro", "Gyro-Zielen"}},
@@ -417,22 +385,13 @@ static struct {
     {REF_STR_VitaRenderer1Core, {"1 core", "1 coeur", "1 Kern"}},
     {REF_STR_VitaRenderer3Cores, {"3 cores", "3 coeurs", "3 Kerne"}},
     {REF_STR_VitaRendererGpu, {"GPU", "GPU", "GPU"}},
-#endif
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 
     {REF_STR_Seqer, {"Midi Player", "Lecteur MIDI", "MIDI-Player"}},
-#ifdef VITA
     // ADLMIDI with either OPL3 emulator; the Vita has no native MIDI
     {REF_STR_ADLMIDI, {"DOSBox OPL3", "DOSBox OPL3", "DOSBox OPL3"}},
     {REF_STR_NativeMI, {"Nuked OPL3", "Nuked OPL3", "Nuked OPL3"}},
-#else
-    {REF_STR_ADLMIDI, {"ADLMIDI", "ADLMIDI", "ADLMIDI"}},
-    {REF_STR_NativeMI, {"Native MIDI", "MIDI natif", "System-MIDI"}},
-#endif
-#ifdef USE_FLUIDSYNTH
-    {REF_STR_FluidSyn, {"FluidSynth", "FluidSynth", "FluidSynth"}},
-#endif
 
     {REF_STR_MidiOut, {"Midi Output", "Sortie MIDI", "MIDI-Ausgang"}},
 };
@@ -466,20 +425,15 @@ static uchar opanel_widget_color(uchar butid, uchar normal) {
 
 void draw_button(uchar butid) {
     if (OButtons[butid].drawfunc) {
-#ifdef SVGA_SUPPORT
         uchar old_over;
         old_over = gr2ss_override;
         gr2ss_override = OVERRIDE_ALL;
-#endif
         uiHideMouse(NULL);
         gr_push_canvas(&inv_norm_canvas);
         gr_set_font(opt_font);
         OButtons[butid].drawfunc(butid);
         gr_pop_canvas();
         uiShowMouse(NULL);
-#ifdef GR2SS_OVERRIDE
-        gr2ss_override = old_over;
-#endif
     }
 }
 
@@ -488,11 +442,9 @@ void wrapper_draw_background(short ulx, short uly, short lrx, short lry) {
     extern grs_bitmap inv_backgnd;
     short a1, a2, a3, a4;
 
-#ifdef SVGA_SUPPORT
     uchar old_over;
     old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
-#endif
     // draw background behind the slider.
     STORE_CLIP(cx1, cy1, cx2, cy2);
     ss_safe_set_cliprect(ulx, uly, lrx, lry);
@@ -503,9 +455,7 @@ void wrapper_draw_background(short ulx, short uly, short lrx, short lry) {
     } else
         ss_bitmap(&inv_backgnd, 0, 0);
     RESTORE_CLIP(cx1, cy1, cx2, cy2);
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
 }
 
 void slider_draw_func(uchar butid) {
@@ -514,11 +464,9 @@ void slider_draw_func(uchar butid) {
     char *title;
     uchar col;
 
-#ifdef SVGA_SUPPORT
     uchar old_over;
     old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
-#endif
 
     if (butid == opanel_focus && opanel_slider_editing)
         col = GRABBED_BAR_COLOR;
@@ -543,9 +491,7 @@ void slider_draw_func(uchar butid) {
     if (!(st->active))
         draw_raw_resource_bm(OPT_SLIDER_BAR, BR(butid).ul.x + st->sliderpos + 1 - sw / 2, BR(butid).ul.y);
 
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
 }
 
 void slider_deal(uchar butid, uchar deal) {
@@ -875,9 +821,7 @@ void textlist_draw_line(opt_textlist_state *st, int line, uchar butid) {
     LGRect r;
     char *s;
     uchar col;
-#ifdef SVGA_SUPPORT
     uchar old_over;
-#endif
 
     scrrect = BR(butid);
     scrrect.ul.x += INVENTORY_PANEL_X;
@@ -907,15 +851,11 @@ void textlist_draw_line(opt_textlist_state *st, int line, uchar butid) {
     r.lr.y = r.ul.y + h;
 
     uiHideMouse(&scrrect);
-#ifdef SVGA_SUPPORT
     old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
-#endif
     wrapper_draw_background(r.ul.x, r.ul.y, r.lr.x, r.lr.y);
     draw_shadowed_string(s, r.ul.x, r.ul.y, full_game_3d);
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
     uiShowMouse(&scrrect);
     gr_pop_canvas();
 }
@@ -935,28 +875,6 @@ void textlist_cleanup(opt_textlist_state *st) {
         st->index = -1;
     }
 }
-
-#ifdef WE_USED_THIS
-void textlist_edit_line(opt_textlist_state *st, uchar butid, uchar line, uchar end) {
-    char *s, *bak;
-    char tmp;
-
-    gr_push_canvas(&inv_norm_canvas);
-    s = textlist_string(st, line);
-    bak = textlist_string(st, st->numblocks);
-    tmp = st->currstring;
-    st->currstring = line;
-    if (tmp >= 0) {
-        strcpy(textlist_string(st, tmp), bak);
-        textlist_draw_line(st, tmp, butid);
-    }
-    strcpy(bak, s);
-    st->index = end ? strlen(s) : 0;
-    s[0] = '\0';
-    textlist_draw_line(st, line, butid);
-    gr_pop_canvas();
-}
-#endif
 
 void textlist_select_line(opt_textlist_state *st, uchar butid, uchar line, uchar deal) {
     char tmp;
@@ -998,10 +916,8 @@ uchar textlist_handler(uiEvent *ev, uchar butid) {
                 if (st->currstring >= 0)
                     st->dealfunc(butid, st->currstring);
             } else if (!st->modified) {
-#ifdef VITA
                 // savegame text input
                 VitaStartTextInput(0);
-#endif
                 string_message_info(st->selectprompt);
                 if (st->selectprompt)
                     textlist_select_line(st, butid, line, FALSE);
@@ -1137,9 +1053,7 @@ void textlist_init(uchar butid, char *text, uchar numblocks, uchar blocksiz, uch
 void wrapper_pushbutton_func(uchar butid);
 uchar can_save();
 
-#ifdef VITA
 static void vita_input_screen(void) { vita_input_init(VITA_INPUT_BUTTON); }
-#endif
 
 // Every screen init calls this right after clear_obuttons(): it records where Back goes
 // (parent, focusing entry_button there) and which page L/R switch from.
@@ -1306,9 +1220,7 @@ static void opanel_textlist_enter(int b) {
         // first press on a save slot: open the name keyboard, like tapping the slot does;
         // the next press saves, with the new name or the old one if nothing was typed
         opanel_save_armed_line = cur;
-#ifdef VITA
         VitaStartTextInput(0);
-#endif
         string_message_info(st->selectprompt);
         textlist_select_line(st, b, cur, FALSE);
         return;
@@ -1369,11 +1281,9 @@ static void opanel_open_page(int page) {
     case PAGE_VIDEO:
         wrapper_pushbutton_func(VIDEO_BUTTON);
         break;
-#ifdef VITA
     case PAGE_VITA:
         vita_input_screen();
         break;
-#endif
     }
 }
 
@@ -1438,10 +1348,8 @@ static void opanel_draw_hints(void) {
     char *help = get_temp_string(REF_STR_Help), *music = get_temp_string(REF_STR_MusicText);
     short hw, mw, th, g, w, h, x, y;
     LGRect r;
-#ifdef SVGA_SUPPORT
     uchar old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
-#endif
     gr_push_canvas(grd_screen_canvas);
     gr_set_font(opt_font);
     gr_string_size(help, &hw, &th);
@@ -1472,9 +1380,7 @@ static void opanel_draw_hints(void) {
 
     uiShowMouse(&r);
     gr_pop_canvas();
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
 }
 
 // render_run() repaints the 3D view, over the hints
@@ -1658,10 +1564,8 @@ void opanel_redraw(uchar back) {
     int but;
     LGRect r = {{INVENTORY_PANEL_X, INVENTORY_PANEL_Y},
                 {INVENTORY_PANEL_X + INVENTORY_PANEL_WIDTH, INVENTORY_PANEL_Y + INVENTORY_PANEL_HEIGHT}};
-#ifdef SVGA_SUPPORT
     uchar old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL; // Since we are really going straight to screen in our heart of hearts
-#endif
     if (!full_game_3d)
         inventory_clear();
     gr_push_canvas(&inv_norm_canvas);
@@ -1684,9 +1588,7 @@ void opanel_redraw(uchar back) {
     }
     uiShowMouse(&r);
     gr_pop_canvas();
-#ifdef SVGA_SUPPORT
     gr2ss_override = old_over;
-#endif
     opanel_draw_hints();
 }
 
@@ -1743,14 +1645,10 @@ errtype wrapper_panel_close(uchar clear_message) {
     uiReleaseFocus(inventory_region, UI_EVENT_KBD_COOKED | UI_EVENT_MOUSE);
     uiRemoveRegionHandler(inventory_region, wrap_id);
     uiRemoveRegionHandler(inventory_region, wrap_key_id);
-#ifndef STATIC_BUTTON_STORE
     full_visible = fv;
-#endif
     inventory_clear();
     inventory_draw();
-#ifdef SVGA_SUPPORT
     mfd_clear_all();
-#endif
     for (i = 0; i < NUM_MFDS; i++)
         mfd_force_update_single(i);
     ResUnlock(OPTIONS_FONT);
@@ -1784,23 +1682,15 @@ uchar can_save() {
 void wrapper_pushbutton_func(uchar butid) {
     switch (butid) {
     case LOAD_BUTTON: // Load Game
-#ifdef DEMO
-        wrapper_panel_close(FALSE);
-#else
         load_screen_init();
         string_message_info(REF_STR_LoadSlot);
-#endif
         break;
     case SAVE_BUTTON: // Save Game
-#ifdef DEMO
-        wrapper_panel_close(FALSE);
-#else
         if (can_save()) {
             save_screen_init();
             string_message_info(REF_STR_SaveSlot);
         } else
             wrapper_panel_close(FALSE);
-#endif
         break;
     case AUDIO_BUTTON: // Audio
         sound_screen_init();
@@ -1811,7 +1701,6 @@ void wrapper_pushbutton_func(uchar butid) {
     case VIDEO_BUTTON: // Input
         video_screen_init();
         break;
-#ifdef SVGA_SUPPORT
     case SCREENMODE_BUTTON: // Input
         screenmode_screen_init();
         break;
@@ -1823,7 +1712,6 @@ void wrapper_pushbutton_func(uchar butid) {
     case HEADSET_BUTTON:
         // headset_screen_init();
         break;
-#endif
     case AUDIO_OPT_BUTTON:
         soundopt_screen_init();
         break;
@@ -1858,15 +1746,9 @@ void wrapper_init(void) {
         pushbutton_init(i, keyequivs[i], REF_STR_WrapperText + i, wrapper_pushbutton_func, &r);
     }
 
-#ifdef VITA
     standard_button_rect(&r, 8);
     pushbutton_init(8, 'v', REF_STR_VitaOptions, vita_input_init, &r);
-#endif
 
-#ifdef DEMO
-    dim_pushbutton(LOAD_BUTTON);
-    dim_pushbutton(SAVE_BUTTON);
-#endif
     opanel_redraw(TRUE);
 }
 
@@ -1940,29 +1822,21 @@ void recompute_digifx_level(ushort vol) {
     sfx_on = (vol != 0);
     curr_sfx_vol = QVAR_TO_VOLUME(vol);
     if (sfx_on) {
-#ifdef DEMO
-        play_digi_fx(73, 1);
-#else
         // play a sample (if not alreay playing)
         if (!digi_fx_playing(SFX_NEAR_1, NULL))
             play_digi_fx(SFX_NEAR_1, 1);
         // update volume (main loop is not running at this point)
         sound_frame_update();
-#endif
     } else {
-#ifdef AUDIOLOGS
         audiolog_stop();
-#endif
         stop_digi_fx();
     }
 }
 
-#ifdef AUDIOLOGS
 void recompute_audiolog_level(ushort vol) {
     curr_alog_vol = QVAR_TO_VOLUME(vol);
     sound_frame_update();
 }
-#endif
 
 #pragma disable_message(202)
 void digi_toggle_deal(uchar offon) {
@@ -1972,13 +1846,11 @@ void digi_toggle_deal(uchar offon) {
     QUESTVAR_SET(SFX_VOLUME_QVAR, vol);
 }
 
-#ifdef AUDIOLOGS
 void audiolog_dealfunc(short val) {
     if (!val)
         audiolog_stop();
     QUESTVAR_SET(ALOG_OPT_QVAR, audiolog_setting);
 }
-#endif
 
 char hack_digi_channels = 1;
 
@@ -2037,13 +1909,11 @@ void soundopt_screen_init() {
     //   sizeof(snd_stereo_reverse), &snd_stereo_reverse, 2, NULL, &r);
     // i++;
 
-#ifdef AUDIOLOGS
     standard_button_rect(&r, i);
     retkey = tolower(get_temp_string(REF_STR_MusicText + 3)[0]);
     multi_init(i, retkey, REF_STR_MusicText + 3, REF_STR_AudiologState, ID_NULL, sizeof(audiolog_setting),
                &audiolog_setting, 3, audiolog_dealfunc, &r);
     i++;
-#endif
 
     standard_button_rect(&r, i);
     multi_init(i, 'p', REF_STR_Seqer, REF_STR_ADLMIDI, ID_NULL,
@@ -2114,12 +1984,10 @@ void sound_screen_init(void) {
                    REF_STR_MusicFeedbackText + 5, sizeof(sfx_on), &sfx_on, 2, digi_toggle_deal, &r);
     }
 
-#ifdef AUDIOLOGS
     standard_slider_rect(&r, 6);
     r.lr.x += OPANEL_SLOT_W; // spans two slots
     slider_init(2, REF_STR_MusicText + 4, sizeof(ushort), FALSE, &player_struct.questvars[ALOG_VOLUME_QVAR], 100,
                 sliderbase, recompute_audiolog_level, &r);
-#endif
 
     standard_button_rect(&r, 2);
     retkey = tolower(get_temp_string(REF_STR_AilThreeText + 2)[0]);
@@ -2149,7 +2017,6 @@ void sound_screen_init(void) {
        gr_set_gamma_pal(0,256,gamma);
     }*/
 
-#ifdef SVGA_SUPPORT
 uchar wrapper_screenmode_hack = FALSE;
 void screenmode_change(uchar new_mode) {
     extern short mode_id;
@@ -2161,7 +2028,6 @@ void screenmode_change(uchar new_mode) {
     INFO("Changed screen mode to %i\n", mode_id);
     wrapper_panel_close(TRUE);
 }
-#endif
 
 void language_change(uchar lang) {
     extern int string_res_file, mfdart_res_file;
@@ -2233,21 +2099,6 @@ void center_joy_pushbutton_func(uchar butid) {
     }
 }
 
-static void renderer_dealfunc(bool unused) {
-    uiHideMouse(NULL);
-    opanel_render_view();
-    if (full_game_3d) {
-        // update stored background bitmap and redraw menu
-        ss_get_bitmap(&inv_view360_canvas.bm, GAME_MESSAGE_X, GAME_MESSAGE_Y);
-        opanel_redraw(FALSE);
-    }
-    uiShowMouse(NULL);
-    // recalculate menu in case a button needs to be added or removed
-    video_screen_init();
-    // suppress compiler warning
-    (void)unused;
-}
-
 void detail_dealfunc(uchar det) {
 
     change_detail_level(det);
@@ -2262,50 +2113,13 @@ void mousehand_dealfunc(ushort lefty) {
     // mouse_set_lefty(lefty);
 }
 
-#if defined(VFX1_SUPPORT) || defined(CTM_SUPPORT)
-#pragma disable_message(202)
-void headset_stereo_dealfunc(uchar st_on) {
-    extern uchar inp6d_headset;
-    extern uchar inp6d_stereo;
-    //   extern uchar ui_stereo_on;
-    if ((inp6d_headset) && (i6d_device != I6D_ALLPRO)) {
-        //      ui_stereo_on = inp6d_stereo;
-        if (!inp6d_stereo)
-            i6_video(I6VID_CLOSEDOWN, NULL); // this will want to be I6VID_STR_CLOSE at some point
-        else {
-            if (i6_video(I6VID_STR_START, NULL)) {
-                Warning(("Headset stereo startup failed!\n"));
-                return;
-            }
-        }
-    }
-}
-
-void headset_tracking_dealfunc(uchar tr_on) {
-    Warning(("tracking now %d!\n", tr_on));
-    return;
-}
-
-void headset_fov_dealfunc(int hackval) {
-    inp6d_curr_fov = hack_headset_fov + HEADSET_FOV_MIN;
-    Warning(("FOV now %d!\n", inp6d_curr_fov));
-    return;
-}
-#pragma enable_message(202)
-#endif
-
 #pragma disable_message(202)
 void olh_dealfunc(uchar olh) {
     toggle_olh_func(0, 0, 0);
 }
 #pragma enable_message(202)
 
-#ifdef STEREO_SUPPORT
-#define INITIAL_OCULAR_DIST fix_make(3, 0x4000)
-#endif
-
 ushort wrap_joy_type = 0;
-ushort high_joy_flags;
 void joystick_type_func(ushort new_joy_type) {
     extern uchar joystick_count;
     // joystick_count = joy_init(high_joy_flags | new_joy_type);
@@ -2404,7 +2218,6 @@ void input_screen_init(void) {
     opanel_redraw(TRUE);
 }
 
-#ifdef VITA
 // draw or erase the cursor right away (see VitaMenuCursorHidden() in sdl_events.c)
 static void cursor_dealfunc(uchar unused) {
     uiHideMouse(NULL);
@@ -2470,7 +2283,6 @@ void vita_input_init(uchar butid) {
 
     opanel_redraw(TRUE);
 }
-#endif
 
 //gamma param not used here; see SetSDLPalette() in Shock.c
 void gamma_slider_dealfunc(ushort gamma_qvar) {
@@ -2487,35 +2299,18 @@ void video_screen_init(void) {
     LGRect r;
     int i;
     char *keys;
-#ifdef SVGA_SUPPORT
     extern short mode_id;
-#endif
     uchar sliderbase;
-#ifdef STEREO_SUPPORT
-    extern uchar inp6d_headset;
-#endif
 
     keys = get_temp_string(REF_STR_KeyEquivs3);
     clear_obuttons();
     opanel_screen_begin(video_screen_init, wrapper_init, PAGE_VIDEO, VIDEO_BUTTON);
     i = 0;
 
-#ifdef USE_OPENGL
-    // renderer
-    if(can_use_opengl()) {
-        standard_button_rect(&r, i);
-        multi_init(i, 'g', REF_STR_Renderer, REF_STR_Software, ID_NULL,
-                   sizeof(gShockPrefs.doUseOpenGL), &gShockPrefs.doUseOpenGL, 2, renderer_dealfunc, &r);
-        i++;
-    }
-#endif
-
-#ifdef SVGA_SUPPORT
     // video mode
     standard_button_rect(&r, i);
     pushbutton_init(SCREENMODE_BUTTON, keys[0], REF_STR_VideoText, wrapper_pushbutton_func, &r);
     i++;
-#endif
 
     // detail level
     standard_button_rect(&r, i);
@@ -2530,24 +2325,6 @@ void video_screen_init(void) {
                 sliderbase, gamma_slider_dealfunc, &r);
     i++;
 
-#if defined(VFX1_SUPPORT) || defined(CTM_SUPPORT)
-    standard_button_rect(&r, i);
-    pushbutton_init(HEADSET_BUTTON, keys[2], REF_STR_HeadsetText, wrapper_pushbutton_func, &r);
-    if (!inp6d_headset)
-        dim_pushbutton(HEADSET_BUTTON);
-    i++;
-#endif
-
-#ifdef USE_OPENGL
-    // textre filter
-    if(can_use_opengl() && gShockPrefs.doUseOpenGL) {
-        standard_button_rect(&r, i);
-        multi_init(i, 't', REF_STR_TextFilt, REF_STR_TFUnfil, ID_NULL,
-                   sizeof(gShockPrefs.doTextureFilter), &gShockPrefs.doTextureFilter, 2, renderer_dealfunc, &r);
-        i++;
-    }
-#endif
-
     // return (fixed at position 5)
     standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
@@ -2558,66 +2335,12 @@ void video_screen_init(void) {
     opanel_redraw(TRUE);
 }
 
-#if defined(VFX1_SUPPORT) || defined(CTM_SUPPORT)
-void headset_screen_init(void) {
-    LGRect r;
-    int i;
-    char *keys;
-#ifdef STEREO_SUPPORT
-    extern uchar inp6d_stereo;
-    extern int inp6d_stereo_div;
-#endif
-
-    keys = get_temp_string(REF_STR_KeyEquivs5);
-
-    clear_obuttons();
-    opanel_screen_begin(headset_screen_init, video_screen_init, PAGE_VIDEO, HEADSET_BUTTON);
-
-    i = 0;
-
-    standard_button_rect(&r, i);
-    pushbutton_init(HEAD_RECENTER_BUTTON, keys[0], REF_STR_HeadsetText + 1, wrapper_pushbutton_func, &r);
-
-#ifdef STEREO_SUPPORT
-    i++;
-    standard_slider_rect(&r, i);
-    slider_init(i, REF_STR_HeadsetText + 2, sizeof(inp6d_stereo_div), FALSE, &inp6d_stereo_div, fix_make(10, 0),
-                INITIAL_OCULAR_DIST, NULL, &r);
-
-    i++;
-    standard_button_rect(&r, i);
-    multi_init(i, keys[1], REF_STR_HeadsetText + 3, REF_STR_OffonText, ID_NULL, sizeof(inp6d_stereo),
-               &inp6d_stereo, 2, headset_stereo_dealfunc, &r);
-
-    if (i6d_device == I6D_ALLPRO)
-        dim_pushbutton(i);
-
-    i++;
-    standard_button_rect(&r, i);
-    multi_init(i, keys[3], REF_STR_MoreHeadset + 1, REF_STR_OffonText, ID_NULL, sizeof(headset_track),
-               &headset_track, 2, headset_tracking_dealfunc, &r);
-
-    i++;
-    standard_slider_rect(&r, i);
-    slider_init(i, REF_STR_MoreHeadset, sizeof(hack_headset_fov), FALSE, &hack_headset_fov,
-                HEADSET_FOV_MAX - HEADSET_FOV_MIN, inp6d_real_fov - HEADSET_FOV_MIN, headset_fov_dealfunc, &r);
-#endif
-
-    // Standard return button and other bureaucracy
-    standard_button_rect(&r, 5);
-    pushbutton_init(RETURN_BUTTON, keys[2], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
-    keywidget_init(QUIT_BUTTON, KB_FLAG_ALT | 'x', wrapper_pushbutton_func);
-    opanel_redraw(TRUE);
-}
-#endif
-
-#ifdef SVGA_SUPPORT
 void screenmode_screen_init(void) {
     LGRect r;
     int i;
     char *keys;
 
-    if (wrapper_screenmode_hack && !(can_use_opengl() && gShockPrefs.doUseOpenGL)) {
+    if (wrapper_screenmode_hack) {
         uiHideMouse(NULL);
         render_run();
         uiShowMouse(NULL);
@@ -2634,11 +2357,7 @@ void screenmode_screen_init(void) {
         uchar mode_ok = FALSE;
         char j = 0;
         standard_button_rect(&r, i);
-#ifdef VITA
         pushbutton_init(i, keys[i], REF_STR_VitaRes1 + i, screenmode_change, &r);
-#else
-        pushbutton_init(i, keys[i], REF_STR_ScreenModeText + i, screenmode_change, &r);
-#endif
         while ((grd_info.modes[j] != -1) && !mode_ok) {
             if (grd_info.modes[j] == svga_mode_data[i])
                 mode_ok = TRUE;
@@ -2658,7 +2377,6 @@ void screenmode_screen_init(void) {
 
     opanel_redraw(TRUE);
 }
-#endif
 
 void options_screen_init(void) {
     LGRect r;
@@ -2790,25 +2508,17 @@ void wrapper_start(void (*init)(void)) {
     wrapper_panel_on = TRUE;
     suspend_game_time();
     opt_font = ResLock(OPTIONS_FONT);
-#ifndef STATIC_BUTTON_STORE
     OButtons = (opt_button *)(_offscreen_mfd.bm.bits);
     fv = full_visible;
     full_visible = 0;
-#endif
     render_run(); //move here to fix ghost mouse cursor
     uiHideMouse(NULL);
     if (full_game_3d) {
-#ifdef SVGA_SUPPORT
         uchar old_over = gr2ss_override;
-#endif
         gr_push_canvas(grd_screen_canvas);
-#ifdef SVGA_SUPPORT
         gr2ss_override = OVERRIDE_ALL;
-#endif
         ss_get_bitmap(&inv_view360_canvas.bm, GAME_MESSAGE_X, GAME_MESSAGE_Y);
-#ifdef SVGA_SUPPORT
         gr2ss_override = old_over;
-#endif
         gr_pop_canvas();
     } else
         inventory_clear();
@@ -2939,11 +2649,9 @@ errtype wrapper_create_mouse_region(LGRegion *root) {
     LGRect r = {{0, 0}, {STATUS_X, STATUS_HEIGHT}};
     LGRegion *reg;
 
-#ifdef VITA
     // no "Click for Options" corner: START opens the options, and the cursor stuck
     // against the top-left screen edge would keep showing it
     return OK;
-#endif
     reg = &(options_mouseregion[free_mouseregion++]);
     err = region_create(root, reg, &r, 2, 0, REG_USER_CONTROLLED | AUTODESTROY_FLAG, NULL, NULL, NULL, NULL);
     if (err != OK)
@@ -2964,15 +2672,11 @@ errtype wrapper_create_mouse_region(LGRegion *root) {
 //#ifdef NOT_YET //
 #pragma disable_message(202)
 uchar saveload_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
-#ifdef DEMO
-    return (TRUE);
-#else
     if ((!data) && (!can_save()))
         return (TRUE);
     wrapper_start(data ? load_screen_init : save_screen_init);
     string_message_info(data ? REF_STR_LoadSlot : REF_STR_SaveSlot);
     return (TRUE);
-#endif
 }
 
 uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data) {

@@ -94,6 +94,5 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define RTYPE_APP 48 // 16 application-specific resource types
 
 // Type names can be found thru this array (array kept in res.c)
-extern char *resTypeNames[NUM_RESTYPENAMES];
 
 #endif

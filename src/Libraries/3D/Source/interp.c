@@ -675,8 +675,3 @@ uchar *do_ldjnorm(uchar *opcode) {
     } else
         return opcode + (*(short *)(opcode + 2)); // surface not visible
 }
-
-//external calls to these do-nothing functions can be safely removed
-void FlipShort(short *sh) {}
-void FlipLong(long *lng) {}
-void FlipVector(short n, g3s_vector *vec) {}

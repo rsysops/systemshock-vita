@@ -40,11 +40,7 @@ extern "C" {
 
 // How many bits to shift an integer up to make it a fixpoint.
 // ===========================================================
-#ifdef FIXPOINT_SHIFTUP
-#define SHIFTUP FIXPOINT_SHIFTUP
-#else
 #define SHIFTUP 16 // 16:16 default format.
-#endif
 
 #define SHIFTMULTIPLIER (1 << SHIFTUP)
 
@@ -55,11 +51,7 @@ extern "C" {
 // ========================================================
 //#define FIXDEBUG
 
-#ifdef FIXDEBUG
-#define CLICK(c) c += (Fixpoint::click_bool)
-#else
 #define CLICK(c)
-#endif
 
 // Here is a nice forward declaration.
 // ===================================
@@ -192,37 +184,6 @@ class Fixpoint {
     friend inline Fixpoint fcos(Fixpoint);
     friend inline void fsincos(Fixpoint ang, Fixpoint *sn, Fixpoint *cs);
     friend inline Fixpoint abs(Fixpoint);
-
-#ifdef FIXDEBUG
-
-    friend char *bitdump(Fixpoint &);
-
-    // Reporting.
-    // ==========
-
-    static uint8_t click_bool;
-
-    static uint32_t constructor_void, constructor_Fixpoint, constructor_int, constructor_uint, constructor_lint,
-        constructor_ulint, constructor_double;
-
-    static uint32_t ass_Fixpoint, ass_int, ass_uint, ass_lint, ass_ulint, ass_double;
-
-    static uint32_t binary_add, binary_sub, binary_mul, binary_div;
-
-    static uint32_t add_eq, sub_eq, mul_eq, div_eq;
-
-    static uint32_t unary_minus, unary_plus;
-
-    static uint32_t cond_l, cond_g, cond_le, cond_ge, cond_eq, cond_neq;
-
-    static void report_on(void) { click_bool = 1; }
-    static void report_off(void) { click_bool = 0; }
-
-    static void report(std::ostream &);
-    static void report(void);
-    static void reset_report(void);
-
-#endif /* FIXDEBUG */
 
 } /* Blessed be!! */;
 
@@ -540,14 +501,6 @@ inline Fixpoint operator/(int32_t i, Fixpoint const &fp) { return Fixpoint(i) / 
 inline Fixpoint operator/(uint32_t i, Fixpoint const &fp) { return Fixpoint(i) / fp; }
 inline Fixpoint operator/(double d, Fixpoint const &fp) { return Fixpoint(d) / fp; }
 
-#ifdef BADMIX
-
-inline Fixpoint operator*=(int32_t i, Fixpoint fp) { return Fixpoint(i) *= fp; }
-inline Fixpoint operator*=(uint32_t i, Fixpoint fp) { return Fixpoint(i) *= fp; }
-inline Fixpoint operator*=(double d, Fixpoint fp) { return Fixpoint(d) *= fp; }
-
-#endif
-
 // ======================================
 //
 // I/O functions.
@@ -692,11 +645,5 @@ inline Fixpoint abs(Fixpoint fp) {
 
     return ans;
 }
-
-#ifdef FIXDEBUG
-
-void touch(Fixpoint &);
-
-#endif /* FIXDEBUG */
 
 #endif /* !__FIXPP_H */

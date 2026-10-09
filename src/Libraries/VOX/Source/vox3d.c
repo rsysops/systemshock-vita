@@ -94,11 +94,6 @@ void vx_render(vxs_vox *vx)
 
    // static int f=0;
 
-   #ifdef BBOX
-   // for debugging
-   fix x[4],y[4];
-   #endif
-
    // spot to render on screen
    p[0].gX = p[0].gY = p[0].gZ = 0;
    // dx's and dy's and stuff
@@ -136,17 +131,6 @@ void vx_render(vxs_vox *vx)
    a = tmp[0]->sx - ((vx->w*tmp[1]->sx+vx->h*tmp[2]->sx+vx->d*tmp[3]->sx)>>1);
    b = tmp[0]->sy - ((vx->w*tmp[1]->sy+vx->h*tmp[2]->sy+vx->d*tmp[3]->sy)>>1);
 
-#ifdef CIRCLES
-   // Top line from vertex 0 to 1 just for debugging
-   gr_set_fcolor(255);
-   gr_int_disk(fix_rint(tmp[0]->sx),fix_rint(tmp[0]->sy),5);
-#endif
-
-#ifdef BMAPS
-   gr_bitmap(vx->col,fix_rint(tmp[0]->sx),fix_rint(tmp[0]->sy));
-   gr_bitmap(vx->ht,fix_rint(tmp[0]->sx)-vx->w,fix_rint(tmp[0]->sy)-vx->h);
-#endif
-
    //calculate pixel size 
    psy = fix_div(grd_bm.w * vx->pix_size,tmp[0]->gZ)>>1;
    psx = fix_mul(psy,grd_cap->aspect);
@@ -179,50 +163,11 @@ void vx_render(vxs_vox *vx)
    clip = ((tmp[0]->sx - maxdx) < 0) || ((tmp[0]->sx + maxdx) > fix_make(grd_bm.w,0)) ||
       ((tmp[0]->sy - maxdy) < 0) || ((tmp[0]->sy + maxdy) > fix_make(grd_bm.h,0)) || (psx > fix_make(10,0));
 
-   #ifdef STATS
-   mprintf("vx: tx = %g ty = %g tz = %g\n",(float)tx/65536.0,(float)ty/65536.0,(float)tz/65536.0);
-   mprintf("pd = %g vx->w = %d vx->h %d\n",(float)vx->pix_dist/65536.0,vx->w,vx->h);
-   mprintf("c = %d tx/tz = %g  ty/tz = %g\n",clip,(float)fix_div(tx,tz)/65536.0,(float)fix_div(ty,tz)/65536.0);
-   mprintf("minus tx/tz = %g ty/tz = %g\n",(float)fix_div(tx- vx->pix_dist * vx->w,tz)/65536.0,
-      (float)fix_div(ty- vx->pix_dist * vx->h,tz)/65536.0);
-   #endif
-                           
    if ( (tx-(vx->pix_dist * vx->w) > tz ) || (ty-(vx->pix_dist * vx->h) > tz)) {
-      #ifdef BBOX
-      mprintf("vox: punting due to out of view cone\n");
-      #endif
       g3_free_list(4,tmp);
       return;                              
    }
     
-#ifdef BBOX
-   // different color when clipping
-   gr_set_fcolor(0x4c+clip*0x10);
-   x[0] = a;
-   y[0] = b;
-   x[1] = a+(vx->w)*(tmp[1]->sx);
-   y[1] = b+(vx->w)*(tmp[1]->sy);
-   x[2] = x[1]+(vx->h)*(tmp[2]->sx);
-   y[2] = y[1]+(vx->h)*(tmp[2]->sy);
-   x[3] = a+(vx->h)*(tmp[2]->sx);
-   y[3] = b+(vx->h)*(tmp[2]->sy);
-   
-   gr_fix_line(x[0],y[0],x[1],y[1]);
-   gr_fix_line(x[1],y[1],x[2],y[2]);
-   gr_fix_line(x[2],y[2],x[3],y[3]);
-   gr_fix_line(x[3],y[3],x[0],y[0]);
-   
-   for (i=0;i<4;++i) {
-      x[i] += (vx->d)*(tmp[3]->sx);
-      y[i] += (vx->d)*(tmp[3]->sy);
-   }
-
-   gr_fix_line(x[0],y[0],x[1],y[1]);
-   gr_fix_line(x[1],y[1],x[2],y[2]);
-   gr_fix_line(x[2],y[2],x[3],y[3]);
-   gr_fix_line(x[3],y[3],x[0],y[0]);
-#endif
-
    //mprintf("f = %d clip = %d\n",f++,clip);
 
    //   if (f==97)

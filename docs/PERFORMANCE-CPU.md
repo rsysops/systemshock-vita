@@ -162,6 +162,10 @@ to move for native res to feel good.
 
 ## Existing (unwired) GPU rendering path
 
+*`OpenGL.cc`, its `shaders/` folder and the `ENABLE_OPENGL` option were
+removed from the tree on 2026-10-08. This section describes them as they
+were.*
+
 `src/MacSrc/OpenGL.cc` (960 lines) is a real, already-implemented
 hardware-accelerated 3D renderer for desktop platforms — not just a blit
 layer. It has genuine polygon/texture-map draw calls (`opengl_draw_tmap`,

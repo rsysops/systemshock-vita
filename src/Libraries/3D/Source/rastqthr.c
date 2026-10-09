@@ -2,7 +2,7 @@
 
 #include "rastqthr.h"
 
-#if defined(VITA) || defined(LG_SLOT_PTHREADS)
+#if defined(__vita__) || defined(LG_SLOT_PTHREADS)
 
 #include <stdatomic.h>
 #include <stddef.h>
@@ -11,7 +11,7 @@
 #include "memall.h"
 #include "tmpalloc.h"
 
-#ifdef VITA
+#ifdef __vita__
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
@@ -133,7 +133,7 @@ static void worker_loop(worker_t *w) {
     }
 }
 
-#ifdef VITA
+#ifdef __vita__
 
 static int main_priority(void) {
     SceKernelThreadInfo info;

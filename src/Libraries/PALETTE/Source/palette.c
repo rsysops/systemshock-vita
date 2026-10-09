@@ -57,10 +57,8 @@ short num_active_effects = 0;
 
 byte num_installed_shifts = 0;
 
-#ifndef REAL_PAL_SWAP_SHAD
 // should really do a warning here for so people to understand a problem, she has happened
 #define palette_swap_shadow(s,n,d)
-#endif
 
 /*
  * ROUTINES
@@ -142,8 +140,6 @@ void palette_advance_all_fx(long timestamp)
    // CC: refresh the whole palette
    gr_set_pal(0, 256, local_smap);
 }
-
-uchar c_off_stack[3];
 
 void palette_advance_effect(byte id, int steps)
 {
@@ -442,29 +438,6 @@ errtype palette_remove_effect(byte id)
  * timestamp to the time of unfreezing.
  */
 
-errtype palette_freeze_effect(byte id)
-{
-   if (Palette_Effects_Table[id].status == EMPTY)  return ERR_RANGE;
-   if (Palette_Effects_Table[id].status == FROZEN) return ERR_NOEFFECT;
-   Palette_Effects_Table[id].status = FROZEN;
-   
-   num_active_effects--;
-   
-   return OK;
-}
-
-errtype palette_unfreeze_effect(byte id)
-{
-   if (Palette_Effects_Table[id].status == EMPTY)  return ERR_RANGE;
-   if (Palette_Effects_Table[id].status != FROZEN) return ERR_NOEFFECT;
-
-   Palette_Effects_Table[id].status = ACTIVE;
-   
-   num_active_effects++;
-   
-   return OK;
-}
-
 /*
  * QUERY and CHANGE_DELAY
  *
@@ -475,14 +448,6 @@ errtype palette_unfreeze_effect(byte id)
 PAL_STATUS palette_query_effect(byte id)
 {
    return Palette_Effects_Table[id].status;
-}
-
-void palette_change_delay(byte id, short delay)
-{
-   if (Palette_Effects_Table[id].status != EMPTY)
-      Palette_Effects_Table[id].dsteps = delay;
-
-   return;
 }
 
 /* Palette INITIALIZE and SHUTDOWN routines
@@ -526,13 +491,6 @@ void palette_initialize(short tbl_size)
  *
  * Call this at the end of your program to free up the effects table.
  */
-
-void palette_shutdown()
-{
-   free(Palette_Effects_Table);
-
-   return;
-}
 
 /*
  * SHADOWMAP and DELTA ARRAY routines
@@ -583,31 +541,3 @@ void palette_init_smap(short first, short last, uchar *from, uchar *to,
  * Does a cycle bank on the shadow map and the delta map.
  */
 
-#ifdef REAL_PAL_SWAP_SHAD
-void palette_swap_shadow(int s, int n, int d)
-{
-   // used to be static, too big, what to do, what to do.... what to do...
-   fix Shadow_smap[768];
-   fix Shadow_dmap[768];
-   int i;
-   
-   // Copy the originals to the shadow maps
-
-   for (i = 3*s; i < (s+d)*3; i++) {
-      Shadow_smap[i] = Shadow_Fixed_Cmap[i];
-      Shadow_dmap[i] = Delta_Cmap[i];
-   }
-
-   for (i = 3*s; i < (s+n-d)*3; i++) {
-      Shadow_Fixed_Cmap[i] = Shadow_Fixed_Cmap[(d*3)+i];
-      Delta_Cmap[i] = Delta_Cmap[(d*3)+i];
-   }
-
-   for (i = (s+n-d)*3; i < (s+n)*3; i++) {
-      Shadow_Fixed_Cmap[i] = Shadow_smap[i-((n-d)*3)];
-      Delta_Cmap[i] = Shadow_dmap[i-((n-d)*3)];
-   }
-   
-   return;
-}
-#endif

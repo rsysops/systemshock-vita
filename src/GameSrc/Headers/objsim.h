@@ -97,7 +97,6 @@ grs_bitmap *get_text_bitmap_obj(ObjID cobjid, char dest_type, char *pscale);
 
 // Prototypes
 errtype obj_init();
-errtype obj_shutdown();
 ObjID obj_create_base(int triple);
 ObjID obj_create_clone(ObjID dna);
 errtype obj_move_to_vel(ObjID id, ObjLoc *newloc, uchar phys_tel, fix x_dot, fix y_dot, fix z_dot);

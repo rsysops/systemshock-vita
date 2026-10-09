@@ -61,14 +61,3 @@ int gr_push_video_state (int flags)
 	return(bytes);
  }
  
-void gr_pop_video_state (int clear)
- {
- 	long	bytes;
-
-	grd_state_stack_p -= 4L;
-	bytes = * (long *) grd_state_stack_p;
-	grd_state_stack_p -= bytes;
-	
-	((int (*)(void *buf,int clear))grd_device_table[GRT_SET_STATE])(grd_state_stack_p, clear);
- }
- 

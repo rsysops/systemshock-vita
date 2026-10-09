@@ -37,36 +37,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 uchar fr_cur_obj_col;
 ushort fr_col_to_obj[256];
 
-static char fr_str[15];
-
-char *fr_get_frame_rate(void) {
-    fr_str[0] = '\0';
-    if (_frp.time.last_frame_cnt > 0) {
-        if (_frp.time.last_chk_time != 0) {
-            long num = (*tmd_ticks - _frp.time.last_chk_time);
-            char mod;
-
-            if (_frp.time.last_frame_cnt > 1)
-                num /= _frp.time.last_frame_cnt;
-            num = 28000 / num;
-
-            snprintf(fr_str, sizeof(fr_str), "%ld", num);
-
-            mod = strlen(fr_str);
-            fr_str[mod + 1] = fr_str[mod];
-            fr_str[mod] = fr_str[mod - 1];
-            fr_str[mod - 1] = fr_str[mod - 2];
-            fr_str[mod - 2] = '.';
-            _frp.time.last_frame_len = num / 100;
-        }
-        _frp.time.last_frame_cnt = 0;
-    }
-    _frp.time.last_chk_time = *tmd_ticks;
-
-    INFO("%s", fr_str);
-    return fr_str;
-}
-
 // look, vainly i try an reuse code from uw2
 //  and, amazingly, it works... wow
 #define SEARCH_DIAM 10

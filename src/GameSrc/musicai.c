@@ -41,9 +41,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "adlmidi.h"
 #include "Xmi.h"
 
-#ifdef AUDIOLOGS
 #include "audiolog.h"
-#endif
 
 //#include <ail.h>
 
@@ -59,12 +57,10 @@ char peril_bars = 0;
 int new_theme = 0;
 int new_x, new_y;
 int old_bore;
-short mai_override = 0;
 uchar cyber_play = 255;
 
 int layer_danger = 0;
 int layer_success = 0;
-int layer_transition = 0;
 int transition_count = 0;
 char tmode_time = 0;
 int actual_score = 0;
@@ -72,7 +68,6 @@ uchar decon_count = 0;
 uchar decon_time = 8;
 uchar in_deconst = FALSE, old_deconst = FALSE;
 uchar in_peril = FALSE;
-uchar just_started = TRUE;
 int score_playing = 0;
 short curr_ramp_time, curr_ramp;
 char curr_prioritize, curr_crossfade;
@@ -83,7 +78,6 @@ int current_score, current_zone, current_mode, random_flag;
 int current_transition, last_score;
 int boring_count;
 int mlimbs_boredom;
-int *output_table;
 uchar wait_flag;
 int next_mode, ai_cycle;
 int cur_digi_channels = 4;
@@ -94,10 +88,8 @@ extern uchar mai_semaphor;
 
 uchar park_random = 75;
 uchar park_playing = 0;
-uchar access_random = 45;
 
 ulong last_damage_sum = 0;
-ulong last_vel_time = 0;
 
 // Damage taken decay & quantity of decay
 int danger_hp_level = 10;
@@ -108,8 +100,6 @@ int mai_damage_sum = 0;
 
 // How long an attack keeps us in combat music mode
 int mai_combat_length = 1000;
-
-uchar bad_digifx = FALSE;
 
 // KLC - no longer need this   Datapath music_dpath;
 
@@ -128,8 +118,6 @@ errtype musicai_shutdown() {
     MacTuneKillCurrentTheme();
     return (OK);
 }
-
-extern uchar run_asynch_music_ai;
 
 errtype musicai_reset(uchar runai) {
     if (runai) // Figure out if there is a theme to start with.
@@ -256,20 +244,6 @@ void mlimbs_do_ai() {
     }
 }
 
-#ifdef NOT_YET //
-
-void mlimbs_do_credits_ai() {
-    extern uchar mlimbs_semaphore;
-    if (ai_cycle) {
-        ai_cycle = 0;
-        grind_credits_music_ai();
-        mlimbs_preload_requested_timbres();
-        mlimbs_semaphore = FALSE;
-    }
-}
-
-#endif // NOT_YET
-
 errtype mai_attack() {
     if (music_on) {
         mlimbs_combat = player_struct.game_time + mai_combat_length;
@@ -283,17 +257,6 @@ errtype mai_intro() {
             mai_transition(TRANS_INTRO);
         mlimbs_peril = DEFAULT_PERIL_MIN;
         mlimbs_combat = 0;
-    }
-    return (OK);
-}
-
-errtype mai_monster_nearby(int monster_type) {
-    if (music_on) {
-        mlimbs_monster = monster_type;
-        if (monster_type == NO_MONSTER) {
-            mlimbs_combat = 0;
-            mlimbs_peril = DEFAULT_PERIL_MIN;
-        }
     }
     return (OK);
 }
@@ -364,14 +327,6 @@ errtype mai_transition(int new_trans) {
     message_info(msg);
     */
     return (OK);
-}
-
-int gen_monster(int monster_num) {
-    if (monster_num < 3)
-        return (0);
-    if (monster_num < 6)
-        return (1);
-    return (2);
 }
 
 int ext_rp = -1;
@@ -513,80 +468,6 @@ errtype load_score_for_location(int x, int y) {
     load_score_guts(sc);
     return (OK);
 }
-
-#ifdef NOT_YET //
-
-// 16384
-// 8192
-//#define SFX_BUFFER_SIZE    8192
-#define MIDI_TYPE 0
-#define DIGI_TYPE 1
-// #define SPCH_TYPE   2    // perhaps someday, for special CD speech and separate SB digital effects, eh?
-#define DEV_TYPES 2
-
-#define DEV_CARD 0
-#define DEV_IRQ 1
-#define DEV_DMA 2
-#define DEV_IO 3
-#define DEV_DRQ 4
-#define DEV_PARMS 5
-
-// doug gets sneaky, film at 11
-#define MIDI_CARD MIDI_TYPE][DEV_CARD
-#define MIDI_IRQ  MIDI_TYPE][DEV_IRQ
-#define MIDI_DMA  MIDI_TYPE][DEV_DMA
-#define MIDI_IO   MIDI_TYPE][DEV_IO
-#define MIDI_DRQ  MIDI_TYPE][DEV_DRQ
-#define DIGI_CARD DIGI_TYPE][DEV_CARD
-#define DIGI_IRQ  DIGI_TYPE][DEV_IRQ
-#define DIGI_DMA  DIGI_TYPE][DEV_DMA
-#define DIGI_IO   DIGI_TYPE][DEV_IO
-#define DIGI_DRQ  DIGI_TYPE][DEV_DRQ
-
-#define SFX_BUFFER_SIZE 8192
-//#define SFX_BUFFER_SIZE 4096
-
-static char *dev_suffix[] = {"card", "irq", "dma", "io", "drq"};
-static char *dev_prefix[] = {"midi_", "digi_"};
-
-short music_get_config(char *pre, char *suf) {
-    int tmp_in, dummy_count = 1;
-    char buf[20];
-    strcpy(buf, pre);
-    strcat(buf, suf);
-    if (!config_get_value(buf, CONFIG_INT_TYPE, &tmp_in, &dummy_count))
-        return -1;
-    else
-        return (short)tmp_in;
-}
-
-audio_card *fill_audio_card(audio_card *cinf, short *dinf) {
-    cinf->type = dinf[DEV_CARD];
-    cinf->dname = NULL;
-    cinf->io = dinf[DEV_IO];
-    cinf->irq = dinf[DEV_IRQ];
-    cinf->dma_8bit = dinf[DEV_DMA];
-    cinf->dma_16bit = -1; // who knows, eh?
-    return cinf;
-}
-
-#ifdef PLAYTEST
-static char def_sound_path[] = "r:\\prj\\cit\\src\\sound";
-#else
-static char def_sound_path[] = "sound";
-#endif
-
-#ifdef SECRET_SUPPORT
-FILE *secret_fp = NULL;
-char secret_dc_buf[10000];
-volatile char secret_update = FALSE;
-void secret_closedown(void) {
-    if (secret_fp != NULL)
-        fclose(secret_fp);
-}
-#endif
-
-#endif // NOT_YET
 
 //----------------------------------------------------------------------
 //  For Mac version, the vast majority of the config mess just goes away.  But we do check for

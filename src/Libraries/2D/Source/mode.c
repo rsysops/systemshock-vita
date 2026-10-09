@@ -45,7 +45,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 grs_mode_info grd_mode_info[GRD_MODES] = {
    {  320,  200,  8 },
    {  320,  200,  8 },
-#ifdef VITA
+#ifdef __vita__
    {  480,  272,  8 },
 #else
    {  320,  400,  8 },
@@ -55,7 +55,7 @@ grs_mode_info grd_mode_info[GRD_MODES] = {
    {  640,  400,  8 },
    {  640,  480,  8 },
    {  800,  600,  8 },
-#ifdef VITA
+#ifdef __vita__
    {  960,  544,  8 },
 #else
    { 1024,  768,  8 },

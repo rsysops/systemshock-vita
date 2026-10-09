@@ -62,18 +62,11 @@ int gri_wall_umap_loop(grs_tmap_loop_info *tli) {
     // never used and their divisions are skipped.
     int in_band;
 
-#if InvDiv
     inv_dy = fix_div(fix_make(1, 0), tli->w);
     u = fix_mul_asm_safe(tli->left.u, inv_dy);
     du = fix_mul_asm_safe(tli->right.u, inv_dy) - u;
     v = fix_mul_asm_safe(tli->left.v, inv_dy);
     dv = fix_mul_asm_safe(tli->right.v, inv_dy) - v;
-#else
-    u = fix_div(tli->left.u, tli->w);
-    du = fix_div(tli->right.u, tli->w) - u;
-    v = fix_div(tli->left.v, tli->w);
-    dv = fix_div(tli->right.v, tli->w) - v;
-#endif
 
     dy = tli->right.y - tli->left.y;
 
@@ -92,14 +85,9 @@ int gri_wall_umap_loop(grs_tmap_loop_info *tli) {
 
             d = fix_ceil(tli->left.y) - tli->left.y;
 
-#if InvDiv
             inv_dy = fix_div(fix_make(1, 0), dy);
             du = fix_mul_asm_safe(du, inv_dy);
             dv = fix_mul_asm_safe(dv, inv_dy);
-#else
-            du = fix_div(du, dy);
-            dv = fix_div(dv, dy);
-#endif
             u += fix_mul(du, d);
             v += fix_mul(dv, d);
 
@@ -212,18 +200,11 @@ int gri_wall_umap_loop(grs_tmap_loop_info *tli) {
         // figure out new u & v & du & dv, if the next column needs them
         in_band = (fix_cint(tli->left.y) < b_bot && fix_cint(tli->right.y) > b_top);
         if (in_band) {
-#if InvDiv
             inv_dy = fix_div(fix_make(1, 0), tli->w);
             u = fix_mul_asm_safe(tli->left.u, inv_dy);
             v = fix_mul_asm_safe(tli->left.v, inv_dy);
             du = fix_mul_asm_safe(tli->right.u, inv_dy) - u;
             dv = fix_mul_asm_safe(tli->right.v, inv_dy) - v;
-#else
-            u = fix_div(tli->left.u, tli->w);
-            v = fix_div(tli->left.v, tli->w);
-            du = fix_div(tli->right.u, tli->w) - u;
-            dv = fix_div(tli->right.v, tli->w) - v;
-#endif
         }
 
     } while (--(tli->n) > 0);
@@ -381,16 +362,10 @@ int gri_wall_umap_loop_1D(grs_tmap_loop_info *tli) {
     uchar *t_clut;
     int32_t gr_row;
 
-#if InvDiv
     inv_dy = fix_div(fix_make(1, 0), tli->w);
     u = fix_mul_asm_safe(tli->left.u, inv_dy);
     v = fix_mul_asm_safe(tli->left.v, inv_dy);
     dv = fix_mul_asm_safe(tli->right.v, inv_dy) - v;
-#else
-    u = fix_div(tli->left.u, tli->w);
-    v = fix_div(tli->left.v, tli->w);
-    dv = fix_div(tli->right.v, tli->w) - v;
-#endif
 
     dy = tli->right.y - tli->left.y;
 

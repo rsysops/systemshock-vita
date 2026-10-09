@@ -74,12 +74,8 @@ uint _static_change = 0; /* current static changes */
 short _new_mode = 0;     /* mode to change to, if any */
 short _last_mode = 0;    /* last mode, if you want to change back to it */
 uchar time_passes = TRUE;
-uchar saves_allowed = FALSE;
 uchar physics_running = TRUE;
-uchar ai_on = TRUE;
 uchar anim_on = TRUE;
-uchar player_invulnerable = FALSE;
-uchar player_immortal = FALSE;
 uchar always_render = FALSE;
 uchar pal_fx_on = TRUE;
 
@@ -97,9 +93,7 @@ void (*enter_modes[])(void) = {screen_start, fullscreen_start, NULL, NULL, setup
 void (*exit_modes[])(void) = {screen_exit, fullscreen_exit, NULL, NULL, setup_exit, NULL, cutscene_exit, fullscreen_exit, amap_exit};
 
 void loopmode_switch(short *cmode) {
-#ifdef SVGA_SUPPORT
     extern uchar wrapper_screenmode_hack;
-#endif
 
     // Actually switch mode
     VitaSyncView(); // the screens from here on are drawn on the screen buffer
@@ -110,16 +104,9 @@ void loopmode_switch(short *cmode) {
     if (*cmode >= 0)
         (*enter_modes[*cmode])();
 
-#ifdef SVGA_SUPPORT
     if (wrapper_screenmode_hack) {
         wrapper_start(screenmode_screen_init);
     }
-#endif
-}
-
-void loopmode_exit(short loopmode) {
-    if (exit_modes[loopmode])
-        (*exit_modes[loopmode])();
 }
 
 void loopmode_enter(short loopmode) { (*enter_modes[loopmode])(); }
@@ -147,9 +134,6 @@ void mainloop(int argc, char *argv[]) {
             }
             chg_unset_flg(ML_CHG_BASE << 3);
         }
-#ifdef ALWAYS_SHOW_FR
-        fr_show_rate(-1);
-#endif
         // OR in the static change flags...
         chg_set_flg(_static_change);
 

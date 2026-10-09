@@ -442,15 +442,6 @@ uchar pf_obj_height(MapElem *pme, uchar old_z) {
     //   Spew(DSRC_AI_Pathfind, ("pf_o_ht: initial retval = %x\n",retval));
     while (curr != OBJ_REF_NULL) {
         id = objRefs[curr].obj;
-#ifdef PATHFIND_REPULSORS
-        if (ID2TRIP(id) == REPULSOR_TRIPLE) {
-            // Check to see if height is sufficient for entry
-            if ((objTraps[objs[id].specID].p2 < old_z) && (objTraps[objs[id].specID].p3 > old_z)) {
-                retval = max(retval, objTraps[objs[id].specID].p3);
-                //            Spew(DSRC_AI_Pathfind, ("pf_o_ht: repulsor retval = %x\n",retval));
-            }
-        } else
-#endif
             if (ObjProps[OPNUM(id)].flags & TERRAIN_OBJECT) {
             switch (ObjProps[OPNUM(id)].render_type) {
             case FAUBJ_TL_POLY:
@@ -487,12 +478,6 @@ uchar map_connectivity(spt sq1, spt sq2, char dir, uchar flr1, uchar *new_z, uch
     ceil2 = MAPZ_TO_PFEZ(tile_height(pme2, (dir + 2) % 4, FALSE));
     if (flr2 == -1)
         return (FALSE);
-
-#ifdef ALLOW_DESTZ_OVERIDE
-    // Allow final destination overriding, and downshift z
-    if (dest_z)
-        flr2 = dest_z;
-#endif
 
     if ((ceil2 < flr1 + PF_HEIGHT) || (flr2 > flr1 + PF_CLIMB)) {
         retval = FALSE;
@@ -617,13 +602,6 @@ errtype find_path(char path_id) {
     CLEARSPTLIST(exp_l1, EXPAND_LIST_SIZE);
     CLEARSPTLIST(exp_l2, EXPAND_LIST_SIZE);
     LG_memset(pathfind_buffer, 0, MAP_XSIZE * MAP_YSIZE * sizeof(uchar));
-#ifdef REALLY_SLOW_PATHFIND_CLEARING
-    for (i = 0; i < MAP_XSIZE; i++) {
-        for (j = 0; j < MAP_YSIZE; j++) {
-            PFE_USED_SET(PFE_GET_XY(i, j), FALSE);
-        }
-    }
-#endif
 
     // set up initial pointings
     expand_into_list = exp_l1;

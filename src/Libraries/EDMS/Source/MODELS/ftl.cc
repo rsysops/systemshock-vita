@@ -134,12 +134,7 @@ physics_handle EDMS_cast_projectile(Q *X, Q D[3], Q kick, Q knock, Q size, Q ran
 
             //	Check the terrain...
             //	====================
-#ifdef NOT
-            checker = (terrain_info.cx) | (terrain_info.cy) | (terrain_info.cz) | (terrain_info.fx) |
-                      (terrain_info.fy) | (terrain_info.fz) | (terrain_info.wx) | (terrain_info.wy) | (terrain_info.wz);
-#else
             checker = (hit == HIT_FACELET);
-#endif
 
             //	Check for object collisions...
             //	==============================

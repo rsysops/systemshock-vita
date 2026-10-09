@@ -61,8 +61,6 @@ extern char which_lang;
 
 static SDL_mutex *AudiologMutex;
 
-errtype audiolog_init(void) { return OK; }
-
 void audiolog_callback(void *userdata, Uint8 *stream, int len) {
 
     if (audiolog_audiobuffer_size > 0) {

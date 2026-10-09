@@ -265,20 +265,6 @@ errtype uiGetSlabCursorStack(uiSlab* slab, uiCursorStack** cs)
    return OK;
 }
 
-errtype uiSetDefaultCursor(uiCursorStack* cs, LGCursor* c)
-{
-   if (cs == NULL) return ERR_NULL;
-   cs->stack[0] = c;
-   return OK;
-}
-
-
-errtype uiGetDefaultCursor(uiCursorStack* cs, LGCursor** c)
-{
-   if (cs == NULL) return ERR_NULL;
-   *c = cs->stack[0];
-   return OK;
-}
 
 
 #define cs_push uiPushCursor
@@ -426,15 +412,6 @@ errtype uiUpdateScreenSize(LGPoint size)
    return(OK);
 }
 
-errtype ui_shutdown_cursors(void)
-{
-   errtype err;
-   // Spew(DSRC_UI_Cursors,("ui_shutdown_cursors()\n"));
-   free(SaveUnder.bm.bits);
-   err = mouse_unset_callback(uiCursorCallbackId);
-   return err;
-}
-
 uchar ui_set_current_cursor(LGPoint pos)
 {
    cstate s;
@@ -556,35 +533,6 @@ errtype uiPopRegionCursor(LGRegion* r)
    return OK;
 }
 
-errtype uiGetRegionCursor(LGRegion* r,LGCursor** c)
-{
-   cursor_stack *cs;
-   if (r == NULL) return ERR_NULL;
-   cs = (cursor_stack*)(r->cursors);
-   if (cs == NULL)
-   {
-      *c = NULL;
-   }
-   else
-   {
-      //Spew(DSRC_UI_Cursor_Stack,("uiGetRegionCursor(%x,%x)\n",r,c));
-      *c = cs->stack[cs->fullness-1];
-   }
-   return OK;
-}
-
-
-errtype uiShutdownRegionCursors(LGRegion* r)
-{
-   cursor_stack* cs = (cursor_stack*)(r->cursors);
-   // Spew(DSRC_UI_Cursor_Stack,("uiShutdownRegionCursors(%x)\n",r));
-   if (cs == NULL) return ERR_NOEFFECT;
-   free(cs->stack);
-   free(cs);
-   r->cursors = NULL;
-   uiSetCursor();
-   return OK;
-}
 
 errtype uiSetSlabDefaultCursor(uiSlab* slab, LGCursor* c)
 {
@@ -631,20 +579,6 @@ errtype uiPopGlobalCursor(void)
    return uiPopSlabCursor(uiCurrentSlab);
 }
 
-errtype uiGetSlabCursor(uiSlab* slab, LGCursor** c)
-{
-   // Spew(DSRC_UI_Cursor_Stack,("uiGetSlabCursor(%x,%x)\n",slab,c));
-   if (slab == NULL) return ERR_NULL;
-   *c = slab->cstack.stack[slab->cstack.fullness-1];
-   uiSetCursor();
-   return OK;
-}
-
-errtype uiGetGlobalCursor(LGCursor** c)
-{
-   return uiGetSlabCursor(uiCurrentSlab,c);
-}
-
 errtype uiHideMouse(LGRect* r)
 {
    LGRect mr;
@@ -685,13 +619,11 @@ errtype uiHideMouse(LGRect* r)
    }
 
 //#define FREEZE_ON_HIDE
-#ifndef FREEZE_ON_HIDE
    else
    {
       MouseLock--;
       return ERR_NOEFFECT;
    }
-#endif
 	return OK;
 }
 
@@ -740,18 +672,10 @@ errtype uiShowMouse(LGRect* r)
       MouseLock--;
       ret = OK;
    }
-#ifndef FREEZE_ON_HIDE
    else
    {
       ret = ERR_NOEFFECT;
    }
-#else
-   else
-   {
-      if (MouseLock <= 2) MouseLock = 2;
-      MouseLock--;
-   }
-#endif
    if (--curhiderect < 0) curhiderect = 0;
    MouseLock--;
 

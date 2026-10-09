@@ -36,7 +36,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // globals
 extern fix (*tf_vert_2d)[2]; // 4 elements
-extern char tf_norm_hnts[4]; // hint for each if used
 extern fix *tf_pt;           // 3 elements: first 2 in plane, 3 is distance from plane
 extern fix tf_loc_pt[3];
 extern fix tf_raw_pt[3]; // raw world location of object

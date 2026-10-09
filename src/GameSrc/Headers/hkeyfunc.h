@@ -189,6 +189,5 @@ uchar toggle_mouse_look(ushort keycode, uint32_t context, intptr_t data);
 // Globals
 
 // Unused?
-extern int current_palette_mode;
 
 #endif // __HKEYFUNC_H

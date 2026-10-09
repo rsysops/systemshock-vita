@@ -78,12 +78,6 @@ errtype amap_init(void) {
 // This gets called when we actually enter into the amap loop
 
 void amap_start() {
-#ifdef GADGET
-    _current_root = NULL; /* got rid of pointer type mismatch
-                           * since one was a region and the other a gadget
-                           * someone should probably go and figure it out
-                           */
-#endif
     _current_3d_flag = ANIM_UPDATE;
     _current_fr_context = NULL;
     _current_view = &amap_root_region;

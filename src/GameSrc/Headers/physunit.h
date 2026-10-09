@@ -37,20 +37,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define PHYS_ROUGHNESS_UNIT  1 // Objprop units per physics unit
 
 // 10 is much more correct
-#define BROKEN_NEW_WAY
-#ifdef BROKEN_NEW_WAY
 #define PHYS_MASS_UNIT  10
 #define PHYS_MASS_C_NUM 80
 #define PHYS_MASS_C_DEN 33
-#endif
 
 //#define BROKEN_OLD_WAY
-#ifdef BROKEN_OLD_WAY
-// what in hell is this...?
-#define PHYS_MASS_UNIT 1000 // tenths of kilograms to players
-#define PHYS_MASS_C_NUM   1
-#define PHYS_MASS_C_DEN   1
-#endif
 
 // Prototypes
 

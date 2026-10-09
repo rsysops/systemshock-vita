@@ -68,7 +68,6 @@ char *get_object_short_name(int triple, char *buf, int bufsize);
 char *get_object_long_name(int triple, char *buf, int bufsize);
 char *get_alloc_string(int num);
 char *get_temp_string(int num);
-void shutdown_strings(void);
 char *get_texture_name(int abs_texture, char *buf, int bufsiz);
 char *get_texture_use_string(int abs_texture, char *buf, int bufsiz);
 

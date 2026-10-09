@@ -61,7 +61,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 //#include <_2d.h>
 
-static char *afExts[] = {"FLC", "FLI", "CEL", "ANM", "qtm", "mov", NULL};
 static AfileType afTypes[] = {AFILE_FLC, AFILE_FLC, AFILE_FLC, AFILE_ANM, AFILE_QTM, AFILE_MOV};
 
 // extern Amethods flcMethods;
@@ -230,72 +229,6 @@ int32_t AfileReadFullFrame(Afile *paf, grs_bitmap *pbm, fix *ptime) {
     return (paf->frameLen);
 }
 
-//	-------------------------------------------------------------
-//
-//	AfileReadDiffFrame() reads the next frame in the sequence, diff style.
-//
-//		paf    = ptr to animfile struct
-//		pbm    = ptr to bitmap struct (if ptr NULL, will alloc)
-//		ptime  = ptr to time field (if ptr NULL, no time returned)
-//
-//	Returns: size of frame, or -1 if error
-
-int32_t AfileReadDiffFrame(Afile *paf, grs_bitmap *pbm, fix *ptime) {
-    int32_t len;
-    fix time;
-
-    // Hey, did we hit end?
-    TRACE("%s: reading frame: %d", __FUNCTION__, paf->currFrame);
-
-    if (paf->currFrame >= paf->v.numFrames) {
-        return (-1);
-    }
-
-    // Read bitmap from reader into working buffer
-    len = (*paf->pm->f_ReadFrame)(paf, &paf->bmWork, &time);
-    if (ptime)
-        *ptime = time;
-    if (len <= 0) {
-        WARN("%s: problem reading frame", __FUNCTION__);
-        return (len);
-    }
-    TRACE("%s: read frame, len: %d", __FUNCTION__, len);
-
-    // Check for overruns
-    if (memcmp(paf->bmWork.bits + paf->frameLen, BM_CANARY, 16) != 0) {
-        ERROR("%s: buffer overrun reading frame: %d", __FUNCTION__,
-              paf->currFrame);
-        return -1;
-    }
-
-    // Move compose buffer to previous
-    if (paf->currFrame > 0)
-        memcpy(paf->bmPrev.bits, paf->bmCompose.bits, paf->frameLen);
-
-    // Add to compose buffer
-    ComposeAdd(&paf->bmCompose, &paf->bmWork);
-
-    // Make sure bitmap has memory, init it
-
-    if (pbm->bits == NULL) {
-        TRACE("%s: mallocing bitmap", __FUNCTION__);
-        pbm->bits = malloc(paf->frameLen);
-        if (pbm->bits == NULL) {
-            WARN("AfileReadDiffFrame: can't find memory for bitmap");
-            return (0);
-        }
-    }
-
-    // Extract difference into bitmap
-    TRACE("%s: finding diff with compose buff", __FUNCTION__);
-    len = ComposeDiff(&paf->bmPrev, &paf->bmCompose, pbm);
-
-    // Return length
-
-    paf->currFrame++;
-    return (len);
-}
-
 //	--------------------------------------------------------------
 //
 //	AfileGetFramePal() gets a (partial) palette associated with this
@@ -377,28 +310,6 @@ void AfileFree(Afile *paf) {
     if (paf->bmPrev.bits)
         free(paf->bmPrev.bits);
 }
-
-//	--------------------------------------------------------------
-//		INFORMATIONAL AND HELPER ROUTINES
-//	--------------------------------------------------------------
-//
-//	AfileLookupType() looks up anim file type given extension.
-
-AfileType AfileLookupType(char *ext) {
-    int itype = 0;
-    while (afExts[itype]) {
-        if (strcmp(ext, afExts[itype]) == 0)
-            return (afTypes[itype]);
-        ++itype;
-    }
-    return (AFILE_BAD);
-}
-
-//	--------------------------------------------------------------
-//
-//	AfileBitmapLength() returns amount of space needed to read bitmaps.
-
-int32_t AfileBitmapLength(Afile *paf) { return (paf->frameLen); }
 
 //	-------------------------------------------------------------
 //

@@ -172,11 +172,9 @@ uchar door_locked(ObjID obj) {
     return (QUESTBIT_GET(objDoors[spec].locked));
 }
 
-#ifdef DOOM_EMULATION_MODE
 // questbits for doors that are "broken beyond repair" or such,
 // and should not be openable even in doom emulation mode.
 uchar really_really_locked(int qvar) { return (qvar == 0x5E || qvar == 0xE7); }
-#endif
 
 // Okay, secretly we use our in_inv parameter not to really
 // indicate that the door is in anybody's inventory, but as
@@ -196,11 +194,7 @@ uchar use_door(ObjID id, uchar in_inv, ObjID cursor_obj) {
     char i;
 
     if ((objDoors[objs[id].specID].access_level != 0)
-#ifdef DOOM_EMULATION_MODE
         && (QUESTVAR_GET(MISSION_DIFF_QVAR) >= 2))
-#else
-    )
-#endif
     {
         int try_combo;
         uchar rv;
@@ -246,11 +240,7 @@ uchar use_door(ObjID id, uchar in_inv, ObjID cursor_obj) {
 access_ok:
     if (DOOR_CLOSED(id) || door_moving(id, TRUE)) {
         if (((lqb = objDoors[objs[id].specID].locked) != 0) && QUESTBIT_GET(objDoors[objs[id].specID].locked)
-#ifdef DOOM_EMULATION_MODE
             && ((QUESTVAR_GET(MISSION_DIFF_QVAR) >= 1) || really_really_locked(lqb)))
-#else
-        )
-#endif
         {
             if (!(in_inv & 0x2)) {
                 if (use_card)
@@ -677,12 +667,10 @@ uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj) {
                 retval = TRUE;
             } else {
                 pfixt = &objFixtures[objs[id].specID];
-#ifdef DOOM_EMULATION_MODE
                 if (QUESTVAR_GET(MISSION_DIFF_QVAR) == 0) {
                     rv = TRUE;
                     special = FALSE;
                 } else
-#endif
                     rv = comparator_check(pfixt->comparator, id, &special);
                 if (rv || (special != 0)) {
                     int mfd = grab_and_zoom_mfd(MFD_ELEV_FUNC, MFD_INFO_SLOT, FALSE);
@@ -704,14 +692,12 @@ uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj) {
         case KEYPAD2_TRIPLE: {
             pfixt = &objFixtures[objs[id].specID];
             rv = comparator_check(pfixt->comparator, id, &special);
-#ifdef DOOM_EMULATION_MODE
             if (rv && (QUESTVAR_GET(MISSION_DIFF_QVAR) <= 1)) {
                 do_multi_stuff(qdata_get(pfixt->p1 >> 16));
                 do_multi_stuff(qdata_get(pfixt->p2 >> 16));
                 do_multi_stuff(qdata_get(pfixt->p3 >> 16));
                 play_digi_fx_obj(SFX_MFD_SUCCESS, 1, id);
             }
-#endif
             else if (rv || (special != 0)) {
                 int mfd = grab_and_zoom_mfd(MFD_KEYPAD_FUNC, MFD_INFO_SLOT, FALSE);
                 // Set our reference...
@@ -874,9 +860,7 @@ uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj) {
                         pop_cursor_object();
                     } else if (objFixtures[objs[id].specID].comparator >> 24) {
                         string_message_info(REF_STR_TrapZeroMessage + (objFixtures[objs[id].specID].comparator >> 24));
-#ifdef AUDIOLOGS
                         audiolog_bark_play(objFixtures[objs[id].specID].comparator >> 24);
-#endif
                     }
                 } else if (ID2TRIP(id) == RETSCANNER_TRIPLE)
                     string_message_info(REF_STR_WrongHead);
@@ -886,9 +870,7 @@ uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj) {
                 uchar access_okay = FALSE;
                 int try_combo;
                 if ((objFixtures[osid].access_level == 0)
-#ifdef DOOM_EMULATION_MODE
                     || (QUESTVAR_GET(MISSION_DIFF_QVAR) < 2)
-#endif
                 )
                     access_okay = TRUE;
                 else {
@@ -935,10 +917,6 @@ uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj) {
                             if (ID2TRIP(id) == CYBERTOG1_TRIPLE) {
                                 objs[id].info.type = 1;
                             }
-#ifdef BROKEN_CYBERTOGS
-                            else if (ID2TRIP(id) == CYBERTOG2_TRIPLE)
-                                objs[id].info.type = 0;
-#endif
                         }
                     }
                 }
@@ -985,13 +963,6 @@ uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj) {
                 retval = TRUE;
                 break;
             default:
-#ifdef SUPPORT_STUFF_OBJUSE
-                if (((ObjProps[OPNUM(id)].flags & CLASS_FLAGS) >> CLASS_FLAGS_SHF) == STUFF_OBJUSE_FLAG) {
-                    do_multi_stuff(objSmallstuffs[objs[id].specID].data1 & 0xFFFF);
-                    do_multi_stuff(objSmallstuffs[objs[id].specID].data1 >> 16);
-                    retval = TRUE;
-                } else
-#endif
                     break;
             }
             mfd_notify_func(NOTIFY_ANY_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
@@ -1000,15 +971,6 @@ uchar object_use(ObjID id, uchar in_inv, ObjID cursor_obj) {
             case PAPERS_TRIPLE:
                 // Note secret perversion of email system
                 read_email(RES_paper0, objSmallstuffs[objs[id].specID].data1);
-#ifdef OLD_WAY
-                next_text_line = 0;
-                current_email = 0;
-                inventory_draw_new_page(EMAILTEXT_INV_PAGE);
-                if (ResInUse(RES_paper0 + objSmallstuffs[objs[id].specID].data1))
-                    email_draw_text(RES_paper0 + objSmallstuffs[objs[id].specID].data1, FALSE);
-                else
-                    email_draw_text(RES_paper0, FALSE);
-#endif
                 retval = TRUE;
                 break;
             }
@@ -1182,101 +1144,6 @@ errtype elevator_janitor_run() {
     return (OK);
 }
 
-#ifdef ELEVATOR_PACKRAT
-
-#define MAX_ELEV_OBJS 16
-
-// Goes through all the objects in the same elevator as the player, and fills objlist with them
-errtype compute_elev_objs(ObjID *objlist) {
-    short i, j, x, y;
-    short x0, x1, y0, y1;
-    ObjRefID oref;
-    ObjID id;
-    MapElem *pme;
-    uchar dupe;
-
-    for (i = 0; i < MAX_ELEV_OBJS; i++)
-        objlist[i] = OBJ_NULL;
-    i = 0;
-
-    // Wow, this is an wacky way of finding the bounding rectangle
-    // of elevator music, but hey, it should work for any rectangle...
-    x0 = PLAYER_BIN_X;
-    y0 = PLAYER_BIN_Y;
-    while (me_bits_music(MAP_GET_XY(x0, y0)) == ELEVATOR_ZONE)
-        x0--;
-    x0++;
-    while (me_bits_music(MAP_GET_XY(x0, y0)) == ELEVATOR_ZONE)
-        y0--;
-    y0++;
-    x1 = x0;
-    y1 = y0;
-    while (me_bits_music(MAP_GET_XY(x1, y1)) == ELEVATOR_ZONE)
-        x1++;
-    x1--;
-    while (me_bits_music(MAP_GET_XY(x1, y1)) == ELEVATOR_ZONE)
-        y1++;
-    y1--;
-
-    // Go through all the elevator squares, collecting objects
-    for (x = x0; x <= x1; x++) {
-        for (y = y0; y <= y1; y++) {
-            pme = MAP_GET_XY(x, y);
-            oref = me_objref(pme);
-            while (oref != OBJ_REF_NULL) {
-                dupe = FALSE;
-                id = objRefs[oref].obj;
-                if ((id != OBJ_NULL) && (id != PLAYER_OBJ) && (ObjProps[OPNUM(id)].physics_model)) {
-                    for (j = 0; j < i; j++) {
-                        if (objlist[j] == id) {
-                            dupe = TRUE;
-                            break;
-                        }
-                    }
-                    if (!dupe) {
-                        ObjLoc newloc;
-                        State st;
-                        extern void state_to_objloc(State * s, ObjLoc * l);
-                        int ph = objs[id].info.ph;
-                        int *pd1, *pd2;
-
-                        // Make sure it is okay to come with us.... first check physics then check
-                        // for containerism, and grenadeliness.
-                        if (ph != -1) {
-                            // if we are in physics, force us to the floor, etc. before going
-                            EDMS_settle_object(ph);
-                            EDMS_get_state(ph, &st);
-                            state_to_objloc(&st, &newloc);
-                            obj_move_to(id, &newloc, FALSE);
-                            EDMS_kill_object(ph);
-                            objs[id].info.ph = -1;
-                        }
-                        // This will cruelly strand the container's contents to the
-                        // eternal limbo of the unreferenced object.
-                        // Life is a grim place sometimes.
-                        if (is_container(id, &pd1, &pd2)) {
-                            *pd1 = 0;
-                            *pd2 = 0;
-                        }
-
-                        // Boom go the grenades
-                        if ((objs[id].obclass == CLASS_GRENADE) &&
-                            (objGrenades[objs[id].specID].flags & GREN_ACTIVE_FLAG))
-                            ADD_DESTROYED_OBJECT(id);
-                        //                     do_grenade_explosion(id,TRUE);
-                        else
-                            objlist[i++] = id;
-                    }
-                }
-                oref = objRefs[oref].next;
-            }
-        }
-    }
-    return (OK);
-}
-
-#endif
-
 // uncomment the next 2 lines for playable demo only!!!
 //#define MAC_DEMO
 // extern Boolean	gPlayingGame;
@@ -1288,14 +1155,6 @@ errtype compute_elev_objs(ObjID *objlist) {
 // which_panel is an index into the list of "equivalent" panels that each panel keeps around.
 // returns whether or not the elevator actually went anywhere
 uchar elevator_use(short dest_level, ubyte which_panel) {
-#ifdef MAC_DEMO
-    //   extern errtype trap_cutscene_func(int p1, int p2, int p3, int p4);
-    //   trap_cutscene_func(2,TRUE,0,0);
-    uiHideMouse(NULL);
-    ShowCursor();
-    Alert(1999, NULL);    // Show "thanks for playing demo" alert.
-    gPlayingGame = FALSE; // Hop out of the game loop.
-#else
     errtype retval = TRUE;
     short xdiff, ydiff, zdiff;
     ObjLoc panel_loc, newloc;
@@ -1304,18 +1163,6 @@ uchar elevator_use(short dest_level, ubyte which_panel) {
     ObjRefID oref;
     ObjID id;
     int nuframe;
-#ifdef ELEVATOR_PACKRAT
-    char i;
-    ObjLoc temploc;
-    ObjID tempid;
-    ObjID elev_obj_list[MAX_ELEV_OBJS];
-    ObjLoc elev_obj_diffs[MAX_ELEV_OBJS];
-    extern void store_objects(char **buf, ObjID *obj_array, char obj_count);
-    extern void restore_objects(char *buf, ObjID *obj_array, char obj_count);
-    extern errtype obj_load_art(uchar flush_all);
-    extern uchar robot_antisocial;
-    char *buf;
-#endif
 
     if (dest_level == player_struct.level) {
         string_message_info(REF_STR_ElevatorSameFloor);
@@ -1340,25 +1187,10 @@ uchar elevator_use(short dest_level, ubyte which_panel) {
 
     string_message_info(REF_STR_ElevatorMove);
 
-#ifdef ELEVATOR_PACKRAT
-    // Fill list of elevator-contained objects
-    compute_elev_objs(elev_obj_list);
-    store_objects(&buf, elev_obj_list, MAX_ELEV_OBJS);
-#endif
-
     // Compute our offset from the panel we actually frobbed with.
     xdiff = panel_loc.x - player_dos_obj->loc.x;
     ydiff = panel_loc.y - player_dos_obj->loc.y;
     zdiff = panel_loc.z - player_dos_obj->loc.z;
-#ifdef ELEVATOR_PACKRAT
-    for (i = 0; i < MAX_ELEV_OBJS; i++) {
-        if (elev_obj_list[i] != OBJ_NULL) {
-            elev_obj_diffs[i].x = panel_loc.x - objs[elev_obj_list[i]].loc.x;
-            elev_obj_diffs[i].y = panel_loc.y - objs[elev_obj_list[i]].loc.y;
-            elev_obj_diffs[i].z = panel_loc.z - objs[elev_obj_list[i]].loc.z;
-        }
-    }
-#endif
     old_zsh = MAP_ZSHF;
 
     if (full_game_3d) {
@@ -1401,13 +1233,6 @@ uchar elevator_use(short dest_level, ubyte which_panel) {
         newloc = player_dos_obj->loc;
         newloc.x = panel_loc.x - xdiff;
         newloc.y = panel_loc.y - ydiff;
-#ifdef BROKEN_CODE
-        newloc.z = panel_loc.z - zdiff;
-        if (MAP_ZSHF > old_zsh)
-            newloc.z = newloc.z << (MAP_ZSHF - old_zsh);
-        else
-            newloc.z = newloc.z << (old_zsh - MAP_ZSHF);
-#endif
         if (MAP_ZSHF == old_zsh)
             newloc.z = panel_loc.z - zdiff;
         else if (MAP_ZSHF > old_zsh)
@@ -1420,30 +1245,6 @@ uchar elevator_use(short dest_level, ubyte which_panel) {
         // Clear out old cruft in the new elevator squares
         elevator_janitor_run();
 
-#ifdef ELEVATOR_PACKRAT
-        // Reconsitute elevator-objects
-        restore_objects(buf, elev_obj_list, MAX_ELEV_OBJS);
-
-        // Move 'em to the right place
-        robot_antisocial = TRUE;
-        for (i = 0; i < MAX_ELEV_OBJS; i++) {
-            tempid = elev_obj_list[i];
-            if (tempid != OBJ_NULL) {
-                temploc = objs[tempid].loc;
-                temploc.x = panel_loc.x - elev_obj_diffs[i].x;
-                temploc.y = panel_loc.y - elev_obj_diffs[i].y;
-                if (MAP_ZSHF == old_zsh)
-                    temploc.z = panel_loc.z - elev_obj_diffs[i].z;
-                else if (MAP_ZSHF > old_zsh)
-                    temploc.z = panel_loc.z - (elev_obj_diffs[i].z << (MAP_ZSHF - old_zsh));
-                else
-                    temploc.z = panel_loc.z - (elev_obj_diffs[i].z >> (old_zsh - MAP_ZSHF));
-                obj_move_to(tempid, &temploc, TRUE);
-            }
-        }
-        robot_antisocial = FALSE;
-        obj_load_art(FALSE);
-#endif
         end_wait();
 
         stop_digi_fx(); // KLC - Moved this to before the door tries to open.
@@ -1455,16 +1256,7 @@ uchar elevator_use(short dest_level, ubyte which_panel) {
         }
     } else
         critical_error(CRITERR_FILE);
-#endif
     return (TRUE);
-}
-
-errtype obj_door_lock(ObjID door_id, uchar new_lock) {
-    if (new_lock)
-        QUESTBIT_ON(objDoors[objs[door_id].specID].locked);
-    else
-        QUESTBIT_OFF(objDoors[objs[door_id].specID].locked);
-    return (OK);
 }
 
 uchar in_anim_callback = FALSE;
@@ -1594,9 +1386,7 @@ errtype keypad_trigger(ObjID id, uchar digits[MAX_KEYPAD_DIGITS]) {
             string_message_info(REF_STR_KeypadBad);
         else {
             string_message_info(REF_STR_TrapZeroMessage + qdata_get(objFixtures[osid].p4 >> 16));
-#ifdef AUDIOLOGS
             audiolog_bark_play(qdata_get(objFixtures[osid].p4 >> 16));
-#endif
         }
         play_digi_fx_obj(SFX_MFD_BUZZ, 1, id);
         do_multi_stuff(qdata_get(objFixtures[osid].p4 & 0xFFFF));
@@ -1664,14 +1454,6 @@ errtype obj_cspace_collide(ObjID id, ObjID collider) {
             return (OK);
         }
     }
-#ifdef MATCHBOX_SUPPORT
-    switch (ID2TRIP(id)) {
-    case ARROW_TRIPLE:
-        cspace_effect_times[CS_MATCHBOX_EFF] = player_struct.game_time + cspace_effect_durations[CS_MATCHBOX_EFF];
-        return (OK);
-        break;
-    }
-#endif
     switch (objs[id].obclass) {
     case CLASS_FIXTURE:
     case CLASS_SMALLSTUFF:
@@ -1706,30 +1488,12 @@ errtype obj_cspace_collide(ObjID id, ObjID collider) {
 
             if (bigstuff_fake != 0) {
                 inventory_add_object(id, select);
-#ifdef SWITCH_BY_COLLIDE
-                switch (objBigstuffs[objs[id].specID].data1) {
-                case SOFTWARE_SUBCLASS_OFFENSE:
-                    player_struct.actives[ACTIVE_COMBAT_SOFT] = objBigstuffs[objs[id].specID].data2;
-                    break;
-                case SOFTWARE_SUBCLASS_DEFENSE:
-                    player_struct.actives[ACTIVE_DEFENSE_SOFT] = objBigstuffs[objs[id].specID].data2;
-                    break;
-                }
-#endif
                 get_object_short_name(bigstuff_fake, str_buf, 40);
                 version = objBigstuffs[objs[id].specID].cosmetic_value;
             } else {
                 // set it to be the "active" object under certain circumstances
                 if (objs[id].obclass == CLASS_SOFTWARE) {
                     switch (objs[id].subclass) {
-#ifdef SWITCH_BY_COLLIDE
-                    case SOFTWARE_SUBCLASS_OFFENSE:
-                        player_struct.actives[ACTIVE_COMBAT_SOFT] = objs[id].info.type;
-                        break;
-                    case SOFTWARE_SUBCLASS_DEFENSE:
-                        player_struct.actives[ACTIVE_DEFENSE_SOFT] = objs[id].info.type;
-                        break;
-#endif
                     case SOFTWARE_SUBCLASS_DATA:
                         string_message_info(REF_STR_CspaceData);
                         return (OK);

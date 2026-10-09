@@ -50,13 +50,11 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "gr2ss.h"
 
 #define WORKING_INC_MFDS
-#define DRAW_GRID_PLUSSES
 
 // ----------
 //  PROTOTYPES
 // ----------
 extern errtype accesspanel_trigger(ObjID id);
-errtype simple_load_res_bitmap_cursor(LGCursor *c, grs_bitmap *bmp, Ref rid);
 errtype load_res_bitmap(grs_bitmap *bmp, Ref rid, uchar alloc);
 
 int wirepos_score(wirePosPuzzle *wppz);
@@ -123,12 +121,8 @@ int gpz_dk_colors[] = {0x7E, 0x63, 0x27, 0x56, GRAY_BASE + 13};
 
 LGCursor gridCursor;
 grs_bitmap gridCursorbm;
-#ifdef SVGA_SUPPORT
 uchar
     gridCursorBits[1016]; // This should be enough, maybe... note wacky computation scaling 9x9 to apropos for 1024x768
-#else
-uchar gridCursorBits[81]; // This should be enough
-#endif
 
 //#define score_spew(str,v)    mprintf(str,v)
 //#define score_spew2(str,v,o) mprintf(str,v,o)
@@ -176,14 +170,7 @@ static void draw_help_text(char *str, uchar wire, void *puzzle) {
     gr_font_string_unwrap(str);
     mfd_string_wrap = save_w;
     if (bmap) {
-#ifdef PUZZ_DIFF_NOHELP
-        if (PUZZLE_DIFFICULTY < MAX_DIFFICULTY)
-            bcolor = gpz_base_colors[((gridFlowPuzzle *)puzzle)->control_alg];
-        else
-            bcolor = GPZ_NOALG_COLOR;
-#else
         bcolor = gpz_base_colors[((gridFlowPuzzle *)puzzle)->gfLayout.control_alg];
-#endif
         x = (MFD_VIEW_WID - bw) / 2;
         y += sh;
         grid_help_clut[SWITCH_COLOR] = bcolor;
@@ -243,15 +230,7 @@ int wirepos_score(wirePosPuzzle *wppz) {
 #define randvar(wppz) pegrand((wppz)->have_won, ((wppz)->scale >> WP_SCALE_SHF) << 1)
 #define wirepos_curscore(wpppppz) ((wpppppz)->score + randvar(wpppppz) - ((wpppppz)->scale >> WP_SCALE_SHF))
 
-#ifndef GAMEONLY
-#define wirepos_spew(wz, csc)                                                                                    \
-    mprintf("%d-%d, %d-%d, %d-%d, %d-%d, taps %2.2x %2.2x, wim %x tick %x sc %d cs %d\n", wz->wires[0].cur.lpos, \
-            wz->wires[0].cur.rpos, wz->wires[1].cur.lpos, wz->wires[1].cur.rpos, wz->wires[2].cur.lpos,          \
-            wz->wires[2].cur.rpos, wz->wires[3].cur.lpos, wz->wires[3].cur.rpos, wz->left_tap, wz->right_tap,    \
-            wz->wire_in_motion, wz->wim_tick, wz->score, csc)
-#else
 #define wirepos_spew(wz, csc)
-#endif
 
 void wirepos_setup_buttons(wirePosPuzzle *wppz) {
     LGPoint bsize = {ACCESSP_BTN_WD, ACCESSP_BTN_HGT};
@@ -344,7 +323,6 @@ int wirepos_iswire(wirePosPuzzle *wppz, int wim_code) {
     return -1;
 }
 
-#define ALLOW_FLIP
 
 uchar wirepos_moveto(wirePosPuzzle *wppz, int wim_code) {
     int wim_tap, retv;
@@ -354,9 +332,6 @@ uchar wirepos_moveto(wirePosPuzzle *wppz, int wim_code) {
     else
         wim_tap = wppz->left_tap;
     if ((wppz->wire_in_motion != wim_code) && ((wppz->wire_in_motion & LR_MASK) == (wim_code & LR_MASK))
-#ifndef ALLOW_FLIP
-                                                  (((1 << (wim_code & BTN_MASK)) & wim_tap) == 0))
-#endif
             )
    {
                 int owire = wppz->wire_in_motion & BTN_MASK, twire = wim_code & BTN_MASK, loc;
@@ -364,7 +339,6 @@ uchar wirepos_moveto(wirePosPuzzle *wppz, int wim_code) {
                 if (loc == -1) {
                     retv = FALSE;
                 } else {
-#ifdef ALLOW_FLIP
                     if (((1 << twire) & wim_tap) != 0) {
                         int oloc = wirepos_iswire(wppz, wim_code);
                         if (wim_code & LR_MASK) {
@@ -375,7 +349,6 @@ uchar wirepos_moveto(wirePosPuzzle *wppz, int wim_code) {
                             wppz->wires[oloc].cur.lpos = owire;
                         }
                     } else
-#endif
                     {
                         wim_tap &= ~(1 << owire);
                         wim_tap |= (1 << twire);
@@ -529,8 +502,6 @@ uchar mfd_solve_wirepanel() {
     if (num_wires > MAX_P_WIRES) num_wires = MAX_P_WIRES;
 
     for (wire = 0; wire < num_wires; wire++) {
-#define MINIMAL_SOLUTION
-#ifdef MINIMAL_SOLUTION
         // move one wire to target, swapping it with a later wire if
         // necessary (we should never need to swap with a previous
         // wire, since they are already in their target positions,
@@ -564,20 +535,7 @@ uchar mfd_solve_wirepanel() {
             wirepos_3int_update(wppz);
             break;
         }
-#else
-        wppz->wires[wire].cur = wppz->wires[wire].targ;
-#endif
     }
-
-#ifndef MINIMAL_SOLUTION
-    // rescore, and if target score has been achieved, we are done.
-    wirepos_score(wppz);
-    score = wirepos_rescore_n_check(wppz);
-    if (wppz->have_won) {
-        wppz->score = score > 0 ? score : -score;
-        wirepos_3int_update(wppz);
-    }
-#endif
 
     mfd_notify_func(MFD_ACCESSPANEL_FUNC, MFD_INFO_SLOT, FALSE, MFD_ACTIVE, FALSE);
     // always return success: if we've gotten to this point without solving
@@ -621,16 +579,7 @@ errtype mfd_accesspanel_init(MFD_Func *f) {
 }
 
 uchar mfd_accesspanel_handler(MFD *m, uiEvent *e) {
-#ifdef EPICK_ON_CURSOR_TRY
-    extern uchar try_use_epick(ObjID panel, ObjID cursor_obj);
-
-    if (ev->type != UI_EVENT_MOUSE || !(ev->subtype & (MOUSE_LDOWN | UI_MOUSE_LDOUBLE)))
-        return FALSE;
-
-    return (try_use_epick(player_struct.panel_ref, object_on_cursor));
-#else
     return (FALSE);
-#endif
 }
 
 int access_help_string(wirePosPuzzle *wppz) {
@@ -1125,7 +1074,6 @@ uchar gpz_state_charged(gridFlowPuzzle *gfpz, short r, short c) {
     return (gpz_is_charged(gpz_get_grid_state(gfpz, r, c)));
 }
 
-#ifdef SHOW_DONENESS
 // Find the shortest Manhatten distance from a charged node to the
 // destination node.  Converts this to a rating in the range 0 to
 // 255 by normalizing to the greatest Manhatten distance from the
@@ -1156,7 +1104,6 @@ uchar gpz_doneness(gridFlowPuzzle *gfpz) {
 
     return (UCHAR_MAX * (farthest - doneness) / farthest);
 }
-#endif
 
 // recalculates "current" or "charge" flow through grid.  Returns TRUE
 // iff destination node is charged.
@@ -1386,10 +1333,6 @@ void gpz_4int_init(gridFlowPuzzle *gfpz, uint p1, uint p2, uint p3, uint p4) {
     gfpz->gfLayout.winmove_f = 0;
     mfd_gridpanel_set_winmove(FALSE);
 
-#ifdef GRIDP_AUTO_SOLVE
-    gfpz->gfLayout.solve_me = 0;
-#endif
-
     soff = 0;
     for (r = 0; r < rr; r++) {
         for (c = 0; c < cc; c++) {
@@ -1551,18 +1494,9 @@ uchar mfd_gridpanel_button_handler(MFD *mfd, LGPoint bttn, uiEvent *ev, void *da
     if (gfpz->gfLayout.have_won)
         return TRUE;
 
-#ifdef GRIDP_AUTO_SOLVE
-    if (!gfpz->gfLayout.solve_me)
-        gfpz->gfLayout.solve_me = TRUE;
-#endif
-
     gfpz->gfLayout.winmove_f = 0;
     s = gridpanel_move(bttn, gfpz);
     s = gpz_uncharge_state(s);
-
-#ifdef GRIDP_AUTO_SOLVE
-    mfd_notify_func(MFD_GRIDPANEL_FUNC, MFD_INFO_SLOT, FALSE, MFD_ACTIVE, FALSE);
-#endif
 
     if (s == GPZ_OPEN || s == GPZ_CLOSED) {
         gpz_4int_update(gfpz);
@@ -1607,16 +1541,7 @@ uchar mfd_gridpanel_handler(MFD *m, uiEvent *ev) {
     } else {
         uiPopCursorEvery(cs, &gridCursor);
     }
-#ifdef EPICK_ON_CURSOR_TRY
-    extern uchar try_use_epick(ObjID panel, ObjID cursor_obj);
-
-    if (ev->type != UI_EVENT_MOUSE || !(ev->subtype & (MOUSE_LDOWN | UI_MOUSE_LDOUBLE)))
-        return FALSE;
-
-    return (try_use_epick(player_struct.panel_ref, object_on_cursor));
-#else
     return (FALSE);
-#endif
 }
 
 #define GPZ_CHARGE_COLOR       (GREEN_YELLOW_BASE + 3)
@@ -1685,11 +1610,9 @@ void mfd_gridpanel_expose(MFD *mfd, ubyte control) {
     gridFlowPuzzle *gfpz = (gridFlowPuzzle *)&player_struct.mfd_access_puzzles[0];
     uchar full = control & MFD_EXPOSE_FULL;
 
-#ifdef SVGA_SUPPORT
     // Whatta hack!
     if (convert_use_mode)
         full = TRUE;
-#endif
 
     rr = gfpz->gfLayout.rows;
     cc = gfpz->gfLayout.cols;
@@ -1746,16 +1669,7 @@ void mfd_gridpanel_expose(MFD *mfd, ubyte control) {
             return;
         }
 
-#ifdef PUZZ_DIFF_NOHELP
-        // set color of wires to indicate control algorithm, unless we're
-        // on hardest difficulty.
-        if (PUZZLE_DIFFICULTY < MAX_DIFFICULTY)
-            bcolor = gpz_base_colors[gfpz->gfLayout.control_alg];
-        else
-            bcolor = GPZ_NOALG_COLOR;
-#else
         bcolor = gpz_base_colors[gfpz->gfLayout.control_alg];
-#endif
 
         if (gfpz->gfLayout.have_won)
             full = TRUE;
@@ -1873,10 +1787,6 @@ void mfd_gridpanel_expose(MFD *mfd, ubyte control) {
                             if (dr != 0 && dc != 0)
                                 continue;
                             nearstate = gpz_get_grid_state(gfpz, r + dr, c + dc);
-#ifndef DRAW_GRID_PLUSSES
-                            if (nearstate == GPZ_EMPTY)
-                                continue;
-#endif
                             ss_int_line(x + (GRIDP_BTN_WD / 2), y + (GRIDP_BTN_HGT / 2),
                                         x + (dc + 1) * (GRIDP_BTN_WD / 2), y + (dr + 1) * (GRIDP_BTN_HGT / 2));
                         }
@@ -1894,7 +1804,6 @@ void mfd_gridpanel_expose(MFD *mfd, ubyte control) {
                         }
                     }
                     break;
-#ifdef GPZ_GATES
                 case GPZ_GATE:
                     ss_box(x, y, x + GRIDP_BTN_WD, y + GRIDP_BTN_HGT);
                     gr_set_fcolor(gpz_dk_colors[gfpz->gfLayout.control_alg]);
@@ -1905,7 +1814,6 @@ void mfd_gridpanel_expose(MFD *mfd, ubyte control) {
                     gr_set_fcolor(GPZ_CHARGE_DK_COLOR);
                     ss_rect(x + 1, y + 1, x + GRIDP_BTN_WD - 1, y + GRIDP_BTN_HGT - 1);
                     break;
-#endif
                 }
             }
         }
@@ -1922,19 +1830,4 @@ void mfd_gridpanel_expose(MFD *mfd, ubyte control) {
     // updated mfd to screen
     mfd_update_rects(mfd);
 
-#ifdef GRIDP_AUTO_SOLVE
-    {
-        uiEvent ev;
-        LGPoint bttn;
-
-        if (!gfpz->gfLayout.have_won) {
-            bttn.x = rand() % cc;
-            bttn.y = rand() % rr;
-
-            ev.subtype = MOUSE_LDOWN;
-
-            mfd_gridpanel_button_handler(NULL, bttn, &ev, NULL);
-        }
-    }
-#endif
 }

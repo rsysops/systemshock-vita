@@ -61,15 +61,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "ai.h"
 
-#ifdef DOOM_EMULATION_MODE
 #include "diffq.h"
-#endif
 
-#ifdef NEW_2d
-#include "double.h"
-#endif
-
-#include "OpenGL.h"
 #include "rastq.h"
 
 #define VOXEL_PIX_DIST_BASE (fix_make(0, 0x1000))
@@ -95,7 +88,6 @@ char curr_clut_table = 0;
 #define height_step fix_make(0, 0x010000 >> SLOPE_SHIFT)
 
 // prototypes
-int munge_val(int val, int range, int delta);
 void _fr_draw_parm_cube(grs_bitmap *side_bm, grs_bitmap *oth_bm, int x, int y, int z);
 void _fr_draw_poly_cube(int p_color, int x, int y, int z);
 void _fr_draw_polyobj(void *model_ptr, uchar use_lighting);
@@ -103,19 +95,8 @@ void gen_seed_vec(g3s_vector *gpt_vec, int seed, int scale, int deviant);
 void do_xplodamatron(int frame, int severity, int seed, int col1, int col2);
 void gen_tetra(g3s_phandle *xplo_pts, fix size, int deviant, int color);
 void draw_ice(void);
-void draw_ice_wall(void);
 void _fr_draw_tmtile(grs_bitmap *draw_bm, int col_val, g3s_phandle *plst, uchar dblface, uchar use_lighting);
 void _fr_draw_bitmap(grs_bitmap *draw_bm, int dist, int sc, int anch_x, int anch_y);
-
-int munge_val(int val, int range, int delta) {
-    int base = range - delta;
-    if (val <= delta)
-        base = 0;
-    else if (val >= range - delta)
-        base = range - 2 * delta;
-    val = (val + base + (rand() % (2 * delta + 1))) & 0xff;
-    return val;
-}
 
 #define PARM_MAX (0x0f8)
 #define PARM_MOD (PARM_MAX << 1)
@@ -123,7 +104,6 @@ int munge_val(int val, int range, int delta) {
 //#define PARM_BASE (64)
 #define PARM_BASE (16)
 
-#define LIGHT_3D_OBJS
 
 #define setup_face(a, b, c, d)                                             \
     cface[0] = cube_pt[a]; cface[0]->uv.u = 0;     cface[0]->uv.v = 0;     \
@@ -147,14 +127,10 @@ void _fr_draw_parm_cube(grs_bitmap *side_bm, grs_bitmap *oth_bm, int x, int y, i
     cube_vec.gX = -x;
     cube_vec.gY = 0;
     cube_vec.gZ = -y;
-#ifdef NO_ANTIGRAV_CRATES
     cube_vec.gY += _o_rad;
-#endif
     cube_pt[0] = g3_transform_point(&cube_vec);
     cube_pt[0]->p3_flags |= PF_U | PF_V;
-#ifdef NO_ANTIGRAV_CRATES
     cube_vec.gY -= _o_rad;
-#endif
     _fdt_pbase = 0;
     cube_pt[0]->i = _sq_lght; // _fr_do_light(cube_pt[0],FRPTSZFLR_DN);
     x += x;
@@ -174,13 +150,11 @@ void _fr_draw_parm_cube(grs_bitmap *side_bm, grs_bitmap *oth_bm, int x, int y, i
     cube_pt[6]->p3_flags |= PF_U | PF_V;
     cube_pt[7] = g3_copy_add_delta_y(cube_pt[3], z);
     cube_pt[7]->p3_flags |= PF_U | PF_V;
-#ifdef LIGHT_3D_OBJS
     cur_ft = gr_get_fill_type();
     if (cur_ft != FILL_SOLID) {
         gr_set_fill_type(FILL_CLUT);
         gr_set_fill_parm(_fr_clut_list[curr_clut_table] + (cube_pt[0]->i & 0xf00));
     }
-#endif
     setup_face(0, 3, 2, 1);
     (*g3_tmap_func)(4, cface, oth_bm);
     setup_rface(7, 4, 5, 6);
@@ -194,9 +168,7 @@ void _fr_draw_parm_cube(grs_bitmap *side_bm, grs_bitmap *oth_bm, int x, int y, i
     setup_face(5, 4, 0, 1);
     (*g3_tmap_func)(4, cface, side_bm);
     g3_end_object();
-#ifdef LIGHT_3D_OBJS
     gr_set_fill_type(cur_ft);
-#endif
     g3_free_list(8, cube_pt);
 }
 
@@ -265,13 +237,6 @@ void _fr_draw_poly_cube(int p_color, int x, int y, int z) {
     cube_pt[7] = g3_copy_add_delta_y(cube_pt[3], z);
     cube_pt[7]->p3_flags |= PF_I;
     cube_pt[7]->i = 0x0800;
-#ifdef vvLIGHT_3D_OBJS
-    cur_ft = gr_get_fill_type();
-    if (cur_ft != FILL_SOLID) {
-        gr_set_fill_type(FILL_CLUT);
-        gr_set_fill_parm(_fr_clut_list[curr_clut_table] + (cube_pt[0]->i & 0xf00));
-    }
-#endif
     setup_face(0, 3, 2, 1);
     fpoly_rend(p_color, 4, cface);
     setup_rface(7, 4, 5, 6);
@@ -285,9 +250,6 @@ void _fr_draw_poly_cube(int p_color, int x, int y, int z) {
     setup_face(5, 4, 0, 1);
     fpoly_rend(p_color, 4, cface);
     g3_end_object();
-#ifdef vvLIGHT_3D_OBJS
-    gr_set_fill_type(cur_ft);
-#endif
     g3_free_list(8, cube_pt);
 }
 
@@ -298,7 +260,6 @@ void _fr_draw_polyobj(void *model_ptr, uchar use_lighting) {
     int cur_ft;
     // set up clut for lighting in square and all
     // should decode 0 and FACE_ somehow... ick
-#ifdef LIGHT_3D_OBJS
     if (use_lighting) {
         cur_ft = gr_get_fill_type();
         if (cur_ft != FILL_SOLID) {
@@ -306,14 +267,11 @@ void _fr_draw_polyobj(void *model_ptr, uchar use_lighting) {
             gr_set_fill_parm(_fr_clut_list[curr_clut_table] + (_sq_lght & 0xf00));
         }
     }
-#endif
     g3_start_object_angles_xyz(&_fr_p, _fr_cobj->loc.p << 8, _fr_cobj->loc.h << 8, _fr_cobj->loc.b << 8, ANGLE_ORDER);
     g3_interpret_object((ubyte *)model_ptr, ((PARM_MAX + PARM_BASE) - pos_parm) << PARM_SHF, PARM_BASE << PARM_SHF);
     g3_end_object();
-#ifdef LIGHT_3D_OBJS
     if (use_lighting)
         gr_set_fill_type(cur_ft);
-#endif
 }
 //#pragma enable_message(202)
 
@@ -413,7 +371,6 @@ void draw_ice(void) {
     gen_tetra(xplo_pts, size, deviant, -BLUE_8_BASE);
     gen_tetra(xplo_pts + 4, -(size << 2), deviant, -BLUE_8_BASE - 4);
 
-#ifndef NOT_REAL
     g3_draw_cline(xplo_pts[0], xplo_pts[6]);
     g3_draw_cline(xplo_pts[1], xplo_pts[6]);
     g3_draw_cline(xplo_pts[3], xplo_pts[6]);
@@ -429,31 +386,12 @@ void draw_ice(void) {
     g3_draw_cline(xplo_pts[1], xplo_pts[4]);
     g3_draw_cline(xplo_pts[2], xplo_pts[4]);
     g3_draw_cline(xplo_pts[3], xplo_pts[4]);
-#endif
-
-#ifdef FAKE
-    g3_draw_cline(xplo_pts[0], xplo_pts[3]);
-    g3_draw_cline(xplo_pts[1], xplo_pts[3]);
-    g3_draw_cline(xplo_pts[2], xplo_pts[3]);
-    g3_draw_cline(xplo_pts[0], xplo_pts[1]);
-    g3_draw_cline(xplo_pts[1], xplo_pts[2]);
-    g3_draw_cline(xplo_pts[2], xplo_pts[0]);
-
-    g3_draw_cline(xplo_pts[4], xplo_pts[5]);
-    g3_draw_cline(xplo_pts[4], xplo_pts[6]);
-    g3_draw_cline(xplo_pts[4], xplo_pts[7]);
-    g3_draw_cline(xplo_pts[5], xplo_pts[6]);
-    g3_draw_cline(xplo_pts[6], xplo_pts[7]);
-    g3_draw_cline(xplo_pts[7], xplo_pts[5]);
-#endif
 
     g3_free_list(8, xplo_pts);
     g3_end_object();
 }
 //#pragma enable_message(202)
 
-//#pragma disable_message(202)
-void draw_ice_wall(void) { int size_x = 0x8000, size_y = 0x8000; }
 //#pragma enable_message(202)
 
 void _fr_draw_tmtile(grs_bitmap *draw_bm, int col_val, g3s_phandle *plst, uchar dblface, uchar use_lighting) {
@@ -536,8 +474,6 @@ void _fr_draw_tmtile(grs_bitmap *draw_bm, int col_val, g3s_phandle *plst, uchar 
         gr_set_fill_parm(_fr_clut_list[curr_clut_table] + (_sq_lght & 0xf00));
         fpoly_rend(col_val, 4, plst);
         gr_set_fill_type(cur_ft);
-    } else if (use_opengl()) {
-        if (draw_bm != NULL) opengl_light_tmap(4, plst, draw_bm);
     } else {
         if (draw_bm != NULL) g3_light_tmap(4, plst, draw_bm);
     }
@@ -562,8 +498,6 @@ void _fr_draw_tmtile(grs_bitmap *draw_bm, int col_val, g3s_phandle *plst, uchar 
                 gr_set_fill_parm(_fr_clut_list[curr_clut_table] + (_sq_lght & 0xf00));
                 fpoly_rend(col_val, 4, plst);
                 gr_set_fill_type(cur_ft);
-            } else if (use_opengl()) {
-                if (draw_bm != NULL) opengl_light_tmap(4, plst, draw_bm);
             } else {
                 if (draw_bm != NULL) g3_light_tmap(4, plst, draw_bm);
             }
@@ -577,12 +511,6 @@ void _fr_draw_tmtile(grs_bitmap *draw_bm, int col_val, g3s_phandle *plst, uchar 
 // note this always has show_obj's p for p and _fdt_dist for dist.. perhaps shouldnt pass them
 //#pragma disable_message(202)
 void _fr_draw_bitmap(grs_bitmap *draw_bm, int dist, int sc, int anch_x, int anch_y) {
-#ifdef SMOOTH_BITMAPS
-    grs_canvas tmp_can;
-    grs_bitmap tmp_bm;
-    uchar *tmp_ptr;
-    uchar do_qsc = (dist < fr_qscale_obj);
-#endif
     g3s_phandle anchor;
     grs_vertex **bitmap_verts;
 
@@ -603,11 +531,7 @@ void _fr_draw_bitmap(grs_bitmap *draw_bm, int dist, int sc, int anch_x, int anch
         g3_set_bitmap_scale(fix_make(0, (int)(2048 / 3)), fix_make(0, (int)(2048 / 3)));
 
     if ((bitmap_verts != NULL) && IS_HUDOBJ(_fr_cobj - objs)) {
-#ifdef SVGA_SUPPORT
         fix lx = fix_make(1024, 0), ly = fix_make(768, 0), rx = fix_make(0, 0), ry = fix_make(0, 0);
-#else
-        fix lx = fix_make(320, 0), ly = fix_make(200, 0), rx = fix_make(0, 0), ry = fix_make(0, 0);
-#endif
         int i;
         for (i = 0; i < 4; i++) {
             if (bitmap_verts[i]->x < lx)
@@ -660,13 +584,6 @@ short compute_3drep(Obj *cobj, ObjID cobjid, int obj_type) {
         default:
             o3drep = BMAP_NUM_3D(ObjProps[OPNUM(cobjid)].bitmap_3d);
             if ((obj_type != FAUBJ_VOX) && (cobj->obclass != CLASS_DOOR) && (cobj->info.current_frame != 255)) {
-#ifdef PLAYTEST
-                if ((cobj->obclass == CLASS_CONTAINER) &&
-                    (cobj->info.current_frame > FRAME_NUM_3D(ObjProps[OPNUM(cobjid)].bitmap_3d))) {
-                    Warning(("hey, obj id %x has frame %d, but max is %d!\n", cobjid, cobj->info.current_frame,
-                             FRAME_NUM_3D(ObjProps[OPNUM(cobjid)].bitmap_3d)));
-                } else
-#endif
                     o3drep += cobj->info.current_frame;
             }
             break;
@@ -678,7 +595,6 @@ short compute_3drep(Obj *cobj, ObjID cobjid, int obj_type) {
     return (o3drep);
 }
 
-#define TRANSLUCENT_INVISOS
 //#define TLUC_IN_2D
 
 // in effect.c also
@@ -696,11 +612,7 @@ void show_obj(ObjID cobjid) {
     extern uchar cam_mode;
     uchar *model_ptr;
     grs_bitmap *tpdata;
-#ifdef TRANSLUCENT_INVISOS
-#ifndef TLUC_IN_2D
     grs_bitmap tpdata_temp;
-#endif
-#endif
     char scale = 0;
     uchar type = 0xFF;
     uchar use_cache = FALSE;
@@ -711,10 +623,8 @@ void show_obj(ObjID cobjid) {
 
 //   check_up(0x220000|cobjid);
 //   mprintf("cobjid = %x\n",cobjid);
-#ifdef DOOM_EMULATION_MODE
     if (obj_too_smart(cobjid))
         return;
-#endif
     objtrip = OPNUM(cobjid);
     obj_type = ObjProps[objtrip].render_type;
     _fr_cobj = &objs[cobjid];
@@ -764,12 +674,6 @@ void show_obj(ObjID cobjid) {
                 }
                 col = sftware_col[sc] - v;
                 break;
-#ifdef OLD_BIGSTUFF_WAY
-            case CLASS_BIGSTUFF:
-                col = sftware_col[objBigstuffs[_fr_cobj->specID].data1] -
-                      (objBigstuffs[_fr_cobj->specID].cosmetic_value << 1);
-                dm = 0;
-#endif
             case CLASS_SMALLSTUFF:
                 if (_fr_cobj->subclass == SMALLSTUFF_SUBCLASS_CYBER)
                     col = objSmallstuffs[_fr_cobj->specID].cosmetic_value;
@@ -819,11 +723,6 @@ void show_obj(ObjID cobjid) {
             if (move_me && time_passes) {
 // I'm just ifdef-ing this out for now, I'll put it back in
 // when I have a more coherent plan WRT it.
-#ifdef RUBBER_BABY_BUGGY_BUMPERS
-                _fr_cobj->loc.gZ = munge_val(_fr_cobj->loc.gZ, 256, 4);
-                _fr_cobj->loc.gX = (_fr_cobj->loc.gX & ~0xff) + munge_val(_fr_cobj->loc.gX & 0xff, 256, 6);
-                _fr_cobj->loc.gY = (_fr_cobj->loc.gY & ~0xff) + munge_val(_fr_cobj->loc.gY & 0xff, 256, 6);
-#endif
                 _fr_cobj->loc.p += 248 + (((uint)cobjid) % 17);
                 _fr_cobj->loc.b += 247 + (((uint)cobjid) % 19);
                 _fr_cobj->loc.h += 245 + (((uint)cobjid) % 23);
@@ -1006,15 +905,9 @@ void show_obj(ObjID cobjid) {
             tpdata = get_critter_bitmap_obj_fast(cobjid, view, &ref, &anch);
             switch (ID2TRIP(cobjid)) {
             case INVISO_CRIT_TRIPLE:
-#ifdef TRANSLUCENT_INVISOS
-#ifdef TLUC_IN_2D
-                tpdata->flags |= BMF_TLUC8;
-#else
                 gr_rsd8_convert(tpdata, &tpdata_temp);
                 tpdata = &tpdata_temp;
                 tpdata->type = BMT_TLUC8;
-#endif
-#endif
                 break;
             }
             _fr_draw_bitmap(tpdata, _fdt_dist, 0, anch.ul.x, anch.ul.y);
@@ -1102,11 +995,6 @@ void show_obj(ObjID cobjid) {
                 tpdata = get_obj_cache_bitmap(cobjid, &ref);
                 if ((_fr_cobj->info.current_frame == 0) && (ObjProps[objtrip].flags & RENDER_BLOCK))
                     tpdata->flags &= ~BMF_TRANS;
-#ifdef HIGHRES_DOORS
-#ifdef SVGA_SUPPORT
-                scale -= 1;
-#endif
-#endif
                 break;
             default:
                 tpdata = get_obj_cache_bitmap(cobjid, &ref);

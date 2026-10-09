@@ -63,7 +63,6 @@ errtype draw_raw_res_bm_temp(Ref id, int x, int y);
 // Draw a resource bitmap at the x,y coordinates, loading the pallet (if available)
 // and doing appropriate mouse tricks.
 void draw_hires_resource_bm(Ref id, int x, int y);
-void draw_hires_halfsize_bm(Ref id, int x, int y);
 errtype draw_res_bm(Ref id, int x, int y);
 errtype draw_res_bm_core(Ref id, int x, int y, uchar scale);
 errtype draw_full_res_bm(Ref id, int x, int y, uchar fade_in);
@@ -88,7 +87,6 @@ void Rect_gr_rect(LGRect *rv);
 uchar gifdump_func(short keycode, ulong context, void *data);
 
 // Spit up a box containing a message.
-errtype message_box(char *box_text);
 
 // Writes a message to the info LGRegion
 errtype string_message_info(int strnum);

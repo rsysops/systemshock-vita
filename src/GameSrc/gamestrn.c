@@ -55,13 +55,6 @@ int string_res_file; // string res filenum
 char *language_files[] = {"res/data/cybstrng.res", "res/data/frnstrng.res", "res/data/gerstrng.res"};
 extern char which_lang;
 
-// Wrapper around RefGet suitable for use by lg_sprintf to get string resources
-// for the custom '%S' format specifier.
-char *lg_sprintf_string_get(uint32_t ref)
-{
-    return RefGet(ref);
-}
-
 void init_strings(void) {
     // Open the string resource file.
     if (which_lang < 0 || which_lang >= sizeof(language_files) / sizeof(*language_files))
@@ -107,8 +100,6 @@ char *get_object_short_name(int trip, char *buf, int bufsize) {
 char *get_object_long_name(int trip, char *buf, int bufsize) {
     return get_string(MKREF(RES_objlongnames, OPTRIP(trip)), buf, bufsize);
 }
-
-void shutdown_strings(void) { ResCloseFile(string_res_file); }
 
 char *get_texture_name(int abs_texture, char *buf, int bufsiz) {
     return get_string(MKREF(RES_texnames, abs_texture), buf, bufsiz);

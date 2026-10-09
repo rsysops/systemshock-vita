@@ -27,8 +27,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "musicai.h"
 
 #define MAX_UNLOCK 32
-int rulock_list[MAX_UNLOCK];
-int rulock_ptr = 0;
 
 /* KLC - not used in Mac version.
 void cdecl simple_xmi_stop(snd_midi_parms *seq)
@@ -41,12 +39,6 @@ void cdecl simple_xmi_stop(snd_midi_parms *seq)
    simple_xmi_sound_on--;
 }
 */
-
-void digifx_EOS_callback(snd_digi_parms *sdp) {
-    /*if (sdp->snd_ref>0x10)
-            if (rulock_ptr<MAX_UNLOCK-1)
-                    rulock_list[rulock_ptr++]=sdp->snd_ref;*/
-}
 
 void sound_frame_update(void) {
     int i;

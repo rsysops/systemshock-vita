@@ -115,11 +115,7 @@ int ProcessModDirectory(char *dirname) {
             strcpy(buf, dirname);
 
 // Windows, why do you have to be weird?
-#ifdef _WIN32
-            strcat(buf, "\\");
-#else
             strcat(buf, "/");
-#endif
 
             strcat(buf, ep->d_name);
 

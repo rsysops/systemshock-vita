@@ -79,11 +79,6 @@ void mfd_bark_expose(MFD *mfd, ubyte control) {
             draw_raw_resource_bm(MKREF(RES_mfdArtOverlays, MFD_ART_TRIOP), 0, 0);
         }
         if (full && global_fullmap->cyber && mfd->id == MFD_RIGHT && (full_visible & visible_mask(mfd->id)) == 0) {
-#ifdef STEREO_SUPPORT
-            if (convert_use_mode == 5)
-                full_visible = visible_mask(mfd->id);
-            else
-#endif
                 full_visible |= visible_mask(mfd->id);
             mfd_notify_func(MFD_BARK_FUNC, MFD_INFO_SLOT, FALSE, MFD_ACTIVE, TRUE);
         }
@@ -124,25 +119,16 @@ void mfd_bark_expose(MFD *mfd, ubyte control) {
 
 void long_bark(ObjID speaker_id, uchar mug_id, int string_id, ubyte color) {
     short mfd_id = mfd_grab_func(MFD_BARK_FUNC, MFD_INFO_SLOT);
-#ifdef AUDIOLOGS
     errtype alog_rv = ERR_NOEFFECT;
-#endif
 
     mfd_bark_string = string_id;
     mfd_bark_speaker = speaker_id;
     mfd_bark_color = color;
     mfd_bark_mug = mug_id;
-#ifdef AUDIOLOGS
     if ((audiolog_setting) && (REFID(string_id) == RES_traps))
         alog_rv = audiolog_bark_play(string_id - REF_STR_TrapZeroMessage);
-#else
-    if ((mug_id >= FIRST_SHODAN_BARK) && (mug_id <= FIRST_SHODAN_BARK + NUM_SHODAN_MUGS - 1))
-        play_digi_fx(SFX_SHODAN_BARK, 1);
-#endif
 
-#ifdef AUDIOLOGS
     if ((alog_rv != OK) || (audiolog_setting == 2))
-#endif
     {
         mfd_notify_func(MFD_BARK_FUNC, MFD_INFO_SLOT, TRUE, MFD_ACTIVE, TRUE);
         if (speaker_id > 0) {

@@ -67,8 +67,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define SCHEDULE_BASE_ID 590
 
 extern long old_ticks;
-extern char saveload_string[30];
-extern uchar display_saveload_checkpoints;
 extern ulong obj_check_time;
 extern uchar mlimbs_on;
 
@@ -157,29 +155,6 @@ void startup_game(uchar visible) {
         inv_last_page = INV_BLANK_PAGE;
     }
 }
-
-#ifdef NOT_YET
-
-void check_save_game_wackiness(void) {
-    // for now, the only thing we have heard of is a bridge in general inventory
-    // so lets make sure geninv has only geninvable stuff
-    int i;
-    ObjID cur_test;
-    for (i = 0; i < NUM_GENERAL_SLOTS; i++) {
-        cur_test = player_struct.inventory[i];
-#ifdef USELESS_OBJECT_CHECK
-        if (cur_test != OBJ_NULL) {
-            if ((ObjProps[OPNUM(cur_test)].flags & INVENTORY_GENERAL) == 0)
-                Warning(("You have obj %d a %d as the %d element of geninv, BADNESS\n", cur_test, OPNUM(cur_test), i));
-            //         else
-            //            Warning(("You have obj %d a %d as the %d element of geninv ok
-            //            %x\n",cur_test,OPNUM(cur_test),i,ObjProps[OPNUM(cur_test)].flags));
-        }
-#endif
-    }
-}
-
-#endif // NOT_YET
 
 errtype save_game(char *fname, char *comment) {
     int filenum;
@@ -278,9 +253,7 @@ errtype load_game_schedules(void) {
 }
 
 errtype interpret_qvars(void) {
-#ifdef SVGA_SUPPORT
     extern short mode_id;
-#endif
     extern uchar fullscrn_vitals;
     extern uchar fullscrn_icons;
     extern uchar map_notes_on;
@@ -295,10 +268,8 @@ errtype interpret_qvars(void) {
 
     recompute_music_level(QUESTVAR_GET(MUSIC_VOLUME_QVAR));
     recompute_digifx_level(QUESTVAR_GET(SFX_VOLUME_QVAR));
-#ifdef AUDIOLOGS
     recompute_audiolog_level(QUESTVAR_GET(ALOG_VOLUME_QVAR));
     //audiolog_setting = QUESTVAR_GET(ALOG_OPT_QVAR); //moved to prefs file
-#endif
     fullscrn_vitals = QUESTVAR_GET(FULLSCRN_VITAL_QVAR);
     fullscrn_icons = QUESTVAR_GET(FULLSCRN_ICON_QVAR);
     map_notes_on = QUESTVAR_GET(AMAP_NOTES_QVAR);
@@ -412,33 +383,6 @@ errtype load_level_from_file(int level_num) {
 
     return (retval);
 }
-
-#ifdef NOT_YET //
-
-void check_and_update_initial(void) {
-    extern Datapath savegame_dpath;
-    char archive_fname[128];
-    char dpath_fn[50];
-    char *tmp;
-    extern char real_archive_fn[20];
-    if (!DatapathFind(&savegame_dpath, CURRENT_GAME_FNAME, archive_fname)) {
-        tmp = getenv("CITHOME");
-        if (tmp) {
-            strcpy(dpath_fn, tmp);
-            strcat(dpath_fn, "\\");
-        } else
-            dpath_fn[0] = '\0';
-        strcat(dpath_fn, "data\\");
-        strcat(dpath_fn, CURRENT_GAME_FNAME);
-
-        if (!DatapathFind(&DataDirPath, real_archive_fn, archive_fname))
-            critical_error(CRITERR_RES | 0x10);
-        if (copy_file(archive_fname, dpath_fn) != OK)
-            critical_error(CRITERR_FILE | 0x7);
-    }
-}
-
-#endif // NOT_YET
 
 uchar create_initial_game_func(short undefined1, ulong undefined2, void *undefined3) {
     int i;

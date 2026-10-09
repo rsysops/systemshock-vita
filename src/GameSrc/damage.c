@@ -81,7 +81,6 @@ int armor_absorption(int raw_damage, int obj_triple, ubyte penetrate);
 int shield_absorb_damage(int damage, ubyte dtype, byte shield_absorb, ubyte shield_threshold);
 void player_dies();
 ubyte damage_player(int damage, ubyte dtype, ubyte flags);
-void critter_hit_effect(ObjID target, ubyte effect, Combat_Pt location, int damage, int max_damage);
 
 // -------------------------------------------
 // destroy_destroyed_objects()
@@ -317,13 +316,6 @@ int armor_absorption(int raw_damage, int obj_triple, ubyte penetrate) {
     return (damage);
 }
 
-// some globals
-uchar sound_hurt_threshold = 10;
-uchar static_pain_time = 64;
-uchar static_pain_base = 30;
-uchar static_pain_delta = 30;
-uchar shield_blowout_threshold = 15;
-
 short fr_solidfr_time;
 short fr_sfx_time;
 
@@ -418,10 +410,6 @@ uchar kill_player(void) {
     }
 
         // if we died not from a trap - then we should clear the player data
-#ifdef TEST_REBIRTH
-    clear_player_data = FALSE;
-    return FALSE;
-#else
     clear_player_data = (quick_death | alternate_death);
 
     if (quick_death) {
@@ -431,7 +419,6 @@ uchar kill_player(void) {
     }
 
     return (quick_death | alternate_death);
-#endif
 }
 
 void regenerate_player(void) {
@@ -471,18 +458,14 @@ void regenerate_player(void) {
 #define MAX_FATIGUE 10000
 #define DEATH_TICKS CIT_CYCLE
 
-ulong player_death_time = 0;
-
 // Something has caused the player to become a fatality
 // typically this is damage, but can be delayed-death due to craze
 void player_dies() {
     extern void physics_zero_all_controls();
     extern void clear_digi_fx();
     extern short inventory_page;
-#ifdef AUDIOLOGS
     extern char secret_pending_hack;
     secret_pending_hack = 0;
-#endif
 
     // we should play funky death music
     mai_player_death();
@@ -564,17 +547,6 @@ ubyte damage_player(int damage, ubyte dtype, ubyte flags) {
     if (damage <= 0)
         return 0;
 
-#ifdef WACKY_STATIC_USAGE
-    // Play digi FX should go in here when we have appropriate SFX
-    if ((!global_fullmap->cyber) && (damage > static_pain_base + rand() % static_pain_delta)) {
-        extern char static_density, static_color, static_grouping;
-        // Turn on fullscreen static & turn off any SFX that might be otherwise going on.
-        fr_global_mod_flag(FR_SOLIDFR_STATIC, FR_SOLIDFR_MASK | FR_SFX_MASK);
-        fr_solidfr_time = (static_pain_time);
-        play_digi_fx(SFX_STATIC, -1);
-    }
-#endif
-
     // did we take more damage than hit points?? - eeeegggads! we're dead
     if ((*cur_hp) <= damage) {
         damage_dealt = TRUE;
@@ -585,11 +557,6 @@ ubyte damage_player(int damage, ubyte dtype, ubyte flags) {
             } else // normal (non-cyberspace) damage - player's dead dead dead
             {
                 if (*cur_hp > 0) {
-#ifdef CRAZE_NODEATH
-                    if ((player_struct.drug_status[DRUG_LSD] > 0) && (QUESTVAR_GET(COMBAT_DIFF_QVAR) < 3))
-                        *cur_hp = 1;
-                    else
-#endif
                     {
                         *cur_hp = 0;
                         dead = TRUE;
@@ -849,23 +816,6 @@ uchar special_terrain_hit(ObjID cobjid) {
 #define SPCL_THRESH 0x80
 
 // HEY COMMENTED OUT PROCEDURE
-#ifdef CALLS_WERENT_SLOW
-uchar terrain_damage_object(physics_handle ph, fix raw_damage) {
-    uchar dead = FALSE;
-    ObjID target = physics_handle_to_id(ph);
-
-    if (ObjProps[OPNUM(cobjid)].flags & SPCL_TERR_DMG) {
-        if (raw_damage > SPCL_THRESH) {
-            objs[target].info.current_hp = 0;
-            ADD_DESTROYED_OBJECT(target);
-            dead = TRUE;
-        }
-    } else
-        dead = simple_damage_object(target, (raw_damage - HACK_THRESH) >> 10, EXPLOSION_FLAG, NO_SHIELD_ABSORBTION);
-
-    return (dead);
-}
-#endif
 
 // ------------------------------
 // compute_damage()
@@ -957,43 +907,6 @@ int compute_damage(ObjID target, int damage_type, int damage_mod, ubyte offense,
     return (damage);
 }
 
-// --------------------------------------------------------------
-// critter_hit_effect()
-//
-void critter_hit_effect(ObjID target, ubyte effect, Combat_Pt location, int damage, int max_damage) {
-    fix radius, height;
-    byte ht;
-    ObjLoc loc = objs[target].loc;
-
-    // temporary - to hit effect_center - will take care of later
-    SET_EFFECT_LOC(target, EFFECT_CENTER);
-
-    SET_EFFECT_NUM(target, effect);
-    SET_EFFECT_FRAME(target, 0);
-
-    radius = fix_make(ObjProps[OPNUM(target)].physics_xr, 0) / (PHYSICS_RADIUS_UNIT * 4);
-
-    height = fix_from_obj_height_val(loc.z);
-    ht = ((height - location.z) / radius) + 4;
-    if (ht < 1)
-        ht = 1;
-    else if (ht > 7)
-        ht = 7;
-
-    SET_EFFECT_HEIGHT(target, ht);
-
-    if (damage < (max_damage / 3)) {
-        SET_EFFECT_DUAL(target, 0);
-        SET_EFFECT_SCALE(target, 1);
-    } else if (damage < max_damage) {
-        SET_EFFECT_DUAL(target, 0);
-        SET_EFFECT_SCALE(target, 2);
-    } else {
-        SET_EFFECT_DUAL(target, 1);
-        SET_EFFECT_SCALE(target, 3);
-    }
-}
-
 // ---------------------------------------------------------------------------
 // get_damage_estimate()
 //
@@ -1049,12 +962,8 @@ ubyte attack_object(ObjID target, int damage_type, int damage_mod, ubyte offense
         if (effect)
             *effect = (effect_row) ? *(effect_row + 1) : 0;
     } else {
-#ifdef SELFRUN // we do max damage if we're in self run
-        damage = ((objs[target].obclass == CLASS_CRITTER) && (target != PLAYER_OBJ)) ? 0xFF : 0;
-#else
         damage = compute_damage(target, damage_type, damage_mod, offense, penet, power_level, effect, effect_row,
                                 attack_effect_type);
-#endif
     }
 
     if (damage_inflicted)

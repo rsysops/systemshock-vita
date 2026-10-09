@@ -165,21 +165,6 @@ void inventory_and_statistics(int32_t show_sleepers) {
 
     for (object = 0; object < MAX_OBJ && S[object][0][0] > END; object++) {
         if ((no_no_not_me[object] == 1) || show_sleepers == 1) {
-#ifdef EDMS_SHIPPABLE
-
-            //   		mout << object << ".) ";
-
-            //   		mout << "Physics handle: " << on2ph[object] << " is a " << I[object][IDOF_MODEL]
-            //   		     << " at   X:" << S[object][DOF_X][0] << "   Y:" << S[object][DOF_Y][0] << "   Z:" <<
-            //   S[object][DOF_Z][0]
-            //   		     << " Sleep: ";
-
-            //         if ( no_no_not_me[object] == 0 ) mout << "Y";
-            //         else mout << "N";
-
-            //         mout << "\n";
-
-#endif
         }
     } // End of sleeper check...
 

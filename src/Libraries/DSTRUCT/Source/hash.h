@@ -73,7 +73,6 @@ errtype hash_init(Hashtable* h, int elemsize, int vecsize, Hashfunc hfunc, Equfu
 // initialize a hashtable with the specified hashfunc and equfunc, using elemsize as 
 // the size of an element, and using vecsize as the initial table size.
 
-errtype hash_set(Hashtable* h,void* elem);
 // insert an element into a hashtable, overwriting any element 
 // that is equal to it.  
 
@@ -90,24 +89,19 @@ errtype hash_lookup(Hashtable* h, void* elem, void** result);
 // WARNING WARNING DANGER WILL ROBINSON.  HEINOUS REP EXPOSURE.
 // MODIFY **RESULT AT YOUR OWN PERIL 
 
-errtype hash_delete(Hashtable* h, void* elem);
 // Find and remove the element in h which is equal to elem,
 // or do nothing if no such element exists.
 
 
 typedef uchar (*HashIterFunc)(void* elem, void* data);
 
-errtype hash_iter(Hashtable* h, HashIterFunc ifunc, void* data);
 // Applies ifunc(elem,data) to every element of h, one at a time, until 
 // ifunc returns true.  
 
-errtype hash_copy(Hashtable* t, Hashtable* s);
 // Initializes t to be a copy of s
 
-errtype hash_step(Hashtable *h, void **result, int *index);
 // Will step through a hashtable, returning the elements one at a time.
 
-errtype hash_destroy(Hashtable* h);
 // Destroys hashtable h.  Does not free h itself, but frees
 // subordinate data structures. 
 

@@ -46,7 +46,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "faketime.h"
 #include "cit2d.h"
 
-#include "OpenGL.h"
 #include "Shock.h"
 #include "VitaGpu.h"
 #include "hudkeep.h"
@@ -54,7 +53,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //------------
 //  PROTOTYPES
 //------------
-void simple_text_button(char *text, int xc, int yc, int col);
 void Rect_gr_rect(LGRect *r);
 void Rect_gr_box(LGRect *r);
 char *itoa_2_10(char *s, int val);
@@ -77,9 +75,7 @@ void strtoupper(char *text) {
     }
 }
 
-#ifdef SVGA_SUPPORT
 uchar shadow_scale = TRUE;
-#endif
 void draw_shadowed_string(char *s, short x, short y, uchar shadow) {
     LGPoint npt;
     ubyte color = gr_get_fcolor();
@@ -87,7 +83,6 @@ void draw_shadowed_string(char *s, short x, short y, uchar shadow) {
     npt.y = y;
     if (shadow && FONT_IS_MONO(gr_get_font())) // draw a black box
     {
-#ifdef SVGA_SUPPORT
         extern char convert_use_mode;
         if ((convert_use_mode > 0) && (perform_svga_conversion(OVERRIDE_FONT))) {
             if (shadow_scale)
@@ -107,7 +102,6 @@ void draw_shadowed_string(char *s, short x, short y, uchar shadow) {
             gr_set_fcolor(color);
             ss_scale_string(s, npt.x, npt.y);
         } else
-#endif
         {
             gr_set_fcolor(shadow);
             gr_string(s, npt.x - 1, npt.y - 1);
@@ -133,14 +127,6 @@ void draw_hires_resource_bm(Ref id, int x, int y) {
     if (f == NULL)
         critical_error(CRITERR_MEM | 9);
     gr_bitmap(&f->bm, x, y);
-    RefUnlock(id);
-}
-
-void draw_hires_halfsize_bm(Ref id, int x, int y) {
-    FrameDesc *f = RefLock(id);
-    if (f == NULL)
-        critical_error(CRITERR_MEM | 9);
-    gr_scale_bitmap(&f->bm, x, y, (f->bm.w >> 1), (f->bm.h >> 1));
     RefUnlock(id);
 }
 
@@ -297,14 +283,6 @@ void text_button(char *text, int xc, int yc, int col, int shad, int w, int h) {
     ss_string(text, xc - (tw >> 1), yc - (th >> 1));
 }
 
-// ok, the easy case...
-// centered at xc,yc, color base, auto-shadowed, size out setting
-void simple_text_button(char *text, int xc, int yc, int col) {
-    short w, h;
-    gr_string_size(text, &w, &h);
-    text_button(text, xc, yc, col, 4, w + 12, h + 8);
-}
-
 void Rect_gr_rect(LGRect *r) { ss_rect(r->ul.x, r->ul.y, r->lr.x, r->lr.y); }
 
 // ring filling the logical square x,y,size, one logical pixel thick; plotted per screen pixel,
@@ -314,14 +292,12 @@ static void pad_glyph_ring(short x, short y, short size) {
     int d, t, cx2, cy2, px, py;
     long color = gr_get_fcolor();
 
-#ifdef SVGA_SUPPORT
     if (perform_svga_conversion(OVERRIDE_SCALE)) {
         x0 = SCONV_X(x);
         y0 = SCONV_Y(y);
         x1 = SCONV_X(x + size);
         y1 = SCONV_Y(y + size);
     }
-#endif
     d = (x1 - x0 < y1 - y0) ? x1 - x0 : y1 - y0; // diameter
     t = (d / size > 1) ? d / size : 1;            // one logical pixel
     cx2 = x0 + x1 - 1;                            // doubled centre
@@ -388,46 +364,10 @@ void second_format(int sec_remain, char *s) {
         s[0] = ' ';
 }
 
-#ifdef NOT_YET // later, dude
-
-#define BIG_BUF
-
-#pragma disable_message(202)
-uchar gifdump_func(short keycode, ulong context, void *data) {
-    unsigned char *temp_buf;
-    int giffp;
-    char harold[45];
-
-    strcpy(harold, "SHOCK000.GIF");
-    giffp = open_gen(harold, O_CREAT | O_BINARY | O_WRONLY | O_TRUNC, S_IWRITE);
-    if (giffp == -1) {
-        message_info("GIF dump failed!");
-        return (ERR_NOEFFECT);
-    }
-    {
-        temp_buf = big_buffer;
-        gd_dump_screen(giffp, temp_buf);
-        strcat(harold, " saved");
-        message_info(harold);
-    }
-    return (TRUE);
-}
-#pragma enable_message(202)
-
-#endif // NOT_YET
-
 #define FULLSCREEN_MESSAGE_X 125
 #define FULLSCREEN_MESSAGE_Y 8
 
 #define MESSAGE_BUFSZ 128
-
-#ifdef SVGA_SUPPORT_HATE_HATE
-void mouse_unconstrain(void) {
-    // Note we are not calling the UI here since we are looking
-    // at actual screen size
-    mouse_constrain_xy(0, 0, grd_cap->w - 1, grd_cap->h - 1);
-}
-#endif
 
 errtype string_message_info(int strnum) {
     char buf[MESSAGE_BUFSZ];
@@ -545,93 +485,6 @@ errtype message_clear_check() {
     }
     return (OK);
 }
-
-errtype message_box(char *box_text) {
-    message_info(box_text);
-    return (OK);
-}
-
-#ifdef NOT_YET // later, dude
-
-#pragma disable_message(202)
-uchar confirm_box(char *confirm_text) { return (TRUE); }
-#pragma enable_message(202)
-
-FILE *fopen_gen(char *fname, char *t) {
-    Datapath gen_path;
-    FILE *retval;
-    char temp[64];
-
-    gen_path.numDatapaths = 0;
-    gen_path.noCurrent = 1;
-    DatapathAddDir(&gen_path, "gen");
-    DatapathAddEnv(&gen_path, "GEN_DIR");
-    strcpy(temp, getenv("CITHOME"));
-    strcat(temp, "\\gen");
-    DatapathAddDir(&gen_path, temp);
-    DatapathNoCurrent(&gen_path);
-    next_number_dpath_fname(&gen_path, fname);
-    retval = DatapathOpen(&gen_path, fname, t);
-    DatapathFree(&gen_path);
-    return retval;
-}
-
-int open_gen(char *fname, int access1, int access2) {
-    Datapath gen_path;
-    int retval;
-
-    gen_path.numDatapaths = 0;
-    gen_path.noCurrent = 1;
-    DatapathAddDir(&gen_path, "gen");
-    DatapathAddEnv(&gen_path, "GEN_DIR");
-    DatapathNoCurrent(&gen_path);
-    next_number_dpath_fname(&gen_path, fname);
-    retval = DatapathFDOpen(&gen_path, fname, access1, access2);
-    DatapathFree(&gen_path);
-    return retval;
-}
-
-char *next_number_dpath_fname(Datapath *dpath, char *fname) {
-    char *subname = strrchr(fname, '0');
-    int fhnd, numlen = 1, i, num = 0;
-
-    if (subname != NULL) {
-        while ((strlen(subname) != strlen(fname)) && (subname[0] == subname[-1])) {
-            subname--;
-            numlen++;
-        }
-        // try them, lets go, rock and roll, so on
-        while ((fhnd = DatapathFDOpen(dpath, fname, O_BINARY | O_RDONLY)) != -1) { /* Check next slot */
-            close(fhnd); /* good idea to, like, close the opened file */
-            ++num;
-            for (i = 0; i < numlen; i++)
-                subname[numlen - (i + 1)] = '0' + ((num >> (3 * i)) & 7);
-        }
-        close(fhnd);
-    }
-    return fname;
-}
-
-char *next_number_fname(char *fname) {
-    char *subname = strrchr(fname, '0');
-    int fhnd, numlen = 1, i, num = 0;
-
-    while ((strlen(subname) != strlen(fname)) && (subname[0] == subname[-1])) {
-        subname--;
-        numlen++;
-    }
-    /* Look for files like uwpic000.gif */
-    while ((fhnd = open(fname, O_BINARY | O_RDONLY)) != -1) { /* Check next slot */
-        close(fhnd);                                          /* good idea to, like, close the opened file */
-        ++num;
-        for (i = 0; i < numlen; i++)
-            subname[numlen - (i + 1)] = '0' + ((num >> (3 * i)) & 7);
-    }
-    close(fhnd);
-    return fname;
-}
-
-#endif // NOT_YET
 
 errtype tight_loop(uchar check_input) {
     if (music_on)
@@ -761,23 +614,6 @@ errtype begin_wait() {
     return (retval);
 }
 
-#ifdef NOT_YET //
-errtype spoof_mouse_event(void) {
-    int i;
-    uiMouseEvent ev;
-
-    uiMakeMotionEvent(&ev);
-    if (ev.buttons == 0)
-        return OK;
-    for (i = 0; i < NUM_MOUSE_BTNS; i++) {
-        if (ev.buttons & (1 << i))
-            ev.action |= MOUSE_BTN2DOWN(i);
-    }
-    ev.type = UI_EVENT_MOUSE;
-    return uiQueueEvent((uiEvent *)&ev);
-}
-#endif // NOT_YET
-
 errtype end_wait() {
     errtype retval;
     wait_count--;
@@ -833,11 +669,6 @@ void ZoomDrawProc(int erase)
   int c = gr_get_fcolor();
   gr_set_fill_type(FILL_XOR);
   gr_set_fcolor(WHITE);
-
-  // make the zoom rectanle visible in OpenGL as well
-  if(full_game_3d && use_opengl()) {
-    gr_set_fcolor(0x1);
-  }
 
   short ulx = INTERP(ZoomStart.ul.x, ZoomEnd.ul.x, ZoomI);
   short uly = INTERP(ZoomStart.ul.y, ZoomEnd.ul.y, ZoomI);

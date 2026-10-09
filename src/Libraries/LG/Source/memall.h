@@ -131,12 +131,6 @@ int MemGrowHeap(int wantK);
 void MemLockHeap();
 void MemUnlockHeap();
 
-//	Calling previous (underlying) allocators (only from top level!)
-
-#define MallocPrev(size) (memIndexAllocStack >= 0 ? (*memAllocStack[memIndexAllocStack-1].func_malloc)(size) : NULL)
-#define ReallocPrev(p,size) (memIndexAllocStack >= 0 ? (*memAllocStack[memIndexAllocStack-1].func_realloc)(p,size) : NULL)
-#define FreePrev(p) (if (memIndexAllocStack >= 0) (*memAllocStack[memIndexAllocStack-1].func_free)(p))
-
 //	Allocating conventional memory
 //	Caveat: since Malloc() can grab conventional memory, necessary
 //	conventional memory blocks should be grabbed early in program.

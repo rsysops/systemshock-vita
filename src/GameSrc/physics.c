@@ -99,13 +99,8 @@ Robot standard_robot = {STANDARD_MASS, DEFAULT_SIZE, STANDARD_HARDNESS, STANDARD
 Pelvis standard_pelvis = {STANDARD_MASS,   DEFAULT_SIZE, STANDARD_HARDNESS, STANDARD_PEP, STANDARD_GRAVITY,
                           STANDARD_HEIGHT, FALSE};
 
-fix standard_corner[4] = {0, 0, 0, 0};
 Dirac_frame standard_dirac = {
     STANDARD_MASS,   STANDARD_HARDNESS, STANDARD_ROUGHNESS, STANDARD_GRAVITY,
-#ifdef HMMMM
-    standard_corner, standard_corner,   standard_corner,    standard_corner,  standard_corner,
-    standard_corner, standard_corner,   standard_corner,    standard_corner,  standard_corner,
-#endif
 };
 
 extern ObjID physics_handle_id[];
@@ -140,12 +135,10 @@ int ctrl2cam[DEGREES_OF_FREEDOM] = {EYE_X, EYE_Y, EYE_Z, EYE_H, EYE_P, EYE_B};
 
 #define MAX_EDMS_DELETE_OBJS 50
 
-#ifdef EDMS_SAFETY_NET
 short safety_fail_oid = -1;
 uchar safety_fail_count = 0;
 #define SECRET_NET_OUT_P(x, y) (x > 0x20)
 #define TOGGLEABLE_SNET
-#endif
 
 uchar safety_net_on = TRUE;
 short curr_edms_del = 0;
@@ -198,13 +191,11 @@ void get_phys_state(int ph, State *new_state, ObjID id) {
     char use_mod = EDMS_ROBOT;
     if (id != OBJ_NULL) {
         use_mod = ObjProps[OPNUM(id)].physics_model;
-#ifdef DIRAC_EDMS
         // This is hacked on account of the player having 2 physics models.
         // We may want to take an unused critter slot like the lifter bot to be the dirac-player
         // like sonic is our pelvis-player.
         if (id == PLAYER_OBJ)
             use_mod = (global_fullmap->cyber) ? EDMS_DIRAC : EDMS_PELVIS;
-#endif
     }
     switch (use_mod) {
     case EDMS_PELVIS:
@@ -373,13 +364,8 @@ void state_to_objloc(State *s, ObjLoc *l) {
     l->y = obj_coord_from_fix(s->Y);
     l->z = obj_height_from_fix(s->Z);
     l->h = obj_angle_from_phys(s->alpha);
-#ifdef WHY_DOESNT_THIS_WORK
-    l->p = obj_angle_from_phys(s->beta);
-    l->b = obj_angle_from_phys(s->gamma);
-#endif
 }
 
-#define NO_DEFAULT_FORWARD_IN_CSPACE
 
 #define CYB_VEL_DELTA 32
 #define CYB_VEL_DELTA2 16
@@ -398,9 +384,7 @@ errtype physics_run(void) {
     extern int fire_kickback;
     extern uchar hack_takeover;
     static long kickback_time = 0; // i bet this static will someday bite our butts, like save/rest mid kickback?
-#ifdef EDMS_SAFETY_NET
     uchar allow_move = TRUE;
-#endif
 
     // Run the mouse look
     mouse_look_physics();
@@ -554,10 +538,8 @@ errtype physics_run(void) {
             plr_side = fix_mul(plr_side, abs(plr_side)) / 16;
             plr_alpha = fix_mul(plr_alpha, abs(plr_alpha)) / 16;
 
-#ifdef NO_DEFAULT_FORWARD_IN_CSPACE
             if (QUESTVAR_GET(CYBER_DIFF_QVAR) > 1)
                 plr_z += fix_make(QUESTVAR_GET(CYBER_DIFF_QVAR) * 5, 0);
-#endif
 
             // Effects of turbo, multiply all movement axes by 4
             if (cspace_effect_times[CS_TURBO_EFF]) {
@@ -565,11 +547,6 @@ errtype physics_run(void) {
                 plr_z = plr_z << 1;
                 plr_side = plr_side << 1;
             }
-#ifdef MATCHBOX_SUPPORT
-            else if (cspace_effect_times[CS_MATCHBOX_EFF]) {
-                plr_z = MATCHBOX_SPEED;
-            }
-#endif
         }
         if (!global_fullmap->cyber && player_struct.drug_status[CPTRIP(GENIUS_DRUG_TRIPLE)] > 0) {
             // Reverse!
@@ -578,23 +555,16 @@ errtype physics_run(void) {
             plr_lean = -plr_lean;
         }
 
-#ifdef DIRAC_EDMS
         if (global_fullmap->cyber) {
             // printf("EDMS_control_Dirac_frame\n");
             EDMS_control_Dirac_frame(PLAYER_PHYSICS, plr_z, plr_alpha + fix_make(mlook_vel_x, 5),
                                      plr_y - fix_make(mlook_vel_y, 5), plr_side);
         } else
-#endif
             // printf("EDMS_control_pelvis %i %i %i %i %i %i %i\n", PLAYER_PHYSICS, plr_y, plr_alpha, plr_side,
             // plr_lean, plr_z, crouch_controls[player_struct.posture]);
             EDMS_control_pelvis(PLAYER_PHYSICS, plr_y, plr_alpha, plr_side, plr_lean, plr_z,
                                 crouch_controls[player_struct.posture]);
 
-#ifdef SOLITON_HACK_REFLEX
-        if (player_struct.drug_status[DRUG_REFLEX] > 0 && !global_fullmap->cyber)
-            EDMS_soliton_vector((time_diff / CIT_CYCLE) >> 2);
-        else
-#endif
             EDMS_soliton_vector(time_diff / CIT_CYCLE);
 
         edms_delete_go();
@@ -651,7 +621,6 @@ errtype physics_run(void) {
                         hack_camera_relinquish();
                 }
 
-#ifdef EDMS_SAFETY_NET
 #ifdef TOGGLEABLE_SNET
                 if (safety_net_on)
 #endif
@@ -681,9 +650,6 @@ errtype physics_run(void) {
                     obj_move_to(oid, &newloc, FALSE);
                 else
                     allow_move = TRUE;
-#else
-                obj_move_to(oid, &newloc, FALSE);
-#endif
             }
         }
     } else if (some_move) { // what is going on here... ah-ha, we objslew.. no wrong
@@ -707,480 +673,6 @@ errtype physics_run(void) {
     compare_locs();
     return (OK);
 }
-
-#ifdef NOT_YET // later, dude
-
-#ifdef WACKY_OLD_TERR_FUNC
-
-/// ---------------------------------------------------
-/// HERE COMES THE TERRAIN FUNCTION
-
-/// 9/20 ML  I ain't tellin' you a secret...
-///          I ain't tellin' you goodBIYEYE...
-
-/* ---------------------------------
-   HAQ ALERT! HAQ ALERT!
-   Ok, oftimes we're squaring small numbers.
-   So we're going to use our own special
-   8-24 intermediate fixpoint representation to
-   store the squares
-   -------------------------------- */
-
-typedef fix wacky;
-
-// Our own special 8-24 fixmul
-wacky wacky_mul(fix a, fix b);
-#pragma aux wacky_mul = "imul    edx"    \
-                        "shr     eax,8"  \
-                        "shl     edx,24" \
-                        "or      eax,edx" parm[eax][edx] modify[eax edx];
-
-wacky wacky_div(wacky a, wacky b);
-#pragma aux wacky_div = "mov     edx,eax" \
-                        "sar     edx,8"   \
-                        "shl     eax,24"  \
-                        "idiv    ebx" parm[eax][ebx] modify[eax edx];
-
-typedef fix pt3d[3];
-
-#define PTARGS(pt) fix_float((pt)[0]), fix_float((pt)[1]), fix_float((pt)[2])
-
-#define dotprod(vec1, vec2, result)          \
-    {                                        \
-        fix *v1 = (vec1);                    \
-        fix *v2 = (vec2);                    \
-        (result) = 0;                        \
-        result += fix_mul(*(v1++), *(v2++)); \
-        result += fix_mul(*(v1++), *(v2++)); \
-        result += fix_mul(*(v1++), *(v2++)); \
-    }
-
-#define wsqr(fixval) (wacky_mul(fixval, fixval))
-#define magsquared(vec, res)    \
-    {                           \
-        fix *v1 = (vec);        \
-        (res) = 0;              \
-        (res) += wsqr(*(v1++)); \
-        (res) += wsqr(*(v1++)); \
-        (res) += wsqr(*(v1++)); \
-    }
-
-uchar vec_equal(fix *v1, fix *v2) {
-    if (*(v1++) == *(v2++) && *(v1++) == *(v2++) && *(v1++) == *(v2++))
-        return TRUE;
-    else
-        return FALSE;
-}
-
-#define wacky2fix(m2) (m2 >> 8)
-#define fix2wacky(m) (m << 8)
-#define wacky_float(w) fix_float(wacky2fix(w))
-
-#define NORMAL_X 0
-#define NORMAL_Y 1
-#define NORMAL_Z 2
-
-int compute_normal_code(pt3d norm) {
-    if (abs(norm[0]) > abs(norm[1])) {
-        if (abs(norm[0]) > abs(norm[2]))
-            return NORMAL_X;
-        else
-            return NORMAL_Z;
-    } else {
-        if (abs(norm[1]) > abs(norm[2]))
-            return NORMAL_Y;
-        else
-            return NORMAL_Z;
-    }
-}
-
-#define PHYS_SPEW(x, y)
-
-#define crossprod(v1, v2, out)                                          \
-    {                                                                   \
-        fix *a1 = (v1);                                                 \
-        fix *a2 = (v1);                                                 \
-        fix *b1 = (v2);                                                 \
-        fix *b2 = (v2);                                                 \
-        fix *o = (out);                                                 \
-        fix z = fix_mul(*(v1), (*++b2)) - fix_mul((*++a2), *(v2));      \
-        *(o++) = fix_mul((*++a1), (*++b2)) - fix_mul((*++a2), (*++b1)); \
-        *(o++) = fix_mul((*++a1), *(v2)) - fix_mul(*(v1), (*++b1));     \
-        *(o++) = z;                                                     \
-    }
-
-fix project_onto_facelet(pt3d in, pt3d out, pt3d flet[NUM_POINTS]) {
-    g3s_vector topt;
-    fix dp;
-    int i;
-    g3s_vector norm = *(g3s_vector *)(flet[NORM_IDX]);
-    g3_vec_sub(&topt, (g3s_vector *)in, (g3s_vector *)(flet[0]));
-    dp = g3_vec_dotprod(&topt, &norm);
-    g3_vec_scale(&norm, &norm, dp);
-    // Subtract out normal component
-    g3_vec_sub((g3s_vector *)out, (g3s_vector *)in, &norm);
-    PHYS_SPEW(DSRC_PHYSICS_Terrain,
-              ("Projection onto facelet: %q %q %q --> %q %q %q\nproj =%q\n", PTARGS(in), PTARGS(out), fix_float(dp)));
-    return dp;
-}
-
-int normcode_indices[3][2] = {{1, 2}, {0, 2}, {0, 1}};
-
-// Takes a point on the plane of a facelet, and computes
-// the distance from the projection to the facelet.  Returns
-// zero if the point projects onto the interior of the facelet.
-fix facelet_distance_sq_4points(pt3d pt, pt3d flet[NUM_POINTS], uchar normcode) {
-    fix best_dsq = FIX_MAX; // minimum distance squared
-    int best_vert = -1;
-    fix *best_edge;
-    fix *cprod_edge;
-    fix cprod_msq;
-    pt3d edgen;
-    pt3d cprod;
-    pt3d edgep;
-    pt3d topt; // vertex to point;
-    {
-        pt3d *vert = flet;
-        fix result;
-
-        g3_vec_sub((g3s_vector *)topt, (g3s_vector *)pt, (g3s_vector *)vert);
-        result = g3_vec_mag((g3s_vector *)topt);
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q dsq %d best_dsq %d\n", PTARGS(topt), result, best_dsq));
-        if (result < best_dsq) {
-            best_dsq = result;
-            best_vert = 0;
-        }
-        vert++;
-        g3_vec_sub((g3s_vector *)topt, (g3s_vector *)pt, (g3s_vector *)vert);
-        result = g3_vec_mag((g3s_vector *)topt);
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q dsq %d best_dsq %d\n", PTARGS(topt), result, best_dsq));
-        if (result < best_dsq) {
-            best_dsq = result;
-            best_vert = 1;
-        }
-        vert++;
-        g3_vec_sub((g3s_vector *)topt, (g3s_vector *)pt, (g3s_vector *)vert);
-        result = g3_vec_mag((g3s_vector *)topt);
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q dsq %d best_dsq %d\n", PTARGS(topt), result, best_dsq));
-        if (result < best_dsq) {
-            best_dsq = result;
-            best_vert = 2;
-        }
-        vert++;
-        g3_vec_sub((g3s_vector *)topt, (g3s_vector *)pt, (g3s_vector *)vert);
-        result = g3_vec_mag((g3s_vector *)topt);
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q dsq %d best_dsq %d\n", PTARGS(topt), result, best_dsq));
-        if (result < best_dsq) {
-            best_dsq = result;
-            best_vert = 3;
-        }
-    }
-    PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Closest vertex %d\n", best_vert));
-    {
-        fix a1, a2, b1, b2, p1, p2, c1, c2;
-        int i1, i2;
-        fix d;
-        int nx = (best_vert + 1) & 0x3;
-        int pr = (best_vert + 3) & 0x3;
-        fix *ep = edgep;
-        fix *en = edgen;
-        fix *tp = topt;
-        fix *p = pt;
-        fix *vert = &flet[best_vert][0];
-        fix *prev = &flet[pr][0];
-        fix *next = &flet[nx][0];
-        if (vec_equal(prev, vert)) {
-            PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Caught multiple on prev\n"));
-            pr = (pr + 3) & 0x3;
-            prev = flet[pr];
-        }
-        if (vec_equal(next, vert)) {
-            PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Caught multiple on next\n"));
-            nx = (nx + 1) & 0x3;
-            next = flet[nx];
-        }
-        g3_vec_sub((g3s_vector *)ep, (g3s_vector *)prev, (g3s_vector *)vert);
-        g3_vec_sub((g3s_vector *)en, (g3s_vector *)next, (g3s_vector *)vert);
-        g3_vec_sub((g3s_vector *)tp, (g3s_vector *)p, (g3s_vector *)vert);
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("vert: (%d) %q %q %q\n", best_vert, PTARGS(vert)));
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("prev: (%d) %q %q %q\n", pr, PTARGS(prev)));
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("next: (%d) %q %q %q\n", nx, PTARGS(next)));
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Normal code is %d\n", normcode));
-
-        // now throw out one of the coordinates
-        i1 = normcode_indices[normcode][0];
-        i2 = normcode_indices[normcode][1];
-
-        a1 = edgep[i1];
-        a2 = edgep[i2];
-        b1 = edgen[i1];
-        b2 = edgen[i2];
-        p1 = topt[i1];
-        p2 = topt[i2];
-        // now that we've picked the coordinate system, transform the point into the edge basis.
-        c1 = fix_mul(b2, p1) - fix_mul(b1, p2);
-        c2 = fix_mul(a1, p2) - fix_mul(a2, p1);
-        d = fix_mul(a1, b2) - fix_mul(a2, b1);
-        if (d < 0)
-            c1 = -c1, c2 = -c2, d = -d;
-        PHYS_SPEW(DSRC_PHYSICS_Terrain,
-                  ("a: %q %q, b %q %q, c %q %q, p %q %q d %q\n", fix_float(a1), fix_float(a2), fix_float(b1),
-                   fix_float(b2), fix_float(c1), fix_float(c2), fix_float(p1), fix_float(p2), fix_float(d)));
-        if (c1 < 0 || c2 < 0) {
-            fix mag;
-            // we're outside the quadrilateral
-            PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Outside the quad\n"));
-            if (c1 > 0) {
-                p1 -= fix_mul(c1, a1);
-                p2 -= fix_mul(c1, a2);
-            } else if (c2 > 0) {
-                p1 -= fix_mul(c2, b1);
-                p2 -= fix_mul(c2, b2);
-            } else {
-                mag = g3_vec_mag((g3s_vector *)topt);
-                PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q mag %q\n", PTARGS(topt), fix_float(mag)));
-                return mag;
-            }
-            topt[i1] = p1;
-            topt[i2] = p2;
-
-            mag = g3_vec_mag((g3s_vector *)topt);
-            PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q mag %q\n", PTARGS(topt), fix_float(mag)));
-            return mag;
-        } else
-            return 0;
-    }
-}
-
-#define mod3(x) (((x) > 2) ? (x)-3 : (x))
-
-fix facelet_distance_sq_3points(pt3d pt, pt3d flet[NUM_POINTS], uchar normcode) {
-    int i;
-    fix best_dsq = FIX_MAX; // minimum distance squared
-    int best_vert = -1;
-    fix *best_edge;
-    fix *cprod_edge;
-    fix cprod_msq;
-    pt3d edgen;
-    pt3d cprod;
-    pt3d edgep;
-    pt3d topt; // vertex to point;
-    for (i = 0; i < 3; i++) {
-        int next = mod3(i + 1);
-        pt3d edge; // edge vector
-        // build the edge & point vectors
-        {
-            //         fix* e = edge;
-            //         fix* n = flet[next];
-            fix *t = topt;
-            fix *p = pt;
-            fix *v = flet[i];
-            //         *(e++) = *(n++) - *(v);
-            *(t++) = *(p++) - *(v++);
-            //         *(e++) = *(n++) - *(v);
-            *(t++) = *(p++) - *(v++);
-            //         *(e++) = *(n++) - *(v);
-            *(t++) = *(p++) - *(v++);
-        }
-        {
-            fix result;
-            dotprod(topt, topt, result);
-            PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q dsq %d best_dsq %d\n", PTARGS(topt), result, best_dsq));
-            if (result < best_dsq) {
-                best_dsq = result;
-                best_vert = i;
-            }
-        }
-    }
-    PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Closest vertex %d\n", best_vert));
-    {
-        fix a1, a2, b1, b2, p1, p2, c1, c2;
-        fix d;
-        int nx = (best_vert < 2) ? best_vert + 1 : 0;
-        int pr = (best_vert > 0) ? best_vert - 1 : 2;
-        fix *ep = edgep;
-        fix *en = edgen;
-        fix *tp = topt;
-        fix *p = pt;
-        fix dp;
-        fix cp, cn;
-        fix dn;
-        fix msp;
-        fix msn;
-        fix *vert = &flet[best_vert][0];
-        fix *prev = &flet[pr][0];
-        fix *next = &flet[nx][0];
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("vert: (%d) %q %q %q\n", best_vert, PTARGS(vert)));
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("prev: (%d) %q %q %q\n", pr, PTARGS(prev)));
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("next: (%d) %q %q %q\n", nx, PTARGS(next)));
-        *(ep++) = *(prev++) - *(vert);
-        *(en++) = *(next++) - *(vert);
-        *(tp++) = *(p++) - *(vert);
-        vert++;
-        *(ep++) = *(prev++) - *(vert);
-        *(en++) = *(next++) - *(vert);
-        *(tp++) = *(p++) - *(vert);
-        vert++;
-        *(ep++) = *(prev++) - *(vert);
-        *(en++) = *(next++) - *(vert);
-        *(tp++) = *(p++) - *(vert);
-        vert++;
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Normal code is %d\n", normcode));
-
-        // now throw out one of the coordinates
-        switch (normcode) {
-        case NORMAL_X:
-            a1 = edgep[1];
-            a2 = edgep[2];
-            b1 = edgen[1];
-            b2 = edgen[2];
-            p1 = topt[1];
-            p2 = topt[2];
-            break;
-        case NORMAL_Y:
-            a1 = edgep[0];
-            a2 = edgep[2];
-            b1 = edgen[0];
-            b2 = edgen[2];
-            p1 = topt[0];
-            p2 = topt[2];
-            break;
-        case NORMAL_Z:
-            a1 = edgep[0];
-            a2 = edgep[1];
-            b1 = edgen[0];
-            b2 = edgen[1];
-            p1 = topt[0];
-            p2 = topt[1];
-            break;
-        }
-        // now that we've picked the coordinate system, transform the point into the edge basis.
-        c1 = fix_mul(b2, p1) - fix_mul(b1, p2);
-        c2 = -fix_mul(a2, p1) + fix_mul(a1, p2);
-        d = fix_mul(a1, b2) - fix_mul(a2, b1);
-        if (d < 0)
-            c1 = -c1, c2 = -c2, d = -d;
-        PHYS_SPEW(DSRC_PHYSICS_Terrain,
-                  ("a: %q %q, b %q %q, c %q %q, p %q %q d %q\n", fix_float(a1), fix_float(a2), fix_float(b1),
-                   fix_float(b2), fix_float(c1), fix_float(c2), fix_float(p1), fix_float(p2), fix_float(d)));
-        if (c1 < 0 || c2 < 0) {
-            fix mag;
-            // we're outside the quadrilateral
-            PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Outside the quad\n"));
-            if (c1 > 0) {
-                p1 -= fix_mul(c1, a1);
-                p2 -= fix_mul(c1, a2);
-            } else if (c2 > 0) {
-                p1 -= fix_mul(c2, b1);
-                p2 -= fix_mul(c2, b2);
-            } else {
-                mag = g3_vec_mag((g3s_vector *)topt);
-                PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q mag %q\n", PTARGS(topt), fix_float(mag)));
-                return mag;
-            }
-            switch (normcode) {
-            case NORMAL_X:
-                topt[1] = p1;
-                topt[2] = p2;
-                break;
-            case NORMAL_Y:
-                topt[0] = p1;
-                topt[2] = p2;
-                break;
-            case NORMAL_Z:
-                topt[0] = p1;
-                topt[1] = p2;
-                break;
-            }
-
-            mag = g3_vec_mag((g3s_vector *)topt);
-            PHYS_SPEW(DSRC_PHYSICS_Terrain, ("topt %q %q %q mag %q\n", PTARGS(topt), fix_float(mag)));
-            return mag;
-        } else
-            return 0;
-    }
-}
-
-// Given a facelet, translate it r units in the direction of its normal.
-// (Mutates the facelet in place, leaves the normal intact)
-
-void grow_facelet(fix r, fix flet[NUM_POINTS][3]) {
-    pt3d *coor = flet;
-    g3s_vector norm;
-    fix *realnorm = flet[NORM_IDX];
-
-    PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Growing by %q\n", fix_float(r)));
-    // scale the normal vector
-    g3_vec_scale(&norm, (g3s_vector *)realnorm, r);
-    // now translate the coords three times
-    g3_vec_add((g3s_vector *)*coor, (g3s_vector *)*coor, &norm);
-    PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Point 0:  %q %q %q\n", PTARGS(*coor)));
-    coor++;
-    g3_vec_add((g3s_vector *)*coor, (g3s_vector *)*coor, &norm);
-    PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Point 1:  %q %q %q\n", PTARGS(*coor)));
-    coor++;
-    g3_vec_add((g3s_vector *)*coor, (g3s_vector *)*coor, &norm);
-    PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Point 2:  %q %q %q\n", PTARGS(*coor)));
-    coor++;
-    if (**coor != NO_POINT) // is there a fourth point?
-    {
-        g3_vec_add((g3s_vector *)*coor, (g3s_vector *)*coor, &norm);
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("Point 3:  %q %q %q\n", PTARGS(*coor)));
-    }
-}
-#else
-typedef fix pt3d[3];
-#endif
-
-#pragma disable_message(202)
-uchar FF_terrain(fix X, fix Y, fix Z, uchar fast, void *TFF) { return (TRUE); }
-uchar FF_raycast(fix x, fix y, fix z, fix vec[3], fix range, fix where_hit[3], terrain_ff *tff) { return (TRUE); }
-#pragma disable_message(202)
-
-// ?????
-void Terrain(fix fix_x, fix fix_y, fix fix_z, fix rad) {}
-
-#ifdef OLD_TERR_FUNC
-extern fix tfunc_rad, tfunc_pt[3];
-extern fix tfunc_sum[3];
-extern int tfunc_cnt[3];
-extern fix tfunc_norms[3][3]; // floor, wall, ceil
-
-void full_3d_facelet_action(fix (*fleto)[3], int which) // fix (*norm)[3], int *cnt, fix *sum)
-{
-    fix proj;
-    pt3d projpt;
-    fix dist;
-    pt3d *flet = fleto;
-
-    PHYS_SPEW(DSRC_PHYSICS_Terrain, ("full 3d %d\n", which))
-    grow_facelet(tfunc_rad, flet);
-    proj = project_onto_facelet(tfunc_pt, projpt, flet);
-    // proj must be between 0 and -rad
-    if (proj > 0 || proj < -tfunc_rad)
-        return;
-    if (flet[3][0] == NO_POINT)
-        dist = facelet_distance_sq_3points(projpt, flet, compute_normal_code(flet[NORM_IDX]));
-    else
-        dist = facelet_distance_sq_4points(projpt, flet, compute_normal_code(flet[NORM_IDX]));
-
-    //   PHYS_SPEW(DSRC_PHYSICS_Terrain,("Distance from facelet %d is %q, proj %q
-    //   \n",i,fix_float(dist),fix_float(proj)));
-    // if we're closer than our radius,
-    // scale and add to wall gradient.
-    if (-proj <= tfunc_rad - dist) {
-        tfunc_cnt[which]++;
-        g3_vec_add((g3s_vector *)tfunc_norms[which], (g3s_vector *)tfunc_norms[which], (g3s_vector *)flet[NORM_IDX]);
-        tfunc_sum[which] -= proj;
-        PHYS_SPEW(DSRC_PHYSICS_Terrain, ("sum %q, which %d\n", fix_float(-proj), which));
-    }
-}
-#endif
-
-ubyte param_matters[MAP_TYPES] = {
-    0, 0, 0, 0, 0, 0, 1, 1, 1, 1,
-};
-#endif // NOT_YET
 
 errtype physics_init() {
     EDMS_data init_data;
@@ -1477,23 +969,10 @@ errtype collide_objects(ObjID collision, ObjID victim, int bad) {
                     special_proj = TRUE;
                 }
                 break;
-#ifdef MANY_CYBERSPACE_WEAPONS
-            case DISCSLOW_TRIPLE: {
-                char soft_lvl = objPhysicss[objs[collision].specID].bullet_triple;
-                simple_damage_object(victim, disc_damage[soft_lvl - 1], CYBER_PROJECTILE_TYPE, 0);
-                special_proj = TRUE;
-            } break;
-            case SPEWSLOW_TRIPLE: {
-                char soft_lvl = objPhysicss[objs[collision].specID].bullet_triple;
-                simple_damage_object(victim, cyberspew_damage[soft_lvl - 1], CYBER_PROJECTILE_TYPE, 0);
-                special_proj = TRUE;
-            }
-#else
             case SPEWSLOW_TRIPLE:
             case DISCSLOW_TRIPLE:
                 special_proj = TRUE;
                 break;
-#endif
             break;
             }
 
@@ -1602,11 +1081,6 @@ errtype assemble_physics_object(ObjID id, State *pnew_state) {
             if (robot_antisocial)
                 EDMS_make_robot_antisocial(pObj->info.ph);
 
-#ifdef SECRET_NON_COLLISION_BITS
-            if ((global_fullmap->cyber) && (pObj->obclass == CLASS_PHYSICS) &&
-                (pObj->subclass == PHYSICS_SUBCLASS_SLOW))
-                set_secret_non_collision_bit(pObj->info.ph);
-#endif
             physics_handle_id[pObj->info.ph] = id;
         }
         break;

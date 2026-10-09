@@ -8,7 +8,7 @@
 
 #define LG_MAX_SLOTS 3
 
-#if defined(VITA) || defined(LG_SLOT_PTHREADS)
+#if defined(__vita__) || defined(LG_SLOT_PTHREADS)
 
 int lg_slot(void);
 // A worker registers itself, once, before the first lookup that must find it.

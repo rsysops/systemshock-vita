@@ -58,9 +58,6 @@ extern uchar *gr_init_translucency_table(uchar *p, fix opacity, fix purity, grs_
 extern uchar *gr_init_lit_translucency_table(uchar *p, fix opacity, fix purity, grs_rgb color, grs_rgb light);
 extern uchar *gr_init_lit_translucency_tables(uchar *p, fix opacity, fix purity, grs_rgb color, int n);
 
-extern int gr_dump_tluc8_table(uchar *buf, int nlit);
-extern void gr_read_tluc8_table(uchar *buf);
-
 #define gr_alloc_translucency_table(n) \
    ((uchar *)malloc(n*256))
 #define gr_free_translucency_table(tab) (free(tab))

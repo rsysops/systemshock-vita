@@ -85,14 +85,6 @@ long ware_base_triples[NUM_WARE_TYPES] = {
     MAKETRIP(CLASS_SOFTWARE, SOFTWARE_SUBCLASS_ONESHOT, 0),
 };
 
-// The existence of this array is a crime.  I should be shot.
-ubyte waretype2invtype[] = {
-    MFD_INV_HARDWARE,
-    MFD_INV_SOFT_COMBAT,
-    MFD_INV_SOFT_DEFENSE,
-    MFD_INV_SOFT_MISC,
-};
-
 #define IDX_OF_TYPE(type, trip) (OPTRIP(trip) - OPTRIP(ware_base_triples[type]))
 
 #define PASSIVE_WARE_FLAG 1
@@ -387,13 +379,6 @@ void wares_update() {
 
     }
 
-// ---------------------------------------------------------------------------
-// wares_init()
-//
-// Sets the static values for all wares.
-
-void wares_init() { }
-
 // CALLBACKS
 // =========
 
@@ -590,30 +575,6 @@ void lamp_turnoff(uchar visible, uchar real_stop) {
     }
 }
 
-uchar lantern_change_setting_hkey(ushort key, uint32_t context, intptr_t data) {
-    int n = CPTRIP(LANTERN_HARD_TRIPLE);
-    int v = player_struct.hardwarez[n];
-    uint32_t s = player_struct.hardwarez_status[n];
-    uchar on = s & WARE_ON;
-    void mfd_lantern_setting(int setting);
-
-    s = LAMP_SETTING(s);
-    if (s == 0 && on) {
-        use_ware(WARE_HARD, n);
-        mfd_notify_func(MFD_LANTERN_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
-        return TRUE;
-    }
-
-    s = (s + v - 1) % v; // decrement current setting
-    mfd_lantern_setting(s);
-
-    if (!on)
-        use_ware(WARE_HARD, n);
-    mfd_notify_func(MFD_LANTERN_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
-
-    return TRUE;
-}
-
 //--------------------------
 // SHIELD WARE
 //--------------------------
@@ -647,34 +608,6 @@ void shield_toggle(uchar visible, uchar real) {
         mfd_notify_func(MFD_SHIELD_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
     }
     shield_set_absorb();
-}
-
-uchar shield_change_setting_hkey(ushort key, uint32_t context, intptr_t data) {
-    int n = CPTRIP(SHIELD_HARD_TRIPLE);
-    int v = player_struct.hardwarez[n];
-    uint32_t s = player_struct.hardwarez_status[n];
-    uchar on = s & WARE_ON;
-    void mfd_shield_setting(int setting);
-
-    // version 4 has only one setting.
-    if (v == 4)
-        v = 1;
-
-    s = LAMP_SETTING(s);
-    if (s == 0 && on) {
-        use_ware(WARE_HARD, n);
-        mfd_notify_func(MFD_SHIELD_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
-        return TRUE;
-    }
-
-    s = (s + v - 1) % v; // decrement current setting
-    mfd_shield_setting(s);
-
-    if (!on)
-        use_ware(WARE_HARD, n);
-    mfd_notify_func(MFD_SHIELD_FUNC, MFD_ITEM_SLOT, FALSE, MFD_ACTIVE, FALSE);
-
-    return TRUE;
 }
 
 //----------------

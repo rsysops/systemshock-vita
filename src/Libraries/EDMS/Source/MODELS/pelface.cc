@@ -144,11 +144,6 @@ void EDMS_control_pelvis(physics_handle ph, fix forward, fix turn, fix sidestep,
     // Silly, no?
     Q FF, TT, SS, LL, JJ;
 
-#ifdef EDMS_SHIPPABLE
-    if (ph < 0)
-        mout << "Hey, you are and idiot...";
-#endif
-
     FF.fix_to(forward);
     TT.fix_to(turn);
     SS.fix_to(sidestep);
@@ -308,21 +303,6 @@ void EDMS_get_pelvis_parameters(physics_handle ph, Pelvis *p) {
     p->gravity = I[on][IDOF_PELVIS_GRAVITY].to_fix();
     p->cyber_space = I[on][10].to_int();
     p->height = (I[on][6] + I[on][IDOF_PELVIS_RADIUS]).to_fix();
-}
-
-//	And the compression test for terrain "traps..."
-//	===============================================
-fix EDMS_get_pelvis_damage(physics_handle ph, fix delta_t) {
-    int32_t object;
-    Q worker_bee_buzz_buzz = 0;
-
-    object = ph2on[ph]; // As stupid as it gets...
-    worker_bee_buzz_buzz = I[object][14];
-
-    // FIXME What going on there?
-    I[object][14] = 0;
-
-    return fix_mul(delta_t, I[object][14].to_fix());
 }
 
 } // End of extern "C" for the &^%$@% compiler...

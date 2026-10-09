@@ -122,12 +122,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //void DrawSplashScreen(short id, Boolean fadeIn);
 void PreloadGameResources(void);
 errtype init_gamesys();
-errtype free_gamesys(void);
 errtype init_load_resources();
 errtype init_3d_objects();
-errtype obj_3d_shutdown();
 void init_popups();
-uchar pause_for_input(ulong wait_time);
 
 errtype init_pal_fx();
 void byebyemessage(void);
@@ -163,7 +160,6 @@ extern void end_setup_sound(void);
 extern void init_watchpoints(void);
 */
 
-uchar real_archive_fn[64];
 /*
 #define SPLASH_RES_FILE "splash.rsrc"
 #ifndef EDITOR
@@ -174,19 +170,6 @@ uchar real_archive_fn[64];
 */
 MemStack temp_memstack;
 #define TEMP_STACK_SIZE (16 * 1024)
-
-uchar pause_for_input(ulong wait_time) {
-    bool gotInput = false;
-
-    uint32_t wait_until = TickCount() + wait_time;
-    while (!gotInput && (TickCount() < wait_until)) {
-        pump_events();
-        SDLDraw();
-    }
-
-    // return if we got input
-    return (gotInput);
-}
 
 extern char which_lang;
 int mfdart_res_file;
@@ -524,15 +507,6 @@ void PreloadGameResources(void) {
     ResLock(RES_games);
 }
 
-void object_data_flush(void) {
-    if (!objdata_loaded)
-        return;
-
-    free_dynamic_memory(DYNMEM_ALL);
-    objdata_loaded = FALSE;
-    obj_shutdown();
-}
-
 errtype object_data_load(void) {
     LGRect bounds;
     extern cams objmode_cam;
@@ -594,29 +568,6 @@ errtype object_data_load(void) {
     return (OK);
 }
 
-#ifdef DUMMY ///Â¥
-
-errtype init_kb() {
-    // Keyboard frobbing
-    if (config_get_raw(CHAINING_VAR, NULL, 0))
-        kb_set_flags(kb_get_flags() | KBF_CHAIN);
-    kb_set_state(0x16, KBA_REPEAT);
-    kb_set_state(0x17, KBA_REPEAT);
-    kb_set_state(0x18, KBA_REPEAT);
-    kb_set_state(0x1A, KBA_REPEAT);
-    kb_set_state(0x1B, KBA_REPEAT);
-    kb_set_state(0x24, KBA_REPEAT);
-    kb_set_state(0x25, KBA_REPEAT);
-    kb_set_state(0x26, KBA_REPEAT);
-    kb_set_state(0x09, KBA_REPEAT);
-    kb_set_state(0x33, KBA_REPEAT);
-    kb_set_state(0x32, KBA_REPEAT);
-    kb_set_state(0x34, KBA_REPEAT);
-    return (OK);
-}
-
-#endif // Â¥ DUMMY
-
 errtype load_da_palette(void) {
     int pal_file;
 
@@ -653,15 +604,6 @@ errtype init_pal_fx() {
         gr_init_tluc8_spoly_table(i, fix_make(0, 0xe000), fix_make(0, 0x8000), gr_bind_rgb(255, 64, 64),
                                   gr_bind_rgb(127 + (i << 3), 127 + (i << 3), 127 + (i << 3)));
 
-#ifdef OLD_TLUCS
-    gr_make_tluc8_table(255, fix_make(0, 0x8000), fix_make(0, 0x8000), gr_bind_rgb(255, 0, 0));
-    gr_make_tluc8_table(254, fix_make(0, 0x8000), fix_make(0, 0x8000), gr_bind_rgb(0, 255, 0));
-    gr_make_tluc8_table(253, fix_make(0, 0x8000), fix_make(0, 0x8000), gr_bind_rgb(0, 0, 255));
-    gr_make_tluc8_table(252, fix_make(0, 0x8000), fix_make(0, 0x8000), gr_bind_rgb(80, 80, 80));
-    gr_make_tluc8_table(251, fix_make(0, 0x8000), fix_make(0, 0x8000), gr_bind_rgb(255, 255, 255));
-    gr_make_tluc8_table(250, fix_make(0, 0x8000), fix_make(0, 0x8000), gr_bind_rgb(0, 0, 0));
-#else
-
 #define CIT_FOG_OPAC fix_make(0, 0x3000)
 #define CIT_FOG_PURE fix_make(0, 0x6000)
 
@@ -678,7 +620,6 @@ errtype init_pal_fx() {
     gr_make_tluc8_table(255, CIT_FORCE_OPAC, CIT_FORCE_PURE, gr_bind_rgb(255, 0, 0));
     gr_make_tluc8_table(254, CIT_FORCE_OPAC, CIT_FORCE_PURE, gr_bind_rgb(0, 255, 0));
     gr_make_tluc8_table(253, CIT_FORCE_OPAC, CIT_FORCE_PURE, gr_bind_rgb(0, 0, 255));
-#endif
 
     {
         extern uchar _g3d_enable_blend;
@@ -730,12 +671,6 @@ errtype init_gamesys() {
     return (OK);
 }
 
-errtype free_gamesys(void) {
-    game_sched_free();
-
-    return (OK);
-}
-
     // Okay, this should all move to somewhere more real, but I really
     // can't put it in the right place until the new 3d regime comes into
     // being
@@ -744,11 +679,6 @@ errtype free_gamesys(void) {
 
 errtype init_3d_objects() {
     vx_init(16);
-    return (OK);
-}
-
-errtype obj_3d_shutdown() {
-    vx_close();
     return (OK);
 }
 
@@ -779,78 +709,12 @@ errtype init_load_resources() {
     return (OK);
 }
 
-#ifdef DUMMY // later
-
-errtype init_debug() {
-    errtype retval = OK;
-    return (retval);
-}
-
-errtype init_editor_gadgets() { return (OK); }
-
-void free_all(void) {
-    extern void shutdown_config(void);
-    extern uchar cit_success;
-    extern void map_free(void);
-    extern void music_free(void);
-    extern void free_dpaths(void);
-    extern view360_shutdown(void);
-
-    _MARK_("free_all");
-
-    Spew(DSRC_TESTING_Test6, ("shutdown - 1\n"));
-    tm_close();
-    tm_remove_process(global_timer_id);
-    Spew(DSRC_TESTING_Test6, ("shutdown - 2\n"));
-    game_fr_shutdown();
-    cutscene_free();
-    map_free();
-    music_free();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 3\n"));
-    player_shutdown();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 4\n"));
-    if (cit_success)
-        free_dynamic_memory(DYNMEM_ALL);
-    Spew(DSRC_TESTING_Test6, ("shutdown - 5\n"));
-    mlimbs_shutdown(); // should shutdown music here too...?
-
-    snd_shutdown();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 6\n"));
-    obj_3d_shutdown();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 7\n"));
-    object_data_flush();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 8\n"));
-    fr_shutdown();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 9\n"));
-    screen_shutdown();
-    view360_shutdown();
-    status_vitals_end();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 10\n"));
-    shutdown_input();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 11\n"));
-    palette_shutdown();
-    //   free_dpaths();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 12\n"));
-    shutdown_config();
-    Spew(DSRC_TESTING_Test6, ("shutdown - 13\n"));
-
-    Spew(DSRC_TESTING_Test6, ("shutdown - final\n"));
-
-    _MARK_("free_all done");
-}
-
-#endif // DUMMY
-
 // when you need those arms around you, you wont find my arms around you
 // im going im going im going im gone
 void byebyemessage(void) {
     extern uchar cit_success;
     if (cit_success)
-#ifdef DEMO
-        printf("Thanks for playing the System Shock CD Demo %s.\n", SYSTEM_SHOCK_VERSION);
-#else
         printf("Thanks for playing System Shock %s.\n", SHOCKOLATE_VERSION);
-#endif
     else
         printf("Our system has been shocked!!!\b But remember to Salt The Fries\n");
 }

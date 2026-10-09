@@ -289,17 +289,3 @@ void v_umap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
       gr_free_temp(old_w);
    }
 }
-
-int v_map(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti)
-{
-   grs_vertex **cpl;          /* clipped vertices */
-   int m;                     /* number of clipped vertices */
-
-   cpl = NULL;
-   m = gr_clip_poly(n,4,vpl,&cpl);
-   if (m>2)
-      v_umap(bm,m,cpl,ti);
-   gr_free_temp(cpl);
-
-   return (m>2) ? CLIP_NONE : CLIP_ALL;
-}

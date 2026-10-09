@@ -133,18 +133,13 @@ typedef struct _GrenadeProp {
 
 // Subclass typedefs
 
-#define EMPTY_STRUCTS
 
 typedef struct _PistolGunProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } PistolGunProp;
 
 typedef struct _AutoGunProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } AutoGunProp;
 
 typedef struct _SpecialGunProp {
@@ -182,45 +177,31 @@ typedef struct _BeamprojGunProp {
 } BeamprojGunProp;
 
 typedef struct _PistolAmmoProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } PistolAmmoProp;
 
 typedef struct _NeedleAmmoProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } NeedleAmmoProp;
 
 typedef struct _MagnumAmmoProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } MagnumAmmoProp;
 
 typedef struct _RifleAmmoProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } RifleAmmoProp;
 
 typedef struct _FlechetteAmmoProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } FlechetteAmmoProp;
 
 typedef struct _AutoAmmoProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } AutoAmmoProp;
 
 typedef struct _ProjAmmoProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } ProjAmmoProp;
 
 typedef struct _TracerPhysicsProp {
@@ -235,15 +216,11 @@ typedef struct _SlowPhysicsProp {
 } SlowPhysicsProp;
 
 typedef struct _CameraPhysicsProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } CameraPhysicsProp;
 
 typedef struct _DirectGrenadeProp {
-#ifdef EMPTY_STRUCTS
     ubyte dummy;
-#endif
 } DirectGrenadeProp;
 
 typedef struct _TimedGrenadeProp {
@@ -313,26 +290,6 @@ typedef struct _TimedGrenadeProp {
 // Grenade
 #define GRENADE_SUBCLASS_DIRECT 0
 #define GRENADE_SUBCLASS_TIMED  1
-
-#ifdef STRANGE_EFFICIOMATRON_WAY
-#define GunBase         (&PropsArray)
-#define GunProps        ((GunProp *)GunBase)
-#define PistolBase      (GunBase + (sizeof(GunProp) * NUM_GUN))
-#define PistolProps     ((PistolGunProp *)PistolBase)
-#define AutoBase        (PistolBase + (sizeof(PistolGunProp * NUM_PISTOL_GUN)))
-#define AutoProps       ((AutoGunProp *)AutoBase)
-#define SpecialBase     (AutoBase + (sizeof(AutoGunProp * NUM_AUTO_GUN)))
-#define SpecialProps    ((SpecialGunProp *)SpecialBase)
-#define HandtohandBase  (SpecialBase + (sizeof(SpecialGunProp * NUM_SPECIAL_GUN)))
-#define HandtohandProps ((HandtohandGunProp *)HandtohandBase)
-#define BeamBase        (HandtohandBase + (sizeof(HandtohandGunProp * NUM_HANDTOHAND_GUN)))
-#define BeamProps       ((BeamGunProp *)BeamBase)
-#define BeamprojBase    (BeamBase + (sizeof(BeamGunProp * NUM_BEAM_GUN)))
-#define BeamprojProps   ((BeamprojGunProp *)BeamprojBase)
-
-#define AmmoBase        (BeamprojBase + sizeof(BeamprojGunProp * NUM_BEAMPROJ_GUN))
-#define AmmoProps       ((AmmoProp *)
-#endif
 
 #ifdef __OBJSIM_SRC
 GunProp GunProps[NUM_GUN];

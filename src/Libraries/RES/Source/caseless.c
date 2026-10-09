@@ -67,8 +67,6 @@ size_t DG_strlcat(char *dst, const char *src, size_t dstsize) {
     return dstlen + srclen;
 }
 
-#ifndef _WIN32
-
 #include <dirent.h>
 #include <unistd.h>
 
@@ -95,7 +93,6 @@ static int check_and_append_pathelem(char dirbuf[PATH_MAX], const char *elem) {
     }
     return ret;
 }
-#endif // not _WIN32
 
 // checks if a version of file with path inpath with different case exists.
 // if so, the corrected version is copied to outpath.
@@ -106,36 +103,6 @@ static int check_and_append_pathelem(char dirbuf[PATH_MAX], const char *elem) {
 // returns 1 if the file (or directory) could be found, 0 if not
 int caselesspath(const char *inpath, char *outpath, int wantdir) {
     size_t inlen = strlen(inpath);
-
-#ifdef _WIN32
-
-    // windows is case insensitive, just do a stat()
-    struct _stat statBuf;
-    int isdir = 0;
-
-    outpath[0] = '\0';
-
-    if (inlen == 0)
-        return 0;
-
-    if (inpath[inlen - 1] == '/' || inpath[inlen - 1] == '\\') {
-        if (wantdir == 0)
-            return 0; // if it ends with a /, it's no file
-        else
-            wantdir = 1;
-    }
-
-    if (_stat(inpath, &statBuf) != 0)
-        return 0;
-
-    isdir = (statBuf.st_mode & _S_IFDIR) != 0;
-    if (wantdir == -1 || isdir == wantdir) {
-        DG_strlcpy(outpath, inpath, inlen + 1);
-        return 1;
-    }
-    return 0;
-
-#else // not Windows - more complicated
 
     // anyway, first do the cheap check with a stat(), maybe the case already is correct
     struct stat statBuf;
@@ -236,7 +203,6 @@ int caselesspath(const char *inpath, char *outpath, int wantdir) {
         return 0;
     }
 
-#endif // not Windows
 }
 
 FILE *fopen_caseless(const char *path, const char *mode) {
@@ -247,7 +213,6 @@ FILE *fopen_caseless(const char *path, const char *mode) {
 
     ret = fopen(path, mode);
 
-#ifndef _WIN32 // not windows
     if (ret == NULL) {
         char fixedpath[PATH_MAX];
         size_t pathlen = strlen(path);
@@ -256,7 +221,6 @@ FILE *fopen_caseless(const char *path, const char *mode) {
             ret = fopen(fixedpath, mode);
         }
     }
-#endif // not windows
 
     return ret;
 }

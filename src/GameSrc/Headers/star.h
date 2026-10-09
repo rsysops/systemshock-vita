@@ -49,10 +49,8 @@ void star_set(int n, sts_vec *vlist, uchar *clist);
 
 // allocates the necessary space for stars using alloc
 // returns neg 1 if problem
-int star_alloc(int n);
 
 // frees star space using free
-void star_free(void);
 
 // stuffs random vectors and colors into the set areas
 // randomly assigning a color range to them
@@ -66,7 +64,6 @@ void star_empty(int n, g3s_phandle *vp);
 
 // Render to an empty sky, you'll have
 // to blacken it for us to color 0
-void star_sky(void);
 
 // renders star field in the polygon defined by the vertex list
 // uses your 3d context, so make sure that's been set

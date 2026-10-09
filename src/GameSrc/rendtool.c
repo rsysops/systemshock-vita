@@ -143,8 +143,6 @@ grs_bitmap *game_fr_tmap_full(void);
 void game_rend_start(void);
 void game_fr_clip_start(uchar headnorth);
 
-void fauxrend_camera_setfunc(TileCamera *tc);
-
 // Note that I have fixed this so that the cursor does not flicker.
 // It just works.  Note its simplistic beauty.	I love this job.
 void rend_mouse_hide(void) {
@@ -289,14 +287,8 @@ uchar game_obj_block(void *vmptr, uchar *_sclip, int *loc) {
 
 int game_fr_idx(void) { return _game_fr_tmap; }
 
-#define TIM_WERE_AWAKE
-#ifdef TIM_WERE_AWAKE
 #define IsTpropStars() (textprops[_game_fr_tmap].force_dir > 0)
 #define IsTpStarDraw() (textprops[_game_fr_tmap].force_dir == 2)
-#else
-#define IsTpropStars() (_game_fr_tmap < 4)
-#define IsTpStarDraw() (_game_fr_tmap < 2)
-#endif
 
 extern g3s_phandle _fdt_tmppts[8]; /* these are used for all temporary point sets */
 
@@ -375,14 +367,6 @@ grs_bitmap *game_fr_tmap_full(void) {
         }
     }
     lmask = (1 << loop);
-#ifdef CAN_MISS
-    if (((texture_array[_game_fr_tmap].sizes_loaded) & lmask) == 0) {
-        do {
-            loop++;
-            lmask <<= 1;
-        } while ((loop < TEXTURE_16_INDEX) && (((texture_array[_game_fr_tmap].sizes_loaded) & lmask) == 0));
-    }
-#endif
 
 draw_it:
     draw_me = get_texture_map(_game_fr_tmap + ANIMTEXT_FRAME(_game_fr_tmap), loop);
@@ -464,8 +448,6 @@ void game_fr_startup(void) {
     std_alias_size = 400;
 }
 
-void game_fr_shutdown(void) {}
-
 //#pragma disable_message(202)
 void game_fr_reparam(int is_128s, int full_scrn, int show_all) {
     if (is_128s != -1)
@@ -502,14 +484,6 @@ void rendedit_process_tilemap(FullMap *fmap, LGRect *r, uchar newMap) {
     if (newMap)
         fr_compile_restart(fmap);
     fr_compile_rect(fmap, r->ul.x, r->ul.y, r->lr.x, r->lr.y, FALSE);
-}
-
-// lets move this to the tilemap, eh?
-void fauxrend_camera_setfunc(TileCamera *tc) {
-    tc->x = last_coor(EYE_X);
-    tc->y = last_coor(EYE_Y);
-    tc->theta = last_ang(EYE_H) - FIXANG_PI / 2;
-    tc->show = TRUE;
 }
 
 // Like fr_get_at, but takes real screen coordinates.

@@ -697,18 +697,11 @@ int32_t LzwFindMatch(int32_t hash_prefix, uint32_t hash_character) {
 //	reverse order by the expansion program.
 
 uint8_t *LzwDecodeString(uint8_t *buffer, uint32_t code) {
-#ifdef DBG_ON
-    int32_t i = 0;
-#endif
 
     while (code > 255) {
         *buffer++ = lzwAppendChar[code];
         code = lzwPrefixCode[code];
 
-#ifdef DBG_ON
-        if (i++ >= 4094)
-            Warning(("LzwDecodeString: Fatal error during code expansion\n"));
-#endif
     }
 
     *buffer = code;

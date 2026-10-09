@@ -80,9 +80,7 @@ void EDMS_release_object(physics_handle ph);
 //	Soliton the magic Solver...
 //	===========================
 // void	EDMS_soliton( fix timestep );
-void EDMS_soliton_lite(fix timestep);
 void EDMS_soliton_vector(fix timestep);
-void EDMS_soliton_vector_holistic(fix timestep);
 
 // Tools...
 // ========
@@ -91,11 +89,8 @@ void EDMS_soliton_vector_holistic(fix timestep);
 // ====================================================================================
 int32_t EDMS_settle_object(physics_handle ph);
 
-void EDMS_mprint_state(physics_handle ph);
-
 //	Prints out state and sleep information on ALL objects.  Show sleepers is 1 to display sleeping objects...
 //	---------------------------------------------------------------------------------------------------------
-void EDMS_inventory_and_statistics(int32_t show_sleepers);
 
 // Returns TRUE if an object is awake, FLASE otherwise...
 // ------------------------------------------------------
@@ -103,7 +98,6 @@ bool EDMS_frere_jaques(physics_handle ph);
 
 //	Checks integrity of EDMS.  Returns EDMS error codes, as seen below.
 //	-------------------------------------------------------------------
-int32_t EDMS_sanity_check();
 
 //	Here we exclude objects from hitting specific others...
 //	-------------------------------------------------------
@@ -115,8 +109,6 @@ void EDMS_obey_collisions(physics_handle ph1);
 
 //	Autodestruct objects kill themselves after the first or second collision callback.  This is model specific.
 //	-----------------------------------------------------------------------------------------------------------
-void EDMS_set_autodestruct(physics_handle ph);
-void EDMS_defuse_autodestruct(physics_handle ph);
 
 // Wake me up no matter what (i.e. terrain is changing, new level, etc.)...
 // ------------------------------------------------------------------------
@@ -175,9 +167,7 @@ physics_handle EDMS_make_robot(Robot *m, State *s);
 void EDMS_get_robot_parameters(physics_handle ph, Robot *m);
 void EDMS_set_robot_parameters(physics_handle ph, Robot *m);
 void EDMS_control_robot(physics_handle ph, fix thrust_lever, fix attitude_jets, fix jump_jet);
-fix EDMS_get_robot_damage(physics_handle ph);
 void EDMS_make_robot_antisocial(physics_handle ph);
-void EDMS_make_robot_social(physics_handle ph);
 
 //	Nota bene:  Here the desired heading is specified is in the range
 //		    0 <= desired_heading < 2pi.	Urgency is a number in the range
@@ -198,7 +188,6 @@ void EDMS_control_pelvis(physics_handle ph, fix forward, fix turn, fix sidestep,
 void EDMS_get_pelvic_viewpoint(physics_handle ph, State *s);
 void EDMS_get_pelvis_parameters(physics_handle ph, Pelvis *p);
 void EDMS_set_pelvis_parameters(physics_handle ph, Pelvis *p);
-fix EDMS_get_pelvis_damage(physics_handle ph, fix delta_t);
 bool EDMS_pelvis_is_climbing(void);
 
 //	Death...

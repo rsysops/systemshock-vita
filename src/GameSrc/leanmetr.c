@@ -80,11 +80,6 @@ static ubyte discrete_eye_height[DISCRETE_EYE_POSITIONS] = {
     10,
     18,
 };
-ubyte hires_eye_height[DISCRETE_EYE_POSITIONS] = {
-    8,
-    26,
-    45,
-};
 LGPoint shield_offsets[9] = {
     {2, 1}, // stand right
     {2, 1}, // stand
@@ -191,23 +186,12 @@ void set_base_lean_bmap(uchar shield) {
 // filter's RC time constant, in units of 1/sec.
 #define POSTURE_FILTER_RATE 20
 
-#ifdef BIASED_CAPACITOR
-fix compute_filter_weight(ulong deltat) {
-    int rate = POSTURE_FILTER_RATE;
-    fix bias = FIX_UNIT * CONTROL_MAX_VAL / (CONTROL_MAX_VAL + 3 * abs(player_struct.controls[CONTROL_YVEL]));
-    fix weight = fix_make(deltat, 0) * rate >> APPROX_CIT_CYCLE_SHFT;
-    Spew(DSRC_USER_I_Lean, ("posture filter weight = %q, bias = %q\n", weight, bias));
-    weight = fix_mul(weight, bias);
-    return weight;
-}
-#else
 fix compute_filter_weight(ulong deltat) {
     int rate = POSTURE_FILTER_RATE;
     fix weight = fix_make(deltat, 0) * rate >> APPROX_CIT_CYCLE_SHFT;
 
     return weight;
 }
-#endif
 
 fix apply_weighted_filter(fix input, fix state, ulong deltat) {
     fix weight = compute_filter_weight(deltat);
@@ -306,13 +290,6 @@ void player_set_eye(byte eyecntl) {
     if (theta < 0)
         theta += 2 * FIXANG_PI;
     eye_mods[1] = theta;
-}
-
-byte player_get_eye(void) {
-    int theta = eye_mods[1];
-    if (theta > FIXANG_PI)
-        theta -= 2 * FIXANG_PI;
-    return (byte)(theta * CONTROL_MAX_VAL / MAX_EYE_ANGLE);
 }
 
 void player_set_eye_fixang(int ang) {

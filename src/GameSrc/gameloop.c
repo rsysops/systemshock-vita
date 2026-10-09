@@ -66,8 +66,6 @@ uchar redraw_paused = TRUE;
 // ----------
 void draw_pause_string(void);
 
-long pal_frame = 0;
-
 //------------------------------------------------------------------
 void draw_pause_string(void) {
     LGRect r;

@@ -77,31 +77,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 // See objects.h and objapp.h for a description of global variables
 
-#ifdef SUPPORT_VERSION_26_OBJS
-old_Obj old_objs[NUM_OBJECTS];
-#endif
-
-#ifdef THESE_WERENT_IN_STATIC_S_BUT_THEY_ARE_SO_THESE_ARENT_REALLY_HERE
-Obj objs[NUM_OBJECTS];
-ObjRef objRefs[NUM_REF_OBJECTS];
-uchar objsDealt[NUM_OBJECTS / 8];
-#endif
-
-ObjLocState objLocStates[MAX_OBJS_CHANGING];
-uchar numObjLocStates;
-
-#ifdef HASH_OBJECTS
-
-ObjHashElem objHashTable[OBJ_HASH_ENTRIES];
-
-uchar ObjDeleteHashElem(ObjRefStateBin bin);
-
-#ifndef USE_FUNCTION_FOR_HASH_GET
-ObjHashElemID HASHENTRY;
-#endif
-
-#endif // HASH_OBJECTS
-
 static void ObjRefRem(ObjRefID ref);
 static uchar ObjLinkMake(ObjRefID ref, ObjID obj);
 static ObjID ObjRefLinkDel(ObjRefID ref);
@@ -164,14 +139,6 @@ void ObjsInit(void) {
         }
         ((ObjSpec *)(head->data + (head->size - 1) * head->struct_size))->next = 0;
     }
-
-#ifdef HASH_OBJECTS
-    // set up the free chains for the hash table
-    LG_memset((void *)objHashTable, 0, sizeof(ObjHashElem) * OBJ_HASH_ENTRIES);
-    for (i = 0; i < OBJ_HASH_HEAD_ENTRIES_START - 1; i++)
-        objHashTable[i].next = i + 1;
-    objHashTable[OBJ_HASH_HEAD_ENTRIES_START - 1].next = 0;
-#endif
 
     // temp
     //	if (!ObjSysOkay())
@@ -410,9 +377,6 @@ uchar ObjUpdateLocs(ObjLocState *olsp) {
         // Check all bins in out[] for a match
         for (i = 0; i < outcount; i++) {
             if (ObjRefStateBinEqual(objRefs[out[i]].state.bin, stCur->bin)) {
-#ifndef NO_OBJ_REF_STATE_INFO
-                objRefs[out[i]].state.info = stCur->info; // update info
-#endif
                 out[i] = out[--outcount]; // delete this bin from out
                 goto found_bin_in_out;    // go back to the outer loop
             }
@@ -444,208 +408,6 @@ uchar ObjUpdateLocs(ObjLocState *olsp) {
 
     return TRUE;
 }
-
-#ifdef HASH_OBJECTS
-//////////////////////////////
-//
-// Return a free hash table element, or 0 if none.
-//
-ObjHashElemID ObjGrabHashEntry(void) {
-    ObjHashElemID elem = objHashTable[0].next;
-
-    if (elem == 0)
-        return elem;
-    objHashTable[0].next = objHashTable[elem].next;
-    return elem;
-}
-
-//////////////////////////////
-//
-// Free up the given hash table element.
-//
-void ObjFreeHashEntry(ObjHashElemID elem) {
-    objHashTable[elem].ref = 0; // make sure nobody thinks
-                                // there's something here
-    objHashTable[elem].next = objHashTable[0].next;
-    objHashTable[0].next = elem;
-}
-
-//////////////////////////////
-//
-// Returns the ID of a hash entry pointing to the contents of the given bin.
-// If create is true, then return an entry even if once doesn't exist now.
-// It will then have a ref field of NULL, signifying that it was just
-// created.  You must immediately set the ref's StateBin correctly.
-//
-#ifdef USE_FUNCTION_FOR_HASH_GET
-ObjHashElemID ObjGetHashElem(ObjRefStateBin bin, uchar create) {
-    ObjHashElemID entry;
-    ObjHashElemID firstentry, nextentry;
-
-    entry = OBJ_HASH_FUNC(bin);
-    if (objHashTable[entry].ref == OBJ_REF_NULL) {
-        // Nothing at all at this hash location
-        if (!create)
-            return 0;
-        else
-            return entry;
-    }
-
-    // Check if the first element is correct
-    if (ObjRefStateBinEqual(objRefs[objHashTable[entry].ref].state.bin, bin))
-        return entry;
-
-    // Go through the list looking for the right object chain
-    firstentry = entry;
-    while (objHashTable[entry].next != 0) {
-        nextentry = objHashTable[entry].next;
-        if (ObjRefStateBinEqual(objRefs[objHashTable[nextentry].ref].state.bin, bin)) {
-            ObjRefID tmpref;
-
-            // Move nextentry to the top
-            tmpref = objHashTable[firstentry].ref;
-            objHashTable[firstentry].ref = objHashTable[nextentry].ref;
-            objHashTable[nextentry].ref = tmpref;
-            return firstentry;
-        }
-        entry = nextentry;
-    }
-
-    // Couldn't find it
-    if (!create)
-        return 0;
-
-    // Make a new one
-    if ((nextentry = ObjGrabHashEntry()) == 0)
-        return 0;
-    objHashTable[entry].next = nextentry;
-    objHashTable[nextentry].ref = objHashTable[firstentry].ref;
-    objHashTable[nextentry].next = 0;
-    objHashTable[firstentry].ref = OBJ_REF_NULL;
-    return firstentry;
-}
-#else
-//////////////////////////////
-//
-// This is just the special case of the ObjGetHashElem() function, which is now
-// called from the macro version of ObjGetHashElem() when it sees that it needs
-// it.  At this point, the entry is used, but not by us, so we go down the
-// chain looking for the right entry.
-//
-ObjHashElemID ObjGetHashElemFromChain(ObjRefStateBin bin, uchar create, ObjHashElemID firstentry) {
-    ObjHashElemID entry = firstentry;
-    ObjHashElemID nextentry;
-
-    // Go through the list looking for the right object chain
-    while (objHashTable[entry].next != 0) {
-        nextentry = objHashTable[entry].next;
-        if (ObjRefStateBinEqual(objRefs[objHashTable[nextentry].ref].state.bin, bin)) {
-            ObjRefID tmpref;
-
-            // Move nextentry to the top
-            tmpref = objHashTable[firstentry].ref;
-            objHashTable[firstentry].ref = objHashTable[nextentry].ref;
-            objHashTable[nextentry].ref = tmpref;
-            return firstentry;
-        }
-        entry = nextentry;
-    }
-
-    // Couldn't find it
-    if (!create)
-        return 0;
-
-    // Make a new one
-    if ((nextentry = ObjGrabHashEntry()) == 0)
-        return 0;
-    objHashTable[entry].next = nextentry;
-    objHashTable[nextentry].ref = objHashTable[firstentry].ref;
-    objHashTable[nextentry].next = 0;
-    objHashTable[firstentry].ref = OBJ_REF_NULL;
-    return firstentry;
-}
-#endif
-
-//////////////////////////////
-//
-// Deletes the entry in the hash table corresponding to the ref
-// chain at the given bin.  Returns FALSE if there was nothing to delete.
-//
-uchar ObjDeleteHashElem(ObjRefStateBin bin) {
-    ObjHashElemID firstentry = OBJ_HASH_FUNC(bin);
-    ObjHashElemID entry, nextentry;
-
-    if (objHashTable[firstentry].ref == OBJ_REF_NULL)
-        return FALSE;
-
-    // This should be true if we always move to the front of the list like above
-    if (ObjRefStateBinEqual(objRefs[objHashTable[firstentry].ref].state.bin, bin)) {
-        if ((nextentry = objHashTable[firstentry].next) == 0) {
-            // This was the only one
-            objHashTable[firstentry].ref = OBJ_REF_NULL;
-            return TRUE;
-        }
-        objHashTable[firstentry].ref = objHashTable[nextentry].ref;
-        objHashTable[firstentry].next = objHashTable[nextentry].next;
-        ObjFreeHashEntry(nextentry);
-        return TRUE;
-    }
-
-    entry = firstentry;
-    nextentry = objHashTable[entry].next;
-    while (nextentry != 0) {
-        if (ObjRefStateBinEqual(objRefs[objHashTable[nextentry].ref].state.bin, bin)) {
-            objHashTable[entry].next = objHashTable[nextentry].next;
-            ObjFreeHashEntry(nextentry);
-            return TRUE;
-        }
-        entry = nextentry;
-        nextentry = objHashTable[entry].next;
-    }
-    return FALSE;
-}
-
-static int hash_i;
-
-void ObjHashIteratorInit(void) { hash_i = 0; }
-
-uchar ObjHashIterator(ObjRefID *ref) {
-    while (hash_i < OBJ_HASH_ENTRIES && objHashTable[hash_i].ref == 0)
-        hash_i++;
-    if (hash_i == OBJ_HASH_ENTRIES)
-        return FALSE;
-    *ref = objHashTable[hash_i++].ref;
-    return TRUE;
-}
-
-#define MAX_CHAIN_LENGTH 10 // let's hope it gets no higher
-int numlengths[MAX_CHAIN_LENGTH + 1];
-//////////////////////////////
-//
-//
-//
-ObjHashStats(void) {
-    int i;
-
-    for (i = 0; i <= MAX_CHAIN_LENGTH; i++)
-        numlengths[i] = 0;
-    for (i = OBJ_HASH_HEAD_ENTRIES_START; i < OBJ_HASH_ENTRIES; i++) {
-        int j = i, length = 0;
-        if (objHashTable[i].ref != 0) {
-            while (j != 0)
-                length++, j = objHashTable[j].next;
-        }
-        if (length > MAX_CHAIN_LENGTH)
-            length = MAX_CHAIN_LENGTH;
-        numlengths[length]++;
-    }
-    for (i = 0; i <= MAX_CHAIN_LENGTH; i++) {
-        if (numlengths[i] > 0)
-            SpewHash(("Object hash chains of length %d: %d\n", i, numlengths[i]));
-    }
-}
-
-#endif // HASH_OBJECTS
 
     ////////////////////////////////////////////////////////////
     //
@@ -809,23 +571,11 @@ uchar ObjSysOkay(void) {
         // 5. All active ObjRefs point to the map element in which they occur.
         // 6. All active ObjRefs point to active Objs.
 
-#ifdef HASH_OBJECTS
-    ObjHashIteratorInit();
-#else
     ObjRefStateBinIteratorInit();
-#endif
 
-#ifdef HASH_OBJECTS
-    while (ObjHashIterator(&ref))
-#else
     while (ObjRefStateBinIterator(&refbin))
-#endif
     {
-#ifdef HASH_OBJECTS
-        refbin = objRefs[ref].state.bin;
-#else
         ref = ObjRefHead(refbin);
-#endif
 
         //		DBG_Anal ({
         //			if (ref != OBJ_REF_NULL)
@@ -836,16 +586,9 @@ uchar ObjSysOkay(void) {
         //		})
 
         while (ref != OBJ_REF_NULL) {
-#ifndef NO_OBJ_REF_STATE_INFO
-//			DBG_Anal ({
-//				ObjRefStateInfoSprint (str, objRefs[ref].state.info);
-//				SpewAnal (("  ObjRef %3d [%s] -> Obj %3d\n", ref, str, objRefs[ref].obj));
-//			})
-#else
 //			DBG_Anal ({
 //				SpewAnal (("  ObjRef %3d -> Obj %3d\n", ref, objRefs[ref].obj));
 //			})
-#endif
 
             if (usedRef[ref] & OBJ_FREE) {
                 ObjRefStateBinSprint(str, refbin);
@@ -940,10 +683,6 @@ uchar ObjSysOkay(void) {
 
         cur = objs[cur].next;
     }
-
-#ifdef HASH_OBJECTS
-    DBG_Hash({ ObjHashStats(); })
-#endif
 
         return TRUE;
 }
@@ -1121,42 +860,6 @@ static ObjSpecID ObjSpecGrab(ObjClass obclass) {
     return thisid;
 }
 
-#ifdef COMPRESS_OBJSPECS
-ObjSpecID HeaderObjSpecGrab(ObjClass obclass, ObjSpecHeader *head) {
-    char *data;
-    ObjSpecID thisid;
-    ObjSpec *spec0, *thisspec;
-
-    SpewReport(("ObjSpecGrab (obclass %d)\n", obclass));
-
-    DBG_Check({
-        if (obclass >= NUM_CLASSES) {
-            Warning(("Invalid obclass %d in ObjSpecGrab\n", obclass));
-            return OBJ_SPEC_NULL;
-        }
-    })
-
-        data = head->data;
-    spec0 = (ObjSpec *)data;
-
-    if (spec0->next == OBJ_SPEC_NULL)
-        return OBJ_SPEC_NULL;
-
-    // remove the head of the free chain and return it
-    thisid = spec0->next;
-    thisspec = (ObjSpec *)(data + head->struct_size * thisid);
-    spec0->next = thisspec->next;
-
-    // and put this at the head of the used chain
-    thisspec->next = spec0->headused;
-    ((ObjSpec *)(data + head->struct_size * spec0->headused))->prev = thisid;
-    thisspec->prev = OBJ_SPEC_NULL;
-    spec0->headused = thisid;
-
-    return thisid;
-}
-#endif
-
 //////////////////////////////
 //
 // Frees up the space used by the ObjSpec in the specified class
@@ -1198,107 +901,16 @@ static uchar ObjSpecFree(ObjClass obclass, ObjSpecID id) {
     return TRUE;
 }
 
-#ifdef COMPRESS_OBJSPECS
-uchar HeaderObjSpecFree(ObjClass obclass, ObjSpecID id, ObjSpecHeader *head) {
-    char *data;
-    ObjSpec *spec0, *thisspec;
-
-    SpewReport(("ObjSpecFree (obclass %d, specid %d)\n", obclass, id));
-
-    DBG_Check({
-        if (obclass >= NUM_CLASSES) {
-            Warning(("Invalid obclass %d in ObjSpecFree\n", obclass));
-            return FALSE;
-        }
-    })
-
-        data = head->data;
-    spec0 = (ObjSpec *)&data[0];
-    thisspec = (ObjSpec *)(data + head->struct_size * id);
-
-    // take this out of the used chain
-    if (thisspec->prev == OBJ_SPEC_NULL)
-        spec0->headused = thisspec->next;
-    else
-        ((ObjSpec *)(data + head->struct_size * thisspec->prev))->next = thisspec->next;
-
-    ((ObjSpec *)(data + head->struct_size * thisspec->next))->prev = thisspec->prev;
-    // don't need to clear thisspec->next since we are resetting it immediately
-
-    // and put it back at the head of the free chain
-    thisspec->next = spec0->headfree;
-    spec0->headfree = id;
-
-    return TRUE;
-}
-#endif
-
-#ifdef COMPRESS_OBJSPECS
-uchar HeaderObjSpecCopy(ObjClass cls, ObjSpecID old, ObjSpecID new, ObjSpecHeader *head) {
-    char *data;
-    ObjSpec *spec0;
-    int size;
-
-    SpewReport(("ObjSpecCopy (obclass %d)\n", cls));
-
-    DBG_Check({
-        if (cls >= NUM_CLASSES) {
-            Warning(("Invalid obclass %d in ObjSpecCopy\n", cls));
-            return FALSE;
-        }
-    })
-
-        data = head->data;
-    spec0 = (ObjSpec *)data;
-
-    // the ObjSpec (generic) part of the new spec is already set; we
-    // need to copy the rest
-
-    if ((size = head->struct_size - sizeof(ObjSpec)) > 0) {
-        LG_memcpy(data + head->struct_size * new + sizeof(ObjSpec), data + head->struct_size * old + sizeof(ObjSpec),
-                  size);
-    }
-    return TRUE;
-}
-#endif
-
 //////////////////////////////
 //
 // Removes the given ObjRef from the object list in a map bin.
 //
 static void ObjRefRem(ObjRefID ref) {
     ObjRefID *ptr; // what we must change to splice ref out
-#ifdef HASH_OBJECTS
-    ObjHashElemID hash_entry;
-#endif
 
     //	SpewReport (("ObjRefRem (ref %d)\n", ref));
 
-#ifdef HASH_OBJECTS
-    if ((hash_entry = ObjGetHashElem(objRefs[ref].state.bin, FALSE)) == 0) {
-        Warning(("Tried to remove ref %d not in hash table in ObjRefRem\n", ref));
-        return;
-    }
-
-    if (objHashTable[hash_entry].ref == ref) {
-        if (objRefs[ref].next == OBJ_REF_NULL) {
-            // This was the only one
-            if (!ObjDeleteHashElem(objRefs[ref].state.bin)) {
-                Warning(("Couldn't delete refchain %d from hash table in ObjRefRem\n", ref));
-                return;
-            }
-        } else {
-            objHashTable[hash_entry].ref = objRefs[ref].next;
-        }
-        objRefs[ref].next = OBJ_REF_NULL;              // we are no longer in a chain
-        ObjRefStateBinSetNull(objRefs[ref].state.bin); // we are no longer in the world
-        return;
-    }
-
-    ptr = &objRefs[objHashTable[hash_entry].ref].next; // next field of head of ref chain
-#else
     ptr = &ObjRefHead(objRefs[ref].state.bin);
-#endif
 
     while (*ptr != ref)
         ptr = &(objRefs[*ptr].next);
@@ -1396,9 +1008,6 @@ static ObjID ObjRefLinkDel(ObjRefID ref) {
 static uchar ObjRefAdd(ObjRefID ref, ObjRefState refstate) {
     ObjID obj;
     ObjRefID *refhead;
-#ifdef HASH_OBJECTS
-    ObjHashElemID hash_entry;
-#endif
 
     //	DBG_Report ({
     //		char str[80];
@@ -1417,25 +1026,12 @@ static uchar ObjRefAdd(ObjRefID ref, ObjRefState refstate) {
     //	}
     //})
 
-#ifdef HASH_OBJECTS
-    if ((hash_entry = ObjGetHashElem(refstate.bin, TRUE)) == 0) {
-        char str[80];
-        ObjRefStateBinSprint(str, refstate.bin);
-        Warning(("Could not create hash entry at %s in ObjRefAdd\n", str));
-        return FALSE;
-    }
-    refhead = &objHashTable[hash_entry].ref;
-#else
     refhead = &ObjRefHead(refstate.bin);
-#endif
 
     objRefs[ref].next = *refhead;
     *refhead = ref;
 
     ObjRefStateBinCopy(refstate.bin, objRefs[ref].state.bin);
-#ifndef NO_OBJ_REF_STATE_INFO
-    ObjRefStateInfoCopy(refstate.info, objRefs[ref].state.info);
-#endif
 
     return TRUE;
 }

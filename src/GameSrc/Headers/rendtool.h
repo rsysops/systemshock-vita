@@ -34,7 +34,6 @@ uchar draw_tmap_p(int ptcnt);
 
 void fr_show_rate(int color);
 void game_fr_startup(void);
-void game_fr_shutdown(void);
 uchar *get_free_frame_buffer_bits(int size);                            // to get bitmap bits
 void *get_scr_canvas_from_frame_buffer(int x, int y, int wid, int hgt); // to get an actual canvas
 void game_fr_reparam(int is_128s, int full_scrn, int show_all);

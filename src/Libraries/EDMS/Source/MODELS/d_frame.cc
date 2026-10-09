@@ -37,8 +37,6 @@ extern Q EDMS_CYBER_FLOW1X;
 extern Q EDMS_CYBER_FLOW2X;
 extern Q EDMS_CYBER_FLOW3X;
 
-extern int32_t EDMS_BCD;
-
 //	Here are the internal degrees of freedom.  First we get the aerodynamic forces
 //	from the (external) aero model, then the interactions and solid B/C here...
 //	===========================================================================

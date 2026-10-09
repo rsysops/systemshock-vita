@@ -40,9 +40,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "textmaps.h"
 uchar tmap_static_mem[NUM_STATIC_TMAPS * SIZE_STATIC_TMAP];
-#ifdef SVGA_CUTSCENES
 uchar tmap_big_buffer[NUM_STATIC_TMAPS * SIZE_BIG_TMAP];
-#endif
 
 #include "objects.h"
 #include "objapp.h"
@@ -56,7 +54,6 @@ uchar objsDealt[NUM_OBJECTS / 8];
 #define FRAME_BUFFER_SIZE (320 * 200) + 4096
 uchar frameBuffer[FRAME_BUFFER_SIZE];
 #define WACKY_SVGA_MFD_SIZE 52744
-uchar frameBuffer2[WACKY_SVGA_MFD_SIZE];
 
 uchar *mfd_canvas_bits = NULL;
 

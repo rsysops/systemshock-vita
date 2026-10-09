@@ -34,7 +34,7 @@ typedef enum {
     VPROF_PHASE_COUNT
 } vprof_phase_t;
 
-#if defined(VITA) && defined(VITA_PROFILE)
+#if defined(__vita__) && defined(VITA_PROFILE)
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
@@ -78,6 +78,6 @@ void vprof_overlay_draw(void);
 #define VPROF_FRAME_BEGIN()
 #define VPROF_FRAME_END()
 
-#endif // defined(VITA) && defined(VITA_PROFILE)
+#endif // defined(__vita__) && defined(VITA_PROFILE)
 
 #endif // __VPROF_H

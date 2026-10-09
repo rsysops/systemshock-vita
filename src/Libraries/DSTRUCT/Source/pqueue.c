@@ -57,7 +57,6 @@ static int swap_bufsize = 0;
 // -------
 void swapelems(PQueue* q,int i, int j);
 void re_heapify(PQueue *q);
-void double_re_heapify(PQueue *q, int head);
 
 // ---------
 // INTERNALS
@@ -101,37 +100,6 @@ void re_heapify(PQueue *q)
 }
 
 
-void double_re_heapify(PQueue *q, int head)
-{
-   uint lchild = LCHILD(head); 
-   uint rchild = RCHILD(head);
-   uint minchild = NULL_CHILD;
-   uint maxchild = NULL_CHILD;
-   if (rchild >= q->fullness)
-      minchild = lchild;
-   if (lchild >= q->fullness)
-      minchild = rchild;
-   if (minchild == NULL_CHILD) {
-      if (LESS(q,lchild,rchild))
-      {
-         minchild = lchild;
-         maxchild = rchild;
-      }
-      else
-      {
-         minchild = rchild;
-         maxchild = lchild;
-      }
-   }
-   if (minchild < q->fullness && LESS(q,minchild,head))
-   {
-      swapelems(q,head,minchild);
-      double_re_heapify(q,minchild);
-      if (maxchild < q->fullness)
-         double_re_heapify(q,maxchild);
-   }
-}
-      
 // ---------
 // EXTERNALS
 // ---------
@@ -198,35 +166,6 @@ errtype pqueue_least(PQueue* q, void* elem)
 {
    if (q->fullness == 0) return ERR_DUNDERFLOW;
    LG_memcpy(elem,NTH(q,0),q->elemsize);
-   return OK;
-}
-
-errtype pqueue_write(PQueue* q, FILE *fd, void (*writefunc)(FILE *fd, void* elem))
-{
-   int i;
-   fwrite((char*)q,1,sizeof(PQueue), fd);
-   for(i = 0; i < q->fullness; i++)
-   {
-      if (writefunc != NULL)
-         writefunc(fd,NTH(q,i));
-      else fwrite((char*)NTH(q,i),1,q->elemsize, fd);
-   }
-   return OK;
-}
-
-errtype pqueue_read(PQueue* q, FILE *fd, void (*readfunc)(FILE *fd, void* elem))
-{
-   int i;
-   fread((char*)q,1,sizeof(PQueue), fd);
-   if (q->grow) q->size = q->fullness;
-   q->vec = malloc(q->size*q->elemsize);
-   if (q->vec == NULL) return ERR_NOMEM;
-   for(i = 0; i < q->fullness; i++)
-   {
-      if (readfunc != NULL)
-         readfunc(fd,NTH(q,i));
-      else fread((char*)NTH(q,i),1,q->elemsize, fd);
-   }
    return OK;
 }
 

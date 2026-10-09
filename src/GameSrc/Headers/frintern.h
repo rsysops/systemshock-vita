@@ -62,7 +62,6 @@ int fr_pipe_resize(int x, int y, int z, void *mptr);
 int fr_pipe_start(int rad);
 int fr_pipe_go(void);
 int fr_pipe_end(void);
-int fr_pipe_freemem(void);
 
 extern int fr_map_x, fr_map_y, fr_map_z;
 extern int _fr_x_cen, _fr_y_cen;
@@ -70,7 +69,6 @@ extern int _fr_x_cen, _fr_y_cen;
 //======== from frpts.c
 int fr_pts_frame_start(void);
 int fr_pts_resize(int x, int y);
-int fr_pts_freemem(void);
 int fr_pts_update(int y, int lx, int rx);
 int fr_pts_setup(int pt_code); // must call before update
 
@@ -86,7 +84,6 @@ int fr_clip_frame_start(void);
 int fr_clip_frame_end(void);
 int fr_clip_cone(void);
 int fr_clip_tile(void);
-int fr_clip_freemem(void);
 
 //======== From frtables.c
 // setup and integrity test various renderer data tables
@@ -110,7 +107,6 @@ void _fr_facelet_init(void);
 int _fr_do_light(g3s_phandle work, int hgt_code);
 #endif
 
-#ifndef __FRTERR_SRC
 // map/world data layout
 #ifdef __3D_H
 extern sfix _fr_sfuv_list[];
@@ -123,7 +119,6 @@ extern int wall_adds[], csp_trans_add[];
 extern int _fdt_x, _fdt_y, _fdt_mask, _fdt_dist, _fdt_pbase;
 #ifdef __MAP_H
 extern MapElem *_fdt_mptr;
-#endif
 #endif
 
 #endif // __FRINTERN_H

@@ -38,7 +38,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "cybrnd.h"
 #include "physunit.h"
 
-uchar bullet_debug = FALSE;
 ObjID terrain_hit_obj = OBJ_NULL;
 ObjID terrain_hit_exclusion = OBJ_NULL;
 
@@ -138,37 +137,6 @@ ObjID ray_cast_attack(ObjID src, ObjLoc dest, fix bullet_mass, fix bullet_size, 
     ray.exclusion = (src == OBJ_NULL) ? -1 : objs[src].info.ph;
 
     return (simple_ray_caster(&ray));
-}
-
-// -------------------------------------------
-// ray_cast_points()
-//
-
-ObjID ray_cast_points(ObjID exclusion, Combat_Pt src, Combat_Pt dest, fix bullet_mass, fix bullet_size,
-                      fix bullet_speed, fix bullet_range) {
-    Combat_Ray ray;
-    fix dist;
-    ObjID target;
-
-    ray.origin = src;
-    ray.dx = dest.x - src.x;
-    ray.dy = dest.y - src.y;
-    ray.dz = dest.z - src.z;
-
-    // normalize vector and convert it
-    dist = fix_sqrt(fix_mul(ray.dx, ray.dx) + fix_mul(ray.dy, ray.dy) + fix_mul(ray.dz, ray.dz));
-    ray.dx = fix_div(ray.dx, dist);
-    ray.dy = fix_div(ray.dy, dist);
-    ray.dz = fix_div(ray.dz, dist);
-
-    ray.mass = bullet_mass;
-    ray.size = bullet_size;
-    ray.speed = bullet_speed;
-    ray.range = bullet_range;
-    ray.exclusion = (exclusion == OBJ_NULL) ? -1 : objs[exclusion].info.ph;
-
-    target = simple_ray_caster(&ray);
-    return (target);
 }
 
 // -------------------------------------------

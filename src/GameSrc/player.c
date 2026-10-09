@@ -235,12 +235,6 @@ errtype player_create_initial() {
 }
 
 #define CFG_PLAYER_VAR "eye"
-errtype player_startup(void) {
-    return OK;
-    //      return player_create_initial();
-}
-
-errtype player_shutdown(void) { return OK; }
 
 ubyte set_player_energy_spend(ubyte new_val) {
     if (player_struct.energy_spend != new_val) {
@@ -248,14 +242,4 @@ ubyte set_player_energy_spend(ubyte new_val) {
         player_struct.energy_spend = new_val;
     }
     return (player_struct.energy_spend);
-}
-
-//----------------------------------------------------------------
-// KLC - Probably a goofy way to do this, but what the hey!  This tells me if the player struct
-//            has the fullscreen ware on.
-//----------------------------------------------------------------
-bool IsFullscreenWareOn(void) {
-    ubyte status = player_struct.hardwarez_status[CPTRIP(FULLSCR_HARD_TRIPLE)];
-
-    return ((bool)(status & WARE_ON));
 }

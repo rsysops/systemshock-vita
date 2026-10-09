@@ -113,8 +113,6 @@ frc *full_map_context;
 // was full_game_fr_context
 
 #define FSMAP_OPP 0x8000
-// note this makes the init code 0b00010100000101, or 0x505
-static ushort btn_to_code[] = {DO_ZOOMIN, DO_ZOOMOUT, DO_RECENTER, DO_FULLMSG, DO_SECUR, DO_CRITTER, DO_SCAN, 0};
 
 static ushort btn_to_amap[] = {
     0, 0, FSMAP_OPP | AMAP_TRACK_OBJ, AMAP_FULL_MSG, AMAP_SHOW_SEC, AMAP_SHOW_CRIT | AMAP_SHOW_ROB, AMAP_SHOW_SENS, 0};
@@ -158,7 +156,6 @@ void fsmap_new_msg(curAMap *amptr);
 void edit_mapnote(curAMap *amptr);
 uchar zoom_deal(curAMap *amptr, int btn);
 uchar flags_deal(curAMap *amptr, int btn, int todo);
-void btn_init(curAMap *amptr);
 
 // The devil drives a Buick
 // He sits inside and eats lunch
@@ -485,18 +482,11 @@ uchar pend_check(void) {
 #define LEFT_ARROW_CODE  0x7B
 #define RIGHT_ARROW_CODE 0x7C
 
-#ifdef VITA
 // map scroll with analogs on Vita
 #define KP_UP_CODE       13
 #define KP_DOWN_CODE     1
 #define KP_LEFT_CODE     0
 #define KP_RIGHT_CODE    2
-#else
-#define KP_UP_CODE       0x5B
-#define KP_DOWN_CODE     0x54
-#define KP_LEFT_CODE     0x56
-#define KP_RIGHT_CODE    0x58
-#endif
 
 uchar amap_scroll_handler(uiEvent *ev, LGRegion *reg, intptr_t v) {
     int elapsed, now;
@@ -744,17 +734,6 @@ uchar flags_deal(curAMap *amptr, int btn, int todo) {
     if (res)
         s_bf(btn, todo);
     return res;
-}
-
-void btn_init(curAMap *amptr) {
-    int i, j;
-    for (i = 3, j = (1 << (3 * 2)); i < BTN_NUM_REAL; i++, j <<= 2)
-        if (fsmap_buttons & j) {
-            if (btn_to_amap[i] != 0)
-                if (!flags_deal(amptr, i, AMAP_SET))
-                    fsmap_buttons &= ~j;
-        } else
-            flags_deal(amptr, i, AMAP_UNSET);
 }
 
 uchar amap_kb_callback(curAMap *amptr, int code) {

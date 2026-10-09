@@ -255,47 +255,6 @@ RefTable *ResReadRefTable(Id id) {
     return (prt);
 }
 
-//	---------------------------------------------------------
-//
-//	ResExtractRefTable() extracts a compound res's ref table.
-//
-//		id   = id of compound resource
-//		prt  = ptr to ref table
-//		size = size of ref table in bytes
-//
-//	Returns: 0 if ok, -1 if error
-
-int32_t ResExtractRefTable(Id id, RefTable *prt, int32_t size) {
-    ResDesc *prd;
-    FILE *fd;
-
-    // Check id and file number and make sure compound
-    if (!ResCheckId(id))
-        return (-1);
-
-    prd = RESDESC(id);
-    fd = resFile[prd->filenum].fd;
-    if (fd == NULL) {
-        ERROR("%s: id $%x doesn't exist", __FUNCTION__, id);
-        return (-1);
-    }
-    if (ResIsCompound(id) == 0) {
-        ERROR("%s: id $%x is not compound", __FUNCTION__, id);
-        return (-1);
-    }
-
-    // Seek to data, read numrefs, check table size, read in offsets
-    fseek(fd, RES_OFFSET_DESC2REAL(prd->offset), SEEK_SET);
-    fread(&prt->numRefs, sizeof(RefIndex), 1, fd);
-    if (REFTABLESIZE(prt->numRefs) > size) {
-        ERROR("%s: ref table too large for buffer", __FUNCTION__);
-        return (-1);
-    }
-    readRefTableEntries(prt, fd);
-
-    return (0);
-}
-
 void *ResDecodeRefTable(void *raw, size_t *size, UserDecodeData data) {
     RefIndex i;
     uint32_t offset;
@@ -339,37 +298,6 @@ void ResFreeRefTable(void *ptr) {
     }
     free(prt->raw_data);
     free(prt);
-}
-
-//	---------------------------------------------------------
-//
-// return number of refs, or -1 if error
-//
-//	---------------------------------------------------------
-int32_t ResNumRefs(Id id) {
-    ResDesc *prd;
-
-    // Check id and file number and make sure compound
-    if (!ResCheckId(id))
-        return (-1);
-    if (ResIsCompound(id) == 0) {
-        ERROR("%s: id $%x is not compound", __FUNCTION__, id);
-        return (-1);
-    }
-    prd = RESDESC(id);
-    if (prd->ptr != NULL) {
-        return ((RefTable *)prd->ptr)->numRefs;
-    } else {
-        FILE *fd = resFile[prd->filenum].fd;
-        RefIndex result;
-        if (fd == NULL) {
-            ERROR("%s: id $%x doesn't exist", __FUNCTION__, id);
-            return (-1);
-        }
-        fseek(fd, RES_OFFSET_DESC2REAL(prd->offset), SEEK_SET);
-        fread(&result, sizeof(RefIndex), 1, fd);
-        return result;
-    }
 }
 
 /*

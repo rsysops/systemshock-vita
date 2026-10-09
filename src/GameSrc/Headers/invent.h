@@ -53,7 +53,6 @@ LGRegion *create_invent_region(LGRegion *parent, LGRegion **pbuttons, LGRegion *
 errtype inventory_draw(void);
 
 // Force the inventory panel to draw, no matter what
-errtype inventory_full_redraw(void);
 
 // switch the inventory page to pgnum and redraw
 errtype inventory_draw_new_page(int pgnum);
