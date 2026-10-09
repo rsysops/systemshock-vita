@@ -19,5 +19,5 @@ texture check drawn: 0 0 0 0 wrong
 drawing the colour check
 colour check drawn: 0 0 0 wrong
 timing memory
-gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 colour_check red=0 green=0 blue=0 (wrong columns of 256) | 512KB us: gpu_write=704 gpu_read=4857 ram_write=297 ram_read=1202
+gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 colour_check red=0 green=0 blue=0 (wrong columns of 256) | 512KB us: gpu_write=782 gpu_read=4893 ram_write=278 ram_read=1191
 3 canvases 960x544, 960 bytes a row, the first at 0x62c40000

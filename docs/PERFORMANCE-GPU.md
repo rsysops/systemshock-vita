@@ -2106,4 +2106,114 @@ What is left, none of it started:
 - **The zoom rectangle in full screen**: not shown with the GPU
   renderer since G6.
 - **The stalls**: a sound effect decoded on the main thread for its
-  first use, 0.1 to 0.2 s. Not the renderer; in `docs/TODO.md`.
+  first use, 0.1 to 0.2 s. Not the renderer; in `docs/TODO.md`. Counted
+  and sized in the next section.
+
+## After G12: the worker cores and the stutters
+
+Two things seen in the normal build, at a steady 60 fps: the two worker
+cores at 100% in the start room, about 15% down the slope to the left
+door, and 100% again facing the wall between the two doors; and
+stutters. The profile build was given what it lacked to show both (see
+`docs/PROFILING.md`): each worker's time in jobs, awake without one and
+asleep (`wjob`, `wspin`, `wsleep`), the GPU's lists by who cut them
+(`cutlists=`), and a `spike` line for each stutter with that one
+frame's times. It also stays on the GPU path now; the switch to three
+cores every 5 seconds is off unless `VPROF_ALTERNATE` is set.
+
+### Results (`docs/profiles-gpu/profile-stutters.txt`, `gpu.txt`, `gpudumps-stutters/`)
+
+A new game, the start room, down the slope and back, then on into the
+level: 164 logged seconds, 35 spike lines.
+
+**The worker cores.** Medians of the seconds in the game, full screen,
+without a stall:
+
+| | lists shared (84 s) | lists not shared (37 s) |
+|---|---|---|
+| calls recorded a frame | 128 (92 to 147) | 19 (4 to 52) |
+| worker in a job | 6.9% | 2.9% |
+| worker awake without a job | 89% | 10.0% |
+| worker asleep | 4.5% | 87% |
+| fps, and time to spare in the frame | 63.0, 4.2 ms | 63.2, 7.5 ms |
+
+- **The 100% is waiting, not work.** Where the view's list has 64
+  calls or more (`RASTQ_GPU_CUT_CALLS`: the start room, the wall
+  between the doors) the workers get one job a frame and, watching
+  25 ms for the next (`IDLE_AFTER_KICK_US`), don't sleep. Down the
+  slope the list has 4 to 52 calls, there is no job, and they sleep.
+  The change is sharp: seconds 77 to 79, 144 to 146, 165 to 166.
+- The cores are busy all the same: the waiting is a loop that runs all
+  the time, so it costs battery and heat. How much was not measured.
+- The work is small: under 7% of a core, part of it the profile
+  build's self-check drawing (the 2.9% where nothing is shared is all
+  self-check).
+- Two of the figures are the profile build's doing, and would not be
+  there in the normal build:
+  - with lists shared, the 4.5% asleep is one sleep a second, as long
+    as the log write: the main thread is busy writing, no job comes
+    for 25 ms and the workers doze off. Without a log they never
+    sleep: PSVShell's 100%;
+  - with lists not shared, the 10.0% awake is the 100 ms a worker
+    watches after the self-check's job, once a second. Without a
+    self-check they sleep throughout.
+- What the sharing buys, from G11: 0.4 ms a frame standing still (1.77
+  to 1.37 ms), in a frame that has 4.2 ms to spare. At the hallway
+  angle it bought 1.7 ms where about 1 ms is spare, which is what it
+  was built for.
+- The 15% seen in the normal build is not the workers, as far as this
+  shows. The audio thread was seen on all three cores (`acpu`) and the
+  music's synthesis alone is 11% of one. Likely that; not measured per
+  core.
+- In the menus, where the workers have nothing to do, they read 100%
+  asleep.
+
+**The stutters.** 28 in the game (7 more in the menus, the intro and
+loading):
+
+| cause | count | the frame | of which the cause |
+|---|---|---|---|
+| a sound effect decoded for its first use (`sndload`) | 12 | 36 to 294 ms | 16 to 239 ms |
+| a resource read from the card (`resload`) | 10 | 25 to 122 ms | 12 to 100 ms |
+| a frame that draws 6 or 7 views (up to 1009 calls) | 2 | 36 and 87 ms | |
+| the game's rules (`sim`), nothing in the timers | 1 | 37 ms | 26 ms |
+| the panels (`ui2d`) | 1 | 29 ms | 18 ms |
+| nothing standing out | 1 | 26 ms | |
+| leaving the game | 1 | 175 ms | |
+
+Of the 9 over 100 ms, 7 are sound, one a resource read (122 ms) and
+one leaving the game. A sound's stutter has its resource read in it as
+well (2 to 29 ms). Three resource reads are over 70 ms. The frames
+with 6 or 7 views are drawn from the input handling; what they are is
+not identified.
+
+**The profile build's own hitches**, none of them in the fps or in the
+spike lines, all of them seen on the screen:
+
+- writing the log: 52 ms each second at the median, 26 to 134 ms
+  (`logwrite`);
+- self-check frames: 3 a second, the longest about 68 ms, up to 99
+  (`skipped`);
+- a frame dump: 3.8 to 4.0 s each, five in the session.
+
+By eye the profile build stutters several times a second on its own:
+the spike lines are what to go by, not the feel.
+
+`check=0/112`, `leaks=0`, `hudcheck=0/170`, `gpufallbacks=0`, 5 dumps,
+7.1% of the compared pixels differ (6.3% in G12).
+
+### To choose from, none of it started
+
+- **Sound effects decoded off the main thread**, or when the level
+  loads: 12 of the 28 stutters, and 7 of the 9 over 100 ms.
+- **The list shared only when the frame is short of time.** Any list
+  of 64 calls keeps two cores awake for 0.4 ms in a frame with 4 ms to
+  spare. A count can't tell the start room (131 calls) from the
+  hallway angle (133), so it would go by the time left over in the
+  last frames. For the battery and the heat; no change in fps
+  expected.
+- **A quieter profile build**: the log written from another thread, so
+  that what is seen while profiling is closer to the game's own.
+- **The resource reads** (10 stutters, up to 100 ms), **the frames
+  with 6 or 7 views and the `sim` frame**: more timers before anything
+  else.

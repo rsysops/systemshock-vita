@@ -1,0 +1,1 @@
+width=960 height=544 comparison=110 differing=51000

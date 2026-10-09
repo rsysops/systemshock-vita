@@ -70,6 +70,10 @@ typedef struct {
     os_sem wake;
     MemStack temp;
     uchar temp_mem[WORKER_TEMP_BYTES];
+#ifdef VITA_PROFILE
+    atomic_uint job_us, jobs, sleeps;
+    atomic_ullong slept; // see sleep_begin
+#endif
 } worker_t;
 
 static worker_t workers[MAX_WORKERS];
@@ -85,6 +89,62 @@ static rastq_job current_job;
 static int current_threads;
 static atomic_int kicked; // the job under way wasn't waited for
 static int kick_pending;  // its workers haven't all answered yet
+
+// The profiler's account of a worker's time (rastq_worker_times). Nothing of
+// it is in a normal build, and nothing in the loop that watches for a job.
+#ifdef VITA_PROFILE
+
+static long long job_begin(void) { return rastq_clock_us(); }
+
+static void job_end(worker_t *w, long long began) {
+    atomic_fetch_add(&w->job_us, (unsigned)(rastq_clock_us() - began));
+    atomic_fetch_add(&w->jobs, 1);
+}
+
+// The time asleep has to be right while the worker is still asleep. Awake,
+// the low half of `slept` is the total; asleep, SLEEPING is set and the low
+// half is that total less the time it fell asleep, so that adding the clock
+// gives the total so far.
+#define SLEEPING (1ull << 32)
+
+static void sleep_begin(worker_t *w) {
+    unsigned total = (unsigned)atomic_load(&w->slept);
+
+    atomic_store(&w->slept, SLEEPING | (unsigned)(total - (unsigned)rastq_clock_us()));
+    atomic_fetch_add(&w->sleeps, 1);
+}
+
+static void sleep_end(worker_t *w) {
+    unsigned base = (unsigned)atomic_load(&w->slept);
+
+    atomic_store(&w->slept, (unsigned)(base + (unsigned)rastq_clock_us()));
+}
+
+void rastq_threads_times(int slot, rastq_worker_times *out) {
+    worker_t *w;
+    unsigned long long slept;
+
+    out->job_us = out->sleep_us = out->jobs = out->sleeps = 0;
+    if (slot < 1 || slot > worker_count)
+        return;
+    w = &workers[slot - 1];
+    out->job_us = atomic_load(&w->job_us);
+    out->jobs = atomic_load(&w->jobs);
+    out->sleeps = atomic_load(&w->sleeps);
+    // its state first and the clock after, so that a worker that falls
+    // asleep in between fell asleep before the clock's time
+    slept = atomic_load(&w->slept);
+    out->sleep_us = (unsigned)slept + ((slept & SLEEPING) ? (unsigned)rastq_clock_us() : 0);
+}
+
+#else
+
+#define job_begin() 0
+#define job_end(w, began) ((void)(began))
+#define sleep_begin(w) ((void)0)
+#define sleep_end(w) ((void)0)
+
+#endif
 
 static void worker_loop(worker_t *w) {
     unsigned seen = atomic_load(&generation);
@@ -103,8 +163,12 @@ static void worker_loop(worker_t *w) {
 
         if (g != seen) {
             seen = g;
-            if (w->slot < current_threads)
+            if (w->slot < current_threads) {
+                long long began = job_begin();
+
                 current_job(w->slot);
+                job_end(w, began);
+            }
             idle_limit = atomic_load(&kicked) ? IDLE_AFTER_KICK_US : IDLE_BEFORE_SLEEP_US;
             atomic_fetch_add(&done, 1);
             spins = 0;
@@ -124,8 +188,11 @@ static void worker_loop(worker_t *w) {
                 // generation first and only then looks for sleepers, so one
                 // of the two always notices the other.
                 atomic_store(&w->asleep, 1);
-                if (atomic_load(&generation) == seen)
+                if (atomic_load(&generation) == seen) {
+                    sleep_begin(w);
                     os_sem_wait(w->wake);
+                    sleep_end(w);
+                }
                 atomic_store(&w->asleep, 0);
                 idle_since = 0;
             }

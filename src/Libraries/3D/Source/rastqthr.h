@@ -42,4 +42,17 @@ long long rastq_clock_us(void);
 // The core the calling thread is running on, for the profiler
 int rastq_thread_cpu(void);
 
+#ifdef VITA_PROFILE
+// What a worker (slot 1 and up) has done with its time since it started,
+// for the profiler: counts that only go up, the microseconds wrapping round.
+// The rest of its time it was awake without a job, watching for one.
+typedef struct {
+    unsigned job_us;   // in jobs
+    unsigned sleep_us; // asleep, up to now
+    unsigned jobs;     // jobs it took part in
+    unsigned sleeps;   // times it went to sleep
+} rastq_worker_times;
+void rastq_threads_times(int slot, rastq_worker_times *out);
+#endif
+
 #endif // __RASTQTHR_H

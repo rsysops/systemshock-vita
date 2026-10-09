@@ -12,10 +12,11 @@ it, is in [PERFORMANCE-CPU.md](PERFORMANCE-CPU.md) and
 The profile build is the game with timers compiled in. It differs from
 the normal build in three ways:
 
-- it draws four lines of figures over the picture;
-- it appends one line a second to a log on the memory card;
-- it checks its own drawing now and then, and switches between the
-  renderers by itself (see [What it changes](#what-it-changes-in-the-game)).
+- it draws six lines of figures over the picture;
+- it appends one line a second to a log on the memory card, and one
+  for each stutter;
+- it checks its own drawing now and then (see
+  [What it changes](#what-it-changes-in-the-game)).
 
 In the normal build every timer compiles to nothing: `VPROF_RUN(phase,
 code)` is just `code`. Nothing of the profiler ships in it.
@@ -51,17 +52,25 @@ Captures are kept in the repository next to the doc that uses them:
 
 ## What it changes in the game
 
-- **It ignores the Renderer setting.** Every 5 seconds it switches
-  between the code paths under test: at present three CPU cores, then
-  the GPU. The log says which was on (`var=`). This is what makes two
-  paths comparable: same place, same moment, same capture.
+- **It draws as the game does**: on the GPU, or on three cores when
+  the GPU can't be used. It can instead switch every 5 seconds between
+  the code paths under test (at present three CPU cores, then the GPU)
+  when `VPROF_ALTERNATE` is set to 1 in `src/Libraries/H/vprof.h`. The
+  log says which was on (`var=`). That is what makes two paths
+  comparable: same place, same moment, same capture.
 - **It checks pictures.** One 3D view in 63 is drawn twice, by two
   paths, and compared (see [Self-checks](#self-checks-and-frame-dumps)).
   Such a frame is slow, so it is left out of the timings.
-- **It may stop for a second or two** when it writes a frame dump to
-  the card: at most five times in a session, 30 seconds apart.
+- **It stops for about four seconds** when it writes a frame dump to
+  the card (3.8 to 4.0 s measured): at most five times in a session,
+  30 seconds apart.
+- **It writes its log once a second**, between two frames. That holds
+  the screen up: 25 to 135 ms measured (`logwrite=`).
+- **So it stutters on its own**, several times a second with the
+  self-checks. To find the game's stutters, go by the `spike` lines
+  and not by the feel (see [Stutters](#stutters)).
 - **It costs a little.** A timer is two clock reads; the overlay is
-  four lines of text.
+  six lines of text.
 
 ## The overlay
 
@@ -70,14 +79,25 @@ fps=62.8 frame=15.92/16.74ms music=14%
 input=0.2 sim=0.5 render3d=8.1 ui2d=0.0 present=6.9
 traverse=5.1 raster=2.4ms record=0.44ms cmds=131 batches=0 wait=0.0ms
 mode=1 var=1 age=0s check=0/123 leaks=0 gpuwait=0.4ms gpucpu=0 gpudiff=59.9/1000
+workers job=2/2% spin=98/98% sleep=0/0% lists=1.0 shared, 0.0 solo (0 calls)
+spikes=3 last=212.4ms t=412 (sndload 205.1)
 ```
 
-The figures are those of the second under way, so they jump when it
-starts again. Line 1 is the frame: rate, average and longest time, and
-the share of one core the music takes. Lines 2 and 3 are the phases of
-a frame, in ms. Line 4 says which screen is up (`mode`), which path is
-on (`var`), and how the self-checks are going. The fields are the log's;
-only `gpudiff` is given per thousand pixels here.
+The figures of the first four lines are those of the second under way,
+so they jump when it starts again. Line 1 is the frame: rate, average
+and longest time, and the share of one core the music takes. Lines 2
+and 3 are the phases of a frame, in ms. Line 4 says which screen is up
+(`mode`), which path is on (`var`), and how the self-checks are going.
+The fields are the log's; only `gpudiff` is given per thousand pixels
+here.
+
+Line 5 is the two worker threads in the last whole second: the share
+of it each spent in jobs, awake without one, and asleep, and how many
+of the GPU's lists per frame went to all the threads or stayed with the
+main one (see [The recorder and the threads](#the-recorder-and-the-threads)).
+Line 6 counts the session's stutters and gives the last one: how long
+the frame was, when, and where most of it went (see
+[Stutters](#stutters)).
 
 ## The log
 
@@ -100,7 +120,8 @@ How a line is made:
   marked "total" below.
 - A second in which the screen changed (`mode`) is not logged.
 - Frames left out of the timings (self-checks) are in none of the
-  figures.
+  figures, except `skipped`, which counts them, and the workers' shares
+  (`wjob`, `wspin`, `wsleep`), which are of the whole second.
 
 ### The frame
 
@@ -158,6 +179,16 @@ The 3D library's calls are recorded, then drawn all at once
 | `late` | the longest a worker took to start in this second, in µs |
 | `split=a/b/c` | the rows where the main view's three bands end |
 | `wcpu=a/b/c` | the core each thread last drew on |
+| `wjob=a/b%` | the share of the second each worker (1, 2) spent in jobs, the self-checks' drawing included |
+| `wspin=a/b%` | awake without a job, watching for the next: the core is as busy as in a job |
+| `wsleep=a/b%` | asleep |
+| `wjobs=a/b` | jobs each worker took part in |
+| `wsleeps=a/b` | times each went to sleep in this second (not per frame) |
+
+A worker's core shows as busy for `wjob` + `wspin`. After a job a
+worker watches for the next one before it sleeps (25 ms after a job the
+main thread didn't wait for, 100 ms after one it did: `rastqthr.c`), so
+one short job a frame keeps it awake all the time.
 
 ### The GPU renderer
 
@@ -174,6 +205,7 @@ All zero in the seconds the CPU draws.
 | `gpuwhy=` | why: `tlucbm` translucent bitmap, `spoly` brightness-shaded polygon, `tlucpoly` translucent polygon, `poly` another kind of polygon, `fill` a fill type it doesn't do, `verts` too many vertices, `light` a light level outside the table, `clip` a clip rectangle, `size` a bitmap size, `other` |
 | `gpuprepare` | deciding what each call is, and for a long list cutting it, on all the threads |
 | `gpucut=a/b/c` | calls each thread decided and cut, when the list was shared |
+| `cutlists=shared:a,solo:b,solocalls:c` | lists decided and cut by all the threads (64 calls or more: a job for the workers) / by the main thread alone, and the calls in the latter |
 | `gpusubmit` | handing the pieces to the GPU |
 | `gpuupload`, `gputex` | of `gpusubmit`: copying bitmaps into GPU memory, and how many KB |
 | `gpuwait` | the main thread blocked until the GPU has drawn |
@@ -192,6 +224,31 @@ All zero in the seconds the CPU draws.
 
 A second with a large `frame_max` and a large `sndload` or `resload`
 maximum is a stall from loading, not from drawing.
+
+### Stutters
+
+| field | what |
+|---|---|
+| `slow=20:a,34:b,50:c,100:d` | frames of this second longer than 20, 34, 50 and 100 ms: one, two, three and six screen refreshes (not per frame) |
+| `skipped=a/b` | frames left out of the timings in this second, and the longest in ms. A self-check draws its frame twice: a hitch you can see, but the profiler's own |
+| `logwrite` | how long writing the previous second's lines took, in ms. Between two frames, so in no frame's time, but the screen waits for it |
+
+A frame is a stutter when it takes at least 25 ms and half again as
+long as the average frame of the second before, so that a place that
+runs steadily at 40 fps isn't one long stutter. The four worst since
+the log was last written each get a line of their own, after that
+second's line:
+
+```
+spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1
+```
+
+`t` is when the frame ended, in seconds. The times are that one
+frame's, in ms, under the names of the second's line; `other` is what
+the five parts of a frame leave. `cmds` and `views` are the frame's
+counts. `grep '^spike' profile.txt` lists a capture's stutters. A
+stutter in a second that isn't logged (the screen changed) still gets
+its line, with the next second's.
 
 ### The self-checks' results
 
@@ -212,7 +269,8 @@ maximum is a stall from loading, not from drawing.
   `render3d` and `sendview` also contain `helpscan`, which runs while
   the GPU draws. Don't add up a field and its parts.
 - **Stalls.** One frame of 150 ms pulls a second's average far down.
-  Look at `frame_max` and set such seconds aside.
+  Look at `frame_max` and set such seconds aside; the stall itself has
+  a `spike` line (see [Stutters](#stutters)).
 - **The log keeps growing.** Delete it before a capture.
 
 ## Analysing a capture
@@ -220,8 +278,9 @@ maximum is a stall from loading, not from drawing.
 Three rules have held up:
 
 1. **Compare inside one capture.** Two captures taken at different
-   spots, or at the same spot on different days, don't compare. The
-   alternating `var=` gives both paths in the same place.
+   spots, or at the same spot on different days, don't compare. With
+   `VPROF_ALTERNATE` set, the alternating `var=` gives both paths in
+   the same place.
 2. **Take medians of the seconds**, not the mean: a stall or a check
    frame's neighbour doesn't move a median.
 3. **Cut the capture** by the `check` numbers noted while playing and
@@ -346,7 +405,8 @@ a discarded frame's counts are rolled back.
 
 ### Comparing two ways of doing something
 
-`vprof_variant` (`src/Libraries/H/vprof.h`) goes round
+With `VPROF_ALTERNATE` set to 1 (`src/Libraries/H/vprof.h`; it is 0
+unless a comparison is under way), `vprof_variant` goes round
 `VPROF_VARIANT_COUNT` values, one every five logged seconds, and only
 changes between two seconds. Read it where the two ways part:
 
@@ -379,8 +439,8 @@ dropped as if it hadn't happened.
 - **Stand still for a first figure.** Start a new game and don't touch
   the controls for a minute: the same view every time, in every
   capture. Then go and measure the places that matter.
-- **A minute a place.** The paths alternate every 5 seconds, so a
-  minute gives six seconds-long stretches of each.
+- **A minute a place.** When the paths alternate, they do every 5
+  seconds, so a minute gives six seconds-long stretches of each.
 - **Note what you did, with the `check` number**, as you go. A capture
   without notes is hard to cut up afterwards.
 - **Say what was not measured.** A capture only shows where you went.

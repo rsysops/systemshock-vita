@@ -91,6 +91,12 @@ typedef struct {
     unsigned long long gpu_cpu_us;      // the CPU drawing between scenes
     unsigned long long gpu_check_pixels; // pixels compared with the CPU's
     unsigned long long gpu_check_diff;  // of those, how many differed
+#ifdef VITA_PROFILE
+    // The GPU's lists by who decided and cut them
+    unsigned gpu_lists_shared;          // all the threads: a job for the workers
+    unsigned gpu_lists_solo;            // the caller alone, the list being short
+    unsigned gpu_solo_calls;            // calls in those
+#endif
 } rastq_stats_t;
 
 extern rastq_stats_t rastq_stats;

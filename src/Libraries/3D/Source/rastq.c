@@ -850,6 +850,16 @@ static void gpu_prepare(void) {
     for (i = 0; i < 256; i++)
         gpu_tables[RASTQ_GPU_PLAIN_ROW][i] = (uchar)i;
     gpu_rows = RASTQ_GPU_PLAIN_ROW + 1;
+#ifdef VITA_PROFILE
+    if (rq.gpu_view && !rq.gpu_check) {
+        if (rq.threads > 1 && rq.count >= (unsigned)rq.gpu_cut_min) {
+            rastq_stats.gpu_lists_shared++;
+        } else {
+            rastq_stats.gpu_lists_solo++;
+            rastq_stats.gpu_solo_calls += rq.count;
+        }
+    }
+#endif
     if (rq.gpu_view && rq.threads > 1 && rq.count >= (unsigned)rq.gpu_cut_min) {
         gpu_cut_list();
     } else {
