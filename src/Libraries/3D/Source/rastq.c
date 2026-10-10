@@ -113,6 +113,13 @@ static struct {
     int survey_next;
     int gpu_view_next; // the caller's word on the view that starts next
     int gpu_cut_min;   // lists of at least this many calls are cut by all the threads
+    // Whether they are, frame by frame (rastq_gpu_frame)
+    int share_ruled;   // frames have been reported: what follows decides
+    int sharing;
+    int tight_run;     // frames in a row short of time
+    int easy;          // frames with time to spare since the sharing began
+    int rest_wait;     // as many of those before a rest
+    int rested_for;    // frames since the rest began
     int gpu_out;       // a scene the GPU has and hasn't been waited for
     int gpu_out_timed; // that scene's times count
     long long gpu_out_us; // when it was handed over
@@ -216,11 +223,12 @@ void rastq_set_gpu(const rastq_gpu *gpu) { rq.gpu = gpu; }
 
 void rastq_use_gpu(int on) { rq.use_gpu = on; }
 
-// Profile builds alternate what they compare (see vprof.h).
+// Profile builds draw as the game does, whatever they were told. What they
+// alternate, when they do (see vprof.h), is in rastq_gpu_sharing.
 static void profile_settings(void) {
 #if defined(__vita__) && defined(VITA_PROFILE)
     rq.mode = RASTQ_TRUST_STABLE;
-    rq.use_gpu = vprof_variant != 0;
+    rq.use_gpu = 1;
     rq.min_rows = RASTQ_SMALL_VIEW_ROWS;
 #endif
 }
@@ -236,6 +244,50 @@ static int gpu_takes(const grs_canvas *canvas) { return rastq_gpu_next(canvas->b
 void rastq_gpu_view(int on) { rq.gpu_view_next = on; }
 
 void rastq_set_gpu_cut(int min_calls) { rq.gpu_cut_min = min_calls; }
+
+void rastq_gpu_frame(long long work_us) {
+    long long spare = RASTQ_FRAME_US - work_us;
+
+    if (work_us < 0) {
+        rq.share_ruled = 0;
+        return;
+    }
+    if (!rq.share_ruled) {
+        rq.share_ruled = 1;
+        rq.sharing = 0;
+        rq.tight_run = rq.easy = 0;
+        rq.rest_wait = RASTQ_REST_FRAMES;
+        rq.rested_for = RASTQ_REST_FAILED + 1; // not a rest that could fail
+    }
+
+    // a long frame or two on their own are a stutter, not a busy scene
+    rq.tight_run = spare < RASTQ_SHARE_BELOW_US ? rq.tight_run + 1 : 0;
+    if (!rq.sharing) {
+        if (rq.rested_for < RASTQ_REST_HELD)
+            rq.rested_for++;
+        if (rq.tight_run >= RASTQ_SHARE_FRAMES) {
+            if (rq.rested_for <= RASTQ_REST_FAILED && rq.rest_wait < RASTQ_REST_FRAMES_MAX)
+                rq.rest_wait *= 2;
+            rq.sharing = 1;
+            rq.easy = 0;
+        } else if (rq.rested_for >= RASTQ_REST_HELD)
+            rq.rest_wait = RASTQ_REST_FRAMES;
+    } else if (rq.tight_run >= RASTQ_SHARE_FRAMES) {
+        rq.easy = 0;
+    } else if (spare > RASTQ_REST_ABOVE_US && ++rq.easy >= rq.rest_wait) {
+        rq.sharing = 0;
+        rq.rested_for = 0;
+    }
+}
+
+int rastq_gpu_sharing(void) {
+#if defined(__vita__) && defined(VITA_PROFILE)
+    // variant 0: always, as before there was a rule
+    if (vprof_variant == 0)
+        return 1;
+#endif
+    return !rq.share_ruled || rq.sharing;
+}
 
 // Waits for the scene the GPU still has, if it has one.
 static void gpu_finish(void) {
@@ -850,17 +902,22 @@ static void gpu_prepare(void) {
     for (i = 0; i < 256; i++)
         gpu_tables[RASTQ_GPU_PLAIN_ROW][i] = (uchar)i;
     gpu_rows = RASTQ_GPU_PLAIN_ROW + 1;
+    // a long list of a view the GPU draws, while frames are short of time
+    // (rastq_gpu_frame)
+    int long_list = rq.gpu_view && rq.threads > 1 && rq.count >= (unsigned)rq.gpu_cut_min;
+    int shared = long_list && rastq_gpu_sharing();
 #ifdef VITA_PROFILE
     if (rq.gpu_view && !rq.gpu_check) {
-        if (rq.threads > 1 && rq.count >= (unsigned)rq.gpu_cut_min) {
+        if (shared) {
             rastq_stats.gpu_lists_shared++;
         } else {
             rastq_stats.gpu_lists_solo++;
             rastq_stats.gpu_solo_calls += rq.count;
+            rastq_stats.gpu_lists_rested += long_list;
         }
     }
 #endif
-    if (rq.gpu_view && rq.threads > 1 && rq.count >= (unsigned)rq.gpu_cut_min) {
+    if (shared) {
         gpu_cut_list();
     } else {
         for (k = 0; k < rq.count; k++) {

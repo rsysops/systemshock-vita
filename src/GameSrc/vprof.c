@@ -4,6 +4,7 @@
 #ifdef VITA_PROFILE
 
 #include <psp2/kernel/processmgr.h>
+#include <psp2/power.h>
 #include <stdio.h>
 #include <string.h>
 #include <vita2d.h>
@@ -17,7 +18,6 @@
 #include "VitaGpu.h"
 #include "hudkeep.h"
 
-#define VPROF_WINDOWS_PER_VARIANT 5
 #define VPROF_FIXDIV_CHECK_CASES 1000000
 // A stutter: a frame of at least this long that is also half again as long
 // as the average frame of the window before. The worst few are logged, each
@@ -74,11 +74,9 @@ static SceInt64 g_window_start_us;
 static short g_window_loop_mode = -1;
 static int g_window_open = 0;
 
-#if VPROF_ALTERNATE
-int vprof_variant = 0;
-static int g_windows_in_variant = 0;
-#else
 int vprof_variant = 1;
+#if VPROF_ALTERNATE
+static int g_windows_in_variant = 0;
 #endif
 
 // What the workers had done when the window began, and their share of the
@@ -213,6 +211,7 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.gpu_lists_shared = 0;
     rastq_stats.gpu_lists_solo = 0;
     rastq_stats.gpu_solo_calls = 0;
+    rastq_stats.gpu_lists_rested = 0;
     if (!g_workers_read) {
         for (i = 0; i < VPROF_WORKERS; i++)
             rastq_threads_times(i + 1, &g_workers_at_window[i]);
@@ -440,10 +439,10 @@ static void vprof_window_flush(SceInt64 now) {
                 "vitals:%.2f,icons:%.2f | "
                 "hudkept=text:%.1f/%.2f,scaled:%.1f/%.2f hudcheck=%u/%u | gpucut=%.1f/%.1f/%.1f | "
                 "wjob=%.1f/%.1f%% wspin=%.1f/%.1f%% wsleep=%.1f/%.1f%% wjobs=%.2f/%.2f wsleeps=%u/%u | "
-                "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f | "
+                "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f,rested:%.2f | "
                 "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
                 "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
-                "alogdry=%u\n",
+                "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -546,6 +545,7 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)g_worker_share[1].jobs / g_frame_samples,
                 g_worker_share[0].sleeps, g_worker_share[1].sleeps,
                 g_lists_shared, g_lists_solo, g_lists_solo_calls,
+                (double)rastq_stats.gpu_lists_rested / g_frame_samples,
                 g_slow[0], g_slow[1], g_slow[2], g_slow[3],
                 g_skipped, us_to_ms(g_skipped_max_us),
                 us_to_ms(g_logwrite_us),
@@ -555,7 +555,9 @@ static void vprof_window_flush(SceInt64 now) {
                     ? 100.0 * __atomic_load_n(&g_alog_us, __ATOMIC_RELAXED) / (double)(now - g_window_start_us)
                     : 0.0,
                 us_to_ms(__atomic_load_n(&g_alog_max_us, __ATOMIC_RELAXED)),
-                __atomic_load_n(&g_alog_dry, __ATOMIC_RELAXED));
+                __atomic_load_n(&g_alog_dry, __ATOMIC_RELAXED),
+                scePowerGetBatteryRemainCapacity(), scePowerGetBatteryVolt(),
+                scePowerGetBatteryTemp() / 100.0, (int)scePowerIsBatteryCharging());
         vprof_spikes_write(fp);
         fclose(fp);
     }

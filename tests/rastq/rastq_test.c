@@ -1268,6 +1268,98 @@ static int test_marks(void) {
         bad++;
     return bad;
 }
+
+// The rule that shares the GPU's lists with the workers only while frames
+// are short of time (rastq_gpu_frame), fed made-up frames. Returns the
+// number of failures.
+static int test_sharing(void) {
+    // work times that leave this much of the screen's time, in microseconds
+    const long long easy = RASTQ_FRAME_US - 4200, between = RASTQ_FRAME_US - 2400, tight = RASTQ_FRAME_US - 1000;
+    const long long stutter = 80000;
+    int bad = 0, checks = 0, i, k, wait;
+
+#define SHARING_CHECK(what, ok)                 \
+    do {                                        \
+        checks++;                               \
+        if (!(ok)) {                            \
+            printf("  sharing rule: %s\n", what); \
+            bad++;                              \
+        }                                       \
+    } while (0)
+
+    rastq_gpu_frame(-1);
+    SHARING_CHECK("lists aren't shared before a first frame", rastq_gpu_sharing());
+    rastq_gpu_frame(easy);
+    SHARING_CHECK("the first frame doesn't put the queue at rest", !rastq_gpu_sharing());
+
+    // an easy scene stays at rest, a long frame or two on their own now and
+    // then included
+    for (i = 0; i < 2000 && !rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(i % 20 == 7 || i % 60 == 8 ? stutter : easy);
+    SHARING_CHECK("an easy scene doesn't stay at rest", i == 2000);
+
+    // a tight one shares from its RASTQ_SHARE_FRAMES-th frame, and stays shared
+    for (i = 1; i < RASTQ_SHARE_FRAMES; i++) {
+        rastq_gpu_frame(tight);
+        SHARING_CHECK("too few tight frames start the sharing", !rastq_gpu_sharing());
+    }
+    rastq_gpu_frame(tight);
+    SHARING_CHECK("RASTQ_SHARE_FRAMES tight frames in a row don't start the sharing", rastq_gpu_sharing());
+    for (i = 0; i < 5000 && rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(tight);
+    SHARING_CHECK("a tight scene doesn't stay shared", i == 5000);
+
+    // neither tight nor easy: no reason to rest
+    for (i = 0; i < 5000 && rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(between);
+    SHARING_CHECK("a scene with a little to spare rests", i == 5000);
+
+    // easy again: a rest after RASTQ_REST_FRAMES easy frames, the stutters among them not counted
+    for (i = k = 0; i < 5000 && rastq_gpu_sharing(); i++) {
+        if (i % 20 == 7)
+            rastq_gpu_frame(stutter);
+        else {
+            rastq_gpu_frame(easy);
+            k++;
+        }
+    }
+    SHARING_CHECK("the rest doesn't come after RASTQ_REST_FRAMES easy frames", k == RASTQ_REST_FRAMES);
+
+    // A scene that is easy only when its lists are shared: every rest is
+    // given up at once, and the next one comes twice as late, up to the cap.
+    rastq_gpu_frame(-1);
+    rastq_gpu_frame(easy);
+    wait = RASTQ_REST_FRAMES;
+    for (k = 0; k < 8; k++) {
+        for (i = 0; i < 10 && !rastq_gpu_sharing(); i++)
+            rastq_gpu_frame(tight);
+        SHARING_CHECK("the sharing doesn't come back after RASTQ_SHARE_FRAMES tight frames", i == RASTQ_SHARE_FRAMES);
+        for (i = 0; i < 2 * RASTQ_REST_FRAMES_MAX && rastq_gpu_sharing(); i++)
+            rastq_gpu_frame(easy);
+        if (i != wait) {
+            printf("  sharing rule: rest %d after %d easy frames, not %d\n", k, i, wait);
+            bad++;
+        }
+        checks++;
+        if (wait < RASTQ_REST_FRAMES_MAX)
+            wait *= 2;
+    }
+
+    // a rest that holds puts the wait back
+    for (i = 0; i < RASTQ_REST_HELD; i++)
+        rastq_gpu_frame(easy);
+    for (i = 0; i < RASTQ_SHARE_FRAMES; i++)
+        rastq_gpu_frame(tight);
+    for (i = 0; i < 2 * RASTQ_REST_FRAMES_MAX && rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(easy);
+    SHARING_CHECK("a rest that held doesn't put the wait back", i == RASTQ_REST_FRAMES);
+#undef SHARING_CHECK
+
+    // back to always, for the rest of the test
+    rastq_gpu_frame(-1);
+    printf("sharing rule: %d of %d checks failed\n", bad, checks);
+    return bad;
+}
 #endif
 
 int main(int argc, char **argv) {
@@ -1297,6 +1389,7 @@ int main(int argc, char **argv) {
     if (!hash_only) {
         bad += test_overlays();
         bad += test_marks();
+        bad += test_sharing();
     }
 #endif
 

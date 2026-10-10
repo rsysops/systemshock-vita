@@ -96,6 +96,7 @@ typedef struct {
     unsigned gpu_lists_shared;          // all the threads: a job for the workers
     unsigned gpu_lists_solo;            // the caller alone, the list being short
     unsigned gpu_solo_calls;            // calls in those
+    unsigned gpu_lists_rested;          // of the caller's, those long enough to share
 #endif
 } rastq_stats_t;
 
@@ -203,6 +204,29 @@ int rastq_gpu_clear(int color);
 // starting the other threads costs more than they save.
 #define RASTQ_GPU_CUT_CALLS 64
 void rastq_set_gpu_cut(int min_calls);
+// Such a list is shared with the other threads only while frames are short
+// of time: sharing keeps the workers awake from one frame to the next, which
+// a frame with time to spare has no use for. The caller reports how long the
+// main thread worked on each frame, from one hand-over to the screen to the
+// next. From its first report on, the queue is at rest (the caller cuts its
+// lists alone) until RASTQ_SHARE_FRAMES frames in a row leave less than
+// RASTQ_SHARE_BELOW_US of the screen's RASTQ_FRAME_US: fewer are a stutter,
+// not a busy scene. It rests again after
+// RASTQ_REST_FRAMES frames that left more than RASTQ_REST_ABOVE_US while
+// sharing. A rest given up within RASTQ_REST_FAILED frames was one too
+// early: the next takes twice as many, up to RASTQ_REST_FRAMES_MAX, and
+// RASTQ_REST_FRAMES again once a rest has held for RASTQ_REST_HELD.
+// Until a first report, or after a negative one, lists are always shared.
+#define RASTQ_FRAME_US 16667
+#define RASTQ_SHARE_BELOW_US 1500
+#define RASTQ_SHARE_FRAMES 3
+#define RASTQ_REST_ABOVE_US 3500
+#define RASTQ_REST_FRAMES 120
+#define RASTQ_REST_FRAMES_MAX 3840
+#define RASTQ_REST_FAILED 60
+#define RASTQ_REST_HELD 600
+void rastq_gpu_frame(long long work_us);
+int rastq_gpu_sharing(void);
 // rastq_end doesn't wait for the last scene of a view the GPU draws: until
 // rastq_gpu_finish, the canvas is the GPU's and the CPU must leave it alone,
 // but is free for anything else. rastq_gpu_busy: is a scene still out?

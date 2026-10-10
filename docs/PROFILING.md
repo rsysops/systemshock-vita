@@ -47,17 +47,20 @@ code)` is just `code`. Nothing of the profiler ships in it.
    | `gpudumps/` | pairs of frames the two renderers drew differently, if any |
 
 Captures are kept in the repository next to the doc that uses them:
-`docs/profiles-cpu/` and `docs/profiles-gpu/`, as `profile-step-N.txt`,
+`docs/profiles-cpu/`, `docs/profiles-gpu/` and, for the steps after the
+GPU renderer's (S1 and on), `docs/profiles-perf/`, as `profile-step-N.txt`,
 `gpudumps-step-N/` and the latest `gpu.txt`.
 
 ## What it changes in the game
 
 - **It draws as the game does**: on the GPU, or on three cores when
-  the GPU can't be used. It can instead switch every 5 seconds between
-  the code paths under test (at present three CPU cores, then the GPU)
-  when `VPROF_ALTERNATE` is set to 1 in `src/Libraries/H/vprof.h`. The
-  log says which was on (`var=`). That is what makes two paths
-  comparable: same place, same moment, same capture.
+  the GPU can't be used. It can also switch between two ways of doing
+  something under test, when `VPROF_ALTERNATE` is set to 1 in
+  `src/Libraries/H/vprof.h` (it is 0): at present the GPU's lists
+  always shared with the worker threads (`var=0`) against shared only
+  while frames are short of time (`var=1`, what the game does), ten
+  minutes each. The log says which was on (`var=`). That is what makes
+  two ways comparable: same place, same moment, same capture.
 - **It checks pictures.** One 3D view in 63 is drawn twice, by two
   paths, and compared (see [Self-checks](#self-checks-and-frame-dumps)).
   Such a frame is slow, so it is left out of the timings.
@@ -205,7 +208,7 @@ All zero in the seconds the CPU draws.
 | `gpuwhy=` | why: `tlucbm` translucent bitmap, `spoly` brightness-shaded polygon, `tlucpoly` translucent polygon, `poly` another kind of polygon, `fill` a fill type it doesn't do, `verts` too many vertices, `light` a light level outside the table, `clip` a clip rectangle, `size` a bitmap size, `other` |
 | `gpuprepare` | deciding what each call is, and for a long list cutting it, on all the threads |
 | `gpucut=a/b/c` | calls each thread decided and cut, when the list was shared |
-| `cutlists=shared:a,solo:b,solocalls:c` | lists decided and cut by all the threads (64 calls or more: a job for the workers) / by the main thread alone, and the calls in the latter |
+| `cutlists=shared:a,solo:b,solocalls:c,rested:d` | lists decided and cut by all the threads (a job for the workers) / by the main thread alone, the calls in the latter, and how many of the latter had 64 calls or more: long enough to share, but frames had time to spare (`rastq_gpu_frame`) |
 | `gpusubmit` | handing the pieces to the GPU |
 | `gpuupload`, `gputex` | of `gpusubmit`: copying bitmaps into GPU memory, and how many KB |
 | `gpuwait` | the main thread blocked until the GPU has drawn |
@@ -225,6 +228,14 @@ All zero in the seconds the CPU draws.
 | `alogcpu` | the share of one core the audio thread spends on a log while it plays: converting it, a slice at each of its calls |
 | `alogcbmax` | the longest of those calls in this second, in ms. A call has 43 ms before the sound runs dry |
 | `alogdry` | calls of the audio thread in this second that gave silence because the log wasn't read from the card yet (not per frame). Expected at a log's start only |
+
+### The battery
+
+| field | what |
+|---|---|
+| `batt` | the battery's remaining capacity, mAh. There is no reading of the current: the drain is the slope of this over minutes. The gauge moves 3 to 5 mAh every 35 s, so two drains can only be told apart over stretches of 10 minutes or so (`VPROF_WINDOWS_PER_VARIANT`), unplugged for a few minutes beforehand |
+| `battmv`, `batttemp` | its voltage in mV and its temperature in °C |
+| `charging` | 1 while it is charging: such seconds say nothing about the drain |
 | `sndready=a/b` | total: sound effects decoded, of those to decode ahead (`snd_preload` in `src/MacSrc/SDLSound.c`) |
 | `snddecode` | total: what the background thread has spent reading and decoding them, in ms |
 | `sndmem` | total: what its decoded effects take up, in MB |
@@ -414,8 +425,9 @@ a discarded frame's counts are rolled back.
 
 With `VPROF_ALTERNATE` set to 1 (`src/Libraries/H/vprof.h`; it is 0
 unless a comparison is under way), `vprof_variant` goes round
-`VPROF_VARIANT_COUNT` values, one every five logged seconds, and only
-changes between two seconds. Read it where the two ways part:
+`VPROF_VARIANT_COUNT` values, one every `VPROF_WINDOWS_PER_VARIANT`
+logged seconds, and only changes between two seconds. Read it where
+the two ways part:
 
 ```c
 #ifdef VITA_PROFILE
@@ -427,9 +439,11 @@ changes between two seconds. Read it where the two ways part:
 `defined(__vita__) && defined(VITA_PROFILE)` instead)
 
 and every log line says which was on. At present it is read in
-`profile_settings` in `src/Libraries/3D/Source/rastq.c`: 0 is three CPU
-cores, 1 is the GPU. Each piece of work redefines what the values
-mean; raise `VPROF_VARIANT_COUNT` to compare three.
+`rastq_gpu_sharing` in `src/Libraries/3D/Source/rastq.c`: 0 shares the
+GPU's lists with the workers always, 1 only while frames are short of
+time. Each piece of work redefines what the values mean; raise
+`VPROF_VARIANT_COUNT` to compare three. Without `VPROF_ALTERNATE` the
+build stays on 1, so 1 should be what the game does.
 
 ### Leaving a frame out
 
@@ -446,8 +460,9 @@ dropped as if it hadn't happened.
 - **Stand still for a first figure.** Start a new game and don't touch
   the controls for a minute: the same view every time, in every
   capture. Then go and measure the places that matter.
-- **A minute a place.** When the paths alternate, they do every 5
-  seconds, so a minute gives six seconds-long stretches of each.
+- **A minute a place**, or, when two ways alternate, long enough for
+  each to have had its stretches there (`VPROF_WINDOWS_PER_VARIANT`
+  seconds each).
 - **Note what you did, with the `check` number**, as you go. A capture
   without notes is hard to cut up afterwards.
 - **Say what was not measured.** A capture only shows where you went.

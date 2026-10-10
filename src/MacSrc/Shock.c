@@ -52,9 +52,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <psp2/power.h>
 #include <vita2d.h>
 #include "VitaGpu.h"
-#ifdef VITA_PROFILE
 #include <psp2/kernel/processmgr.h>
-#endif
 #include <unistd.h>
 
 int _newlib_heap_size_user = 256 * 1024 * 1024;
@@ -580,17 +578,23 @@ void SDLDraw() {
 #endif
     vita2d_end_drawing();
     vita2d_common_dialog_update();
-#ifdef VITA_PROFILE
     {
+        // How long the main thread worked on this frame, from one hand-over
+        // to the next: the queue shares its lists with the workers only
+        // while that leaves little of the screen's time (rastq_gpu_frame).
+        static long long handed_over;
+        long long before = sceKernelGetProcessTimeWide();
+
+        if (handed_over != 0)
+            rastq_gpu_frame(before - handed_over);
+        vita2d_swap_buffers();
+        handed_over = sceKernelGetProcessTimeWide();
+#ifdef VITA_PROFILE
         // handing a frame over waits when two are already waiting for the
         // screen: time that isn't work
-        long long before = sceKernelGetProcessTimeWide();
-        vita2d_swap_buffers();
-        vgpu_counters.swap_wait_us += sceKernelGetProcessTimeWide() - before;
-    }
-#else
-    vita2d_swap_buffers();
+        vgpu_counters.swap_wait_us += handed_over - before;
 #endif
+    }
 }
 
 bool MouseCaptured = FALSE;

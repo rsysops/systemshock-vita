@@ -2121,7 +2121,7 @@ asleep (`wjob`, `wspin`, `wsleep`), the GPU's lists by who cut them
 frame's times. It also stays on the GPU path now; the switch to three
 cores every 5 seconds is off unless `VPROF_ALTERNATE` is set.
 
-### Results (`docs/profiles-gpu/profile-stutters.txt`, `gpu.txt`, `gpudumps-stutters/`)
+### Results (`docs/profiles-perf/profile-stutters.txt`, `gpudumps-stutters/`; `docs/profiles-gpu/gpu.txt`)
 
 A new game, the start room, down the slope and back, then on into the
 level: 164 logged seconds, 35 spike lines.
@@ -2205,15 +2205,14 @@ the spike lines are what to go by, not the feel.
 ### The next steps
 
 Taken one at a time: a plan, a build checked on the PC, a capture
-on the Vita (`docs/profiles-gpu/profile-step-sN.txt`), its results
-written here. S1 and S1b are done; S2 is next; the others are not
-started.
+on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
+written here. S1, S1b and S2 are done; S3 is next; S4 is not started.
 
 | step | what | for |
 |---|---|---|
 | S1 | Sound effects decoded before they are played | **done**: none of the 12 stutters is left, for 10.4 s of a background thread at start-up and 23.4 MB |
 | S1b | Audio logs converted while they play, and read by a thread of their own | **done**: starting a log takes the main thread 0.6 ms, from 1.6 to 5.4 s; the voice starts 0.13 to 0.38 s later |
-| S2 | The draw list shared with the workers only when the frame is short of time | two cores at 100% for 0.4 ms: battery and heat |
+| S2 | The draw list shared with the workers only when the frame is short of time | **done**: the workers asleep where frames have time to spare, at the same fps; 23 mA less drawn from the battery, a little under 6% |
 | S3 | The other stutters: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | all that is left once the audio logs are dealt with, up to 117 ms |
 | S4 | A quieter profile build | its own hitches, several a second |
 
@@ -2270,7 +2269,7 @@ ahead), `snddecode` (what the thread has spent, ms), `sndmem` (what its
 effects take up, MB), and `alogload`, a timer on an audio log's loading
 for S1b, in the second's line and in the spike line.
 
-Results (`docs/profiles-gpu/profile-step-s1.txt`): a new game, the walk
+Results (`docs/profiles-perf/profile-step-s1.txt`): a new game, the walk
 of the stutter capture, on into the level with fights, and eight audio
 logs played. 512 logged seconds, 482 of them in the game, 50 spike
 lines.
@@ -2399,7 +2398,7 @@ ms) and `alogdry` (its calls that gave silence because the log wasn't
 read yet). `alogload` is what is left on the main thread to start a
 log.
 
-Results (`docs/profiles-gpu/profile-step-s1b.txt`): 209 logged seconds,
+Results (`docs/profiles-perf/profile-step-s1b.txt`): 209 logged seconds,
 200 of them in the game, 7 logs started, 134 seconds with a log
 playing.
 
@@ -2433,27 +2432,101 @@ frame is still 49 to 63 ms, 31 to 46 ms of it in the input handling
 a log from the reader also has a resource read of 54 to 66 ms in the
 panels, and input-only frames of 93 to 161 ms just before.
 
-**S2: the draw list shared only when the frame is short of time.** Any
-list of 64 calls is cut by all three threads (`gpu_cut_list` in
+**S2: the draw list shared only when the frame is short of time.**
+Done; results below.
+
+Any list of 64 calls was cut by all three threads (`gpu_cut_list` in
 `rastq.c`), which keeps the two workers awake all the time: 0.4 ms
 saved in the start room's frame, which has 4.2 ms to spare, 1.7 ms at
-the hallway angle, where 1 ms is spare.
+the hallway angle, where 1 ms is spare. A count can't tell the two
+apart (131 calls and 133).
 
-- First a measurement: the battery's remaining capacity
-  (`scePowerGetBatteryRemainCapacity`) in the log, and five minutes in
-  the start room against five on the slope: what the two awake cores
-  cost, in mAh a minute. If that is too small to matter, the step
-  stops there.
-- Then the change: the time a frame has to spare is its wait in
-  `vita2d_swap_buffers` (`src/MacSrc/Shock.c`, measured today only in
-  the profile build; two clock reads in the normal one). The list is
-  shared only while the last frames had less than a couple of
-  milliseconds to spare, with a margin so that it doesn't flip every
-  frame. A count can't tell the start room (131 calls) from the
-  hallway angle (133).
-- The capture should show: the workers asleep in the start room at the
-  same fps; the hallway angle in full screen at G12's 62 fps; the
-  battery figure for both.
+- **The signal is the time the main thread works on a frame**, from the
+  end of one hand-over to the screen to the start of the next
+  (`SDLDraw` in `Shock.c`: two clock reads a frame, in the normal build
+  too). What it has to spare is the screen's 16.67 ms less that. The
+  wait for the screen, the first idea, misleads: after any long frame
+  the next ones don't wait at all, cheap as they are, until the display
+  has frames in hand again.
+- **The rule** (`rastq_gpu_frame` in `rastq.c`). The queue starts at
+  rest: the main thread cuts its lists alone and the workers sleep. It
+  shares as soon as three frames in a row have less than 1.5 ms to
+  spare; a long frame or two on their own are a stutter, not a busy
+  scene. It rests
+  again after 120 frames (2 s) with more than 3.5 ms to spare while
+  sharing. A rest given up within a second was one too early: the next
+  waits twice as long, up to 64 s, and 2 s again once a rest has held
+  10 s.
+- With the figures measured so far: the start room rests (3.8 ms to
+  spare cutting alone); the hallway angle shares and stays shared in
+  both views (1.0 and 2.4 ms to spare when shared).
+- Lists under 64 calls are cut by the main thread as before. The
+  three-core software renderer, used when the GPU can't be, is not
+  touched.
+- **Checked on the PC** (`tests/rastq/run.sh`): the rule fed made-up
+  frames (an easy scene stays at rest, stutters included; a tight one
+  shares from its third frame and stays; a scene that is easy only
+  when shared has its rests spaced out, doubling to the cap), and the
+  queue's pictures as before.
+- **The measurement came with the change**: standing in one place,
+  with the lists always shared (variant 0, as before S2) against the
+  rule (variant 1), turn about, with the battery's remaining capacity
+  in the log. The roadmap had the battery measured first, start room
+  against slope, but those differ in what the GPU draws too. The SDK
+  gives no reading of the current: the drain is the slope of the
+  capacity (`scePowerGetBatteryRemainCapacity`, mAh).
+
+New in the log: `batt` (mAh), `battmv`, `batttemp`, `charging`, and
+`rested:` in `cutlists=` (lists long enough to share that the main
+thread cut alone because the queue was at rest).
+
+A first capture, with stretches of 5 minutes and a trigger of two
+frames (not kept; the second took its place), showed three things:
+
+- **At the hallway angle the rule shares**, all the time and with no
+  attempt to rest: 61.9 fps in full screen and 62.9 paneled, against
+  62.1 and 62.8 in G12. Walking and fighting, no flip-flopping.
+- **Two frames in a row were not enough to tell a busy scene.**
+  Standing still, sharing came on 23 times in 300 s, 2 s each time:
+  the profiler's log write and a self-check frame each make one long
+  frame, and about every 13 s they fall side by side. The workers were
+  awake 29% of the time for it. Hence three frames.
+- **Five minutes are too short for the battery.** Its gauge moves 3 to
+  5 mAh every 35 s, and once jumped up 11 mAh, a correction of its own.
+  The rule read 15 to 20 mA less, about one gauge count a stretch.
+
+Results (`docs/profiles-perf/profile-step-s2.txt`): 2732 logged seconds
+standing in the start room, unplugged, with the three-frame trigger and
+stretches of 10 minutes.
+
+| stretch | variant | battery drain | workers awake | fps | to spare |
+|---|---|---|---|---|---|
+| 1 | the rule | 385 mA | 11% | 63.4 | 5.1 ms |
+| 2 | always shared | 405 mA | 95% | 63.3 | 5.6 ms |
+| 3 | the rule | 384 mA | 11% | 63.4 | 5.1 ms |
+| 4 | always shared | 411 mA | 95% | 63.4 | 5.6 ms |
+| 5 (5.5 minutes) | the rule | 397 mA | 11% | 63.4 | 5.1 ms |
+
+- **The rule draws about 23 mA less, a little under 6%**: 384.5 mA
+  against 408 over the four full stretches. The two stretches of each
+  variant agree within 1 and 6 mA, and one gauge count is worth 6 mA
+  over 10 minutes. The fifth stretch is half as long and twice as
+  uncertain. No correction of the gauge in this run.
+- At those drains a full 2200 mAh battery lasts about 5 h 43 standing
+  in the start room, against 5 h 24.
+- In the profile build the rule still leaves the workers awake 11% of
+  the time: the self-check's job, once a second, and the 100 ms they
+  watch after it. With nothing to wake them, as in the normal build,
+  the saving would be somewhat larger: near 7% by proportion, not
+  measured.
+- **The three-frame trigger holds**: standing still, sharing came on
+  2, 1 and 0 times in the three stretches under the rule.
+- **No cost in frame rate.** Cutting its lists alone costs the main
+  thread 0.45 ms (`gpuprepare` + `gpusubmit` 1.80 ms against 1.37), in
+  a frame with 5.6 ms to spare.
+- `check=0/2477`, `leaks=0`, `hudcheck=0/2069`, `gpufallbacks=0`.
+- The hallway angle was not visited again: the trigger's third frame
+  only delays the sharing by 17 ms.
 
 **S3: the other stutters.** In S1's capture: 13 have a resource read
 from the card in them (12 to 98 ms); 13 have 14 to 29 ms in the input
