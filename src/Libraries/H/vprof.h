@@ -55,6 +55,11 @@ void vprof_frame_discard(void);
 
 // Called from the audio thread with the time spent synthesizing one buffer.
 void vprof_audio_add(unsigned micros, int cpu);
+// And with the time one of its calls spent on an audio log: reading it and
+// converting it as it plays.
+void vprof_alog_add(unsigned micros);
+// And of a call that had no sound to give: the log wasn't read yet.
+void vprof_alog_dry(void);
 
 void vprof_record(vprof_phase_t phase, long long micros);
 void vprof_mark_begin(vprof_phase_t phase);

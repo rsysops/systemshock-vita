@@ -14,7 +14,6 @@ Fixes:
 * Game crash on button / hack
 
 Performance:
-* Audio log are slow to load / lag spike stutter when a new audio is loaded for the first time
 * FPS lock 30 option
 * Improve performance (GPU)
 * Remove gpu.txt when no error

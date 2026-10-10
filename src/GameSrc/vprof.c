@@ -127,6 +127,10 @@ static SceInt64 g_logwrite_us;
 // Music synthesis time, added by the audio thread and taken by the main
 // thread once per window, so only these two touch it, atomically.
 static unsigned g_audio_us = 0;
+// The same for an audio log's callback, and its longest call
+static unsigned g_alog_us = 0;
+static unsigned g_alog_max_us = 0;
+static unsigned g_alog_dry = 0; // its calls that had nothing to give
 static int g_audio_cpu = -1;
 static int g_main_cpu = -1;
 
@@ -173,6 +177,9 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     g_frame_max_us = 0;
     g_frame_samples = 0;
     __atomic_store_n(&g_audio_us, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_alog_us, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_alog_max_us, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_alog_dry, 0, __ATOMIC_RELAXED);
     rastq_stats.cmds = 0;
     rastq_stats.flushes = 0;
     rastq_stats.copied = 0;
@@ -240,6 +247,15 @@ static double music_pct(SceInt64 now) {
     SceInt64 elapsed = now - g_window_start_us;
     return elapsed > 0 ? 100.0 * __atomic_load_n(&g_audio_us, __ATOMIC_RELAXED) / elapsed : 0.0;
 }
+
+void vprof_alog_add(unsigned micros) {
+    __atomic_fetch_add(&g_alog_us, micros, __ATOMIC_RELAXED);
+    // only the audio thread raises it
+    if (micros > __atomic_load_n(&g_alog_max_us, __ATOMIC_RELAXED))
+        __atomic_store_n(&g_alog_max_us, micros, __ATOMIC_RELAXED);
+}
+
+void vprof_alog_dry(void) { __atomic_fetch_add(&g_alog_dry, 1, __ATOMIC_RELAXED); }
 
 void vprof_audio_add(unsigned micros, int cpu) {
     __atomic_fetch_add(&g_audio_us, micros, __ATOMIC_RELAXED);
@@ -426,7 +442,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "wjob=%.1f/%.1f%% wspin=%.1f/%.1f%% wsleep=%.1f/%.1f%% wjobs=%.2f/%.2f wsleeps=%u/%u | "
                 "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f | "
                 "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
-                "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f\n",
+                "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
+                "alogdry=%u\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -533,7 +550,12 @@ static void vprof_window_flush(SceInt64 now) {
                 g_skipped, us_to_ms(g_skipped_max_us),
                 us_to_ms(g_logwrite_us),
                 snd_ready, snd_total, snd_decode_ms, (double)snd_bytes / (1024.0 * 1024.0),
-                frame_avg_ms(VPROF_ALOGLOAD, g_frame_samples), frame_max_ms(VPROF_ALOGLOAD));
+                frame_avg_ms(VPROF_ALOGLOAD, g_frame_samples), frame_max_ms(VPROF_ALOGLOAD),
+                now > g_window_start_us
+                    ? 100.0 * __atomic_load_n(&g_alog_us, __ATOMIC_RELAXED) / (double)(now - g_window_start_us)
+                    : 0.0,
+                us_to_ms(__atomic_load_n(&g_alog_max_us, __ATOMIC_RELAXED)),
+                __atomic_load_n(&g_alog_dry, __ATOMIC_RELAXED));
         vprof_spikes_write(fp);
         fclose(fp);
     }

@@ -2206,12 +2206,13 @@ the spike lines are what to go by, not the feel.
 
 Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-gpu/profile-step-sN.txt`), its results
-written here. S1 is done; S1b is next; the others are not started.
+written here. S1 and S1b are done; S2 is next; the others are not
+started.
 
 | step | what | for |
 |---|---|---|
 | S1 | Sound effects decoded before they are played | **done**: none of the 12 stutters is left, for 10.4 s of a background thread at start-up and 23.4 MB |
-| S1b | Audio logs converted while they play, and read off the main thread | the freeze when a log starts: 1.6 to 5.4 s measured |
+| S1b | Audio logs converted while they play, and read by a thread of their own | **done**: starting a log takes the main thread 0.6 ms, from 1.6 to 5.4 s; the voice starts 0.13 to 0.38 s later |
 | S2 | The draw list shared with the workers only when the frame is short of time | two cores at 100% for 0.4 ms: battery and heat |
 | S3 | The other stutters: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | all that is left once the audio logs are dealt with, up to 117 ms |
 | S4 | A quieter profile build | its own hitches, several a second |
@@ -2326,6 +2327,112 @@ Measured in S1's capture (`alogload`), eight plays, each a freeze:
   it plays: that is the way to go, with the read taken off the main
   thread.
 
+Done, in two passes; results at the end.
+
+**First pass: converted as it plays.** The cutscenes already convert
+their sound as it plays (`src/GameSrc/cutsloop.c`): an `SDL_AudioStream`
+fed from the mixer's callback with `AmovReadNextAudioChunk`, 8 KB of the
+movie at a time. A log is a movie of the same format with no picture,
+and was made to play the same way, read from its file block by block in
+the callback. A capture of that (15 logs started, 340 s with a log
+playing; not kept, the second pass's took its place):
+
+- **The freeze is gone**: the frame in which a log starts is 103 to
+  144 ms, from 1.6 to 5.5 s. Converting costs 7.1% of a core at the
+  median while a log plays, and the game stays at 63 fps.
+- **Starting a log still took 53 to 78 ms on the main thread**, 62 ms
+  nearly every time whatever the log's size: the logs' file opened and
+  its directory read, closed, and opened again for the reading, at
+  every log.
+- **The audio thread waited for the card.** Its longest call was 8.8 ms
+  in a typical second, but over 43 ms, where the sound runs dry, in 24
+  of the 340 seconds, up to 475 ms: each time a second in which the
+  profiler was writing to the card (its log, up to 610 ms; a frame
+  dump). The log's 8 KB read queues behind any other access to the
+  card. The normal build has no such writes but has the game's own
+  resource reads, 12 to 98 ms.
+
+**Second pass, as built: the card is another thread's business.**
+
+- **A log is read whole into memory by a thread of its own**
+  (`alog_reader` in `audiolog.c`), started when the log is asked for:
+  0.10 to 0.35 s for the sizes measured in S1. The audio thread gives
+  silence until the log is there, then converts it from memory as it
+  plays, a block in slices of 1 KB (a whole block is about 28 ms of
+  converting in one go, a slice 3 to 4 ms). It never touches the card,
+  nor the resource system (the end of a log used to close the logs'
+  file from there).
+- So the voice starts a tenth to a third of a second after it is asked
+  for, and nothing on the card can make it gap after that. Playing
+  while the rest is still being read would start sooner, for more code
+  and a first second that depends on the card again; not chosen.
+- **The logs' file and the barks' stay open**, reopened only when the
+  language changes: finding a log is a look in the resource table
+  (`ResFilePlace`). Their ids are in no other of the game's 41 files.
+- **The main thread never waits for the reader.** A log cancelled while
+  it is still being read is set aside and its memory freed once the
+  reader has let go of it.
+- **Stopping.** The music's callback is put back first, which waits for
+  a call of the log's that is under way, and none comes after; only
+  then are the stream and the movie let go of. The old code took a
+  lock of its own around the buffer, but that lock was never created:
+  nothing guarded it.
+- **A log compressed in its file** (none is, in the three languages) is
+  read whole through the resource system on the main thread, then
+  converted as it plays.
+- **The fade at the end.** Checking the two ways of reading against
+  each other on the PC showed that `AmovReadNextAudioChunk` tapered the
+  wrong 512 bytes: the end of the last block, which is padding when the
+  last chunk is short, where the whole-track reader tapers the last 512
+  bytes of sound. A log would have ended without its fade. It now
+  tapers the same bytes; the cutscenes, which read this way already,
+  get their fade back too.
+- **Checked on the PC** (`tests/alog/run.sh <DATA folder>`): for every
+  log and bark of the three languages, 675 in all and 201 MB of sound,
+  the bytes read from the file at the place `ResFilePlace` gives and
+  played block by block from memory are those of the log read whole as
+  before. The conversion itself can't be run there: no SDL.
+
+New in the log: `alogcpu` (the share of a core the audio thread spends
+on a log while it plays), `alogcbmax` (its longest call in the second,
+ms) and `alogdry` (its calls that gave silence because the log wasn't
+read yet). `alogload` is what is left on the main thread to start a
+log.
+
+Results (`docs/profiles-gpu/profile-step-s1b.txt`): 209 logged seconds,
+200 of them in the game, 7 logs started, 134 seconds with a log
+playing.
+
+| | before S1b | first pass | second pass |
+|---|---|---|---|
+| main thread, to start a log (`alogload`) | 1.6 to 5.4 s | 53 to 78 ms | 0.5 to 0.7 ms |
+| audio thread's longest call while a log plays (`alogcbmax`) | | 8.8 ms typical, up to 475 ms | 3.3 ms typical, 4.8 ms at most |
+| seconds in which the sound could run dry (a call over 43 ms) | | 24 of 340 | 0 of 134 |
+
+- **Starting a log costs the main thread 0.6 ms.** The first log and
+  the first bark of the session are the exceptions, 43 and 60 ms: the
+  one time their file is opened. Opening both when the game starts
+  would remove that too; not done.
+- **The audio thread never waits**: no call over 5 ms in any second,
+  the profiler's log writes (up to 164 ms in this capture) included.
+- **The voice starts 0.13 to 0.38 s after it is asked for**: 3 to 9
+  silent calls of the audio thread (`alogdry`) at each start, and none
+  anywhere else.
+- Converting costs 6.4% of a core while a log plays (`alogcpu`);
+  62.8 fps with a log and without.
+- No sound effect decoded on the main thread, as since S1.
+  `check=0/76`, `leaks=0`, `hudcheck=0/337`, `gpufallbacks=0`, 8.5% of
+  the compared pixels differ.
+- Not in the log, to confirm by ear and by hand: the voice clean from
+  start to end, the music back after each log, cancelling and
+  restarting, a change of language, a cutscene's ending.
+
+What is left when a log starts is not the log's, and goes to S3: the
+frame is still 49 to 63 ms, 31 to 46 ms of it in the input handling
+(once 39 ms in the game's rules), with `alogload` under 1 ms. Picking
+a log from the reader also has a resource read of 54 to 66 ms in the
+panels, and input-only frames of 93 to 161 ms just before.
+
 **S2: the draw list shared only when the frame is short of time.** Any
 list of 64 calls is cut by all three threads (`gpu_cut_list` in
 `rastq.c`), which keeps the two workers awake all the time: 0.4 ms
@@ -2352,7 +2459,11 @@ the hallway angle, where 1 ms is spare.
 from the card in them (12 to 98 ms); 13 have 14 to 29 ms in the input
 handling with nothing in the timers; the stutter capture also had 2
 frames that draw 6 or 7 views from the input handling, and 26 ms in the
-game's rules. None can be fixed before it is named.
+game's rules. S1b's capture adds what surrounds the start of a log: 31
+to 46 ms in the input handling in the frame it starts, and, when it is
+picked from the reader, a resource read of 54 to 66 ms in the panels
+and input-only frames of 93 to 161 ms. None can be fixed before it is
+named.
 
 - First timers, in the profile build, on the stutter's own line: what
   the input handling spends its time on (`input_chk`, `pump_events`);

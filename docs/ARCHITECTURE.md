@@ -14,7 +14,7 @@ At runtime the game requires the original System Shock data files (`DATA`/`SOUND
 | `build.sh` | Vita build entry point (Docker) |
 | `src/` | All engine and game source (see below) |
 | `vita/` | Vita packaging/build glue: `Dockerfile`, `vita.cmake`, `segment-gap.ld` (linker script), `sce_sys/` (icon/LiveArea assets) |
-| `tests/` | PC harnesses that compile parts of the libraries natively: `fix_div/` (fixed-point division) and `rastq/` (rasterizer queue) |
+| `tests/` | PC harnesses that compile parts of the libraries natively: `fix_div/` (fixed-point division), `rastq/` (rasterizer queue) and `alog/` (audio logs read from their file) |
 | `docs/` | This file, the key mappings, the profiling guide and the performance findings |
 | `build/`, `build-profile/` | Out-of-tree CMake build output of the default and profile builds (git-ignored) |
 

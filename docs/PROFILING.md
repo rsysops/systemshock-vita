@@ -221,7 +221,10 @@ All zero in the seconds the CPU draws.
 | `hudkept=text:a/b,scaled:c/d` | texts and stretched bitmaps copied from a kept picture / drawn again (`src/GameSrc/hudkeep.c`) |
 | `sndload` | decoding a sound effect on the main thread: one played before the background thread got to it, or waited for while the thread was on it |
 | `resload` | reading a resource from the card |
-| `alogload` | an audio log read and converted before it plays (`audiolog_play`); its `resload` is part of it |
+| `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
+| `alogcpu` | the share of one core the audio thread spends on a log while it plays: converting it, a slice at each of its calls |
+| `alogcbmax` | the longest of those calls in this second, in ms. A call has 43 ms before the sound runs dry |
+| `alogdry` | calls of the audio thread in this second that gave silence because the log wasn't read from the card yet (not per frame). Expected at a log's start only |
 | `sndready=a/b` | total: sound effects decoded, of those to decode ahead (`snd_preload` in `src/MacSrc/SDLSound.c`) |
 | `snddecode` | total: what the background thread has spent reading and decoding them, in ms |
 | `sndmem` | total: what its decoded effects take up, in MB |
