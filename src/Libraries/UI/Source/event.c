@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "kb.h"
 #include "kbcook.h" 
 #include "array.h" 
+#include "vprof.h"
 #include "rect.h"
 #include "slab.h"
 #include "event.h" 
@@ -344,11 +345,17 @@ if (ev->type == UI_EVENT_KBD_COOKED)
    for (i = ch->front; i != CHAIN_END; i = next)
    {
       next = handlers[i].next;
-      if ((handlers[i].typemask & ev->type)
-            && (handlers[i].proc)(ev,reg,handlers[i].state))
+      if (handlers[i].typemask & ev->type)
       {
-         // Spew(DSRC_UI_Dispatch,("Caught by handler %d\n",i));
-         return TRUE;
+         uchar caught;
+
+         // the profiler's note says which handler it was, by its address
+         VPROF_NOTE("ui", handlers[i].proc, ev->type, 0, caught = (handlers[i].proc)(ev,reg,handlers[i].state));
+         if (caught)
+         {
+            // Spew(DSRC_UI_Dispatch,("Caught by handler %d\n",i));
+            return TRUE;
+         }
       }
    }
    // Spew(DSRC_UI_Dispatch,("Event Rejected\n"));

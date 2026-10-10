@@ -65,18 +65,34 @@ void vprof_alog_add(unsigned micros);
 // And of a call that had no sound to give: the log wasn't read yet.
 void vprof_alog_dry(void);
 
-void vprof_record(vprof_phase_t phase, long long micros);
+// `what`, if not NULL, names this piece of the phase among the frame's notes
+// (see vprof_note), with two numbers of its own.
+void vprof_record(vprof_phase_t phase, long long micros, const char *what, int a, int b);
+// One of a frame's pieces, timed: the longest few of each frame are kept, and
+// a stutter's line gives its frame's (notes=). `who`, if not NULL, is an
+// address that says more than the name: the function called, or the caller.
+void vprof_note(const char *what, const void *who, int a, int b, long long micros);
 void vprof_mark_begin(vprof_phase_t phase);
 void vprof_mark_end(vprof_phase_t phase);
 void vprof_frame_begin(void);
 void vprof_frame_end(void);
 void vprof_overlay_draw(void);
 
-#define VPROF_RUN(phase, code)                                               \
-    do {                                                                     \
-        SceInt64 _vprof_t0 = sceKernelGetProcessTimeWide();                  \
-        code;                                                                \
-        vprof_record((phase), sceKernelGetProcessTimeWide() - _vprof_t0);    \
+// A phase's timer: the statement's own text is its name among the notes.
+#define VPROF_RUN(phase, code) VPROF_RUN_AS(phase, #code, 0, 0, code)
+// The same under a chosen name, with two numbers that say which one it was.
+#define VPROF_RUN_AS(phase, what, a, b, code)                                          \
+    do {                                                                               \
+        SceInt64 _vprof_t0 = sceKernelGetProcessTimeWide();                            \
+        code;                                                                          \
+        vprof_record((phase), sceKernelGetProcessTimeWide() - _vprof_t0, (what), (a), (b)); \
+    } while (0)
+// A piece that belongs to no phase: only a note.
+#define VPROF_NOTE(what, who, a, b, code)                                                       \
+    do {                                                                                        \
+        SceInt64 _vprof_n0 = sceKernelGetProcessTimeWide();                                     \
+        code;                                                                                   \
+        vprof_note((what), (const void *)(who), (a), (b), sceKernelGetProcessTimeWide() - _vprof_n0); \
     } while (0)
 #define VPROF_MARK_BEGIN(phase) vprof_mark_begin(phase)
 #define VPROF_MARK_END(phase) vprof_mark_end(phase)
@@ -86,6 +102,8 @@ void vprof_overlay_draw(void);
 #else
 
 #define VPROF_RUN(phase, code) code
+#define VPROF_RUN_AS(phase, what, a, b, code) code
+#define VPROF_NOTE(what, who, a, b, code) code
 #define VPROF_MARK_BEGIN(phase)
 #define VPROF_MARK_END(phase)
 #define VPROF_FRAME_BEGIN()

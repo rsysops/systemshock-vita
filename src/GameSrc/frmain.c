@@ -66,7 +66,7 @@ int fr_pipe_go_3(void);
 // void ClearCache (unsigned char* theAddress, unsigned long numBlocks);
 //}
 
-int fr_rend(frc *view) {
+static int fr_rend_view(frc *view) {
     fr_prepare_view(view); /* init _fr, load flags, so on */
     if (!fr_start_view())
         return -1; /* broken broken - but what to really return */
@@ -133,5 +133,13 @@ int fr_rend(frc *view) {
     if ((_fr->flags & FR_CURVIEW_MASK) == FR_CURVIEW_STRT)
         _frp.time.last_frame_cnt++;
     return 1;
+}
+
+int fr_rend(frc *view) {
+    int done;
+
+    // the profiler's note says who asked for the view, by the caller's address
+    VPROF_NOTE("view", __builtin_return_address(0), 0, 0, done = fr_rend_view(view));
+    return done;
 }
 

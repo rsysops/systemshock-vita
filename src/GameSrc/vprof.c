@@ -5,6 +5,7 @@
 
 #include <psp2/kernel/processmgr.h>
 #include <psp2/power.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <vita2d.h>
@@ -25,6 +26,10 @@
 #define VPROF_SPIKE_MIN_US 25000
 #define VPROF_SPIKES_KEPT 4
 #define VPROF_WORKERS (RASTQ_THREADS - 1)
+// A frame's longest pieces, of those it was told about (vprof_note), from
+// this long up
+#define VPROF_NOTES_KEPT 6
+#define VPROF_NOTE_MIN_US 1000
 
 // Per-call stats (one sample per VPROF_RUN/VPROF_MARK_END invocation).
 // Phases other than VPROF_RASTER fire exactly once per mainloop iteration,
@@ -104,9 +109,21 @@ static int g_skipped;
 static SceInt64 g_skipped_max_us;
 
 typedef struct {
+    const char *what;
+    const void *who;
+    int a, b;
+    SceInt64 us;
+} vprof_note_t;
+// The frame under way's, longest first
+static vprof_note_t g_frame_notes[VPROF_NOTES_KEPT];
+static int g_frame_note_count;
+
+typedef struct {
     SceInt64 at_us; // when the frame ended
     SceInt64 frame_us;
     short mode;
+    vprof_note_t notes[VPROF_NOTES_KEPT];
+    int note_count;
     SceInt64 phase_us[VPROF_PHASE_COUNT];
     unsigned long long gpu_wait_us, gpu_submit_us, upload_us, texture_bytes, swap_wait_us;
     unsigned cmds, views;
@@ -156,6 +173,9 @@ static void vprof_startup_checks(void) {
     if (fp != NULL) {
         fprintf(fp, "fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
         fprintf(fp, "%s\n", vgpu_report());
+        // where a function of the game's file is on this console, for the
+        // addresses in the stutters' notes
+        fprintf(fp, "sym vprof_frame_end=%08x\n", (unsigned)(uintptr_t)&vprof_frame_end & ~1u);
         fclose(fp);
     }
 }
@@ -355,8 +375,39 @@ static void vprof_spike_add(SceInt64 now, SceInt64 elapsed) {
     s->swap_wait_us = vgpu_counters.swap_wait_us - g_vgpu_at_frame_begin.swap_wait_us;
     s->cmds = rastq_stats.cmds - g_rastq_at_frame_begin.cmds;
     s->views = rastq_stats.views - g_rastq_at_frame_begin.views;
+    memcpy(s->notes, g_frame_notes, sizeof(s->notes));
+    s->note_count = g_frame_note_count;
     g_last_spike = *s;
     g_spikes_total++;
+}
+
+// The frame's longest pieces: time:name, then @ the address and # the two
+// numbers where there are any.
+static void vprof_notes_write(FILE *fp, const vprof_spike_t *s) {
+    int i;
+
+    fputs(" | notes=", fp);
+    if (s->note_count == 0)
+        fputc('-', fp);
+    for (i = 0; i < s->note_count; i++) {
+        const vprof_note_t *n = &s->notes[i];
+        const char *c;
+        int len = 0;
+
+        fprintf(fp, "%s%.2f:", i ? ";" : "", us_to_ms(n->us));
+        // a statement's text, without what would cut the field short
+        for (c = n->what; *c != '\0' && len < 40; c++) {
+            if (*c != ' ' && *c != '|' && *c != ';') {
+                fputc(*c, fp);
+                len++;
+            }
+        }
+        if (n->who != NULL)
+            fprintf(fp, "@%08x", (unsigned)(uintptr_t)n->who & ~1u);
+        if (n->a != 0 || n->b != 0)
+            fprintf(fp, "#%x/%d", (unsigned)n->a, n->b);
+    }
+    fputc('\n', fp);
 }
 
 static void vprof_spikes_write(FILE *fp) {
@@ -371,7 +422,7 @@ static void vprof_spikes_write(FILE *fp) {
                 "spike t=%.2f mode=%d frame=%.2f input=%.2f sim=%.2f render3d=%.2f ui2d=%.2f present=%.2f "
                 "other=%.2f | traverse=%.2f sendview=%.2f raster=%.2f record=%.2f helpscan=%.2f hud=%.2f "
                 "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f | gpuwait=%.2f gpusubmit=%.2f "
-                "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u\n",
+                "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u",
                 (double)s->at_us / 1000000.0, s->mode, us_to_ms(s->frame_us),
                 us_to_ms(s->phase_us[VPROF_INPUT]), us_to_ms(s->phase_us[VPROF_SIM]),
                 us_to_ms(s->phase_us[VPROF_RENDER3D]), us_to_ms(s->phase_us[VPROF_UI2D]),
@@ -384,6 +435,7 @@ static void vprof_spikes_write(FILE *fp) {
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
                 us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views);
+        vprof_notes_write(fp, s);
     }
     g_spikes_kept = 0;
 }
@@ -564,7 +616,29 @@ static void vprof_window_flush(SceInt64 now) {
     g_logwrite_us = sceKernelGetProcessTimeWide() - write_t0;
 }
 
-void vprof_record(vprof_phase_t phase, long long micros) {
+void vprof_note(const char *what, const void *who, int a, int b, long long micros) {
+    int at;
+
+    if (micros < VPROF_NOTE_MIN_US)
+        return;
+    // among the longest, in its place
+    for (at = g_frame_note_count; at > 0 && g_frame_notes[at - 1].us < micros; at--)
+        ;
+    if (at >= VPROF_NOTES_KEPT)
+        return;
+    if (g_frame_note_count < VPROF_NOTES_KEPT)
+        g_frame_note_count++;
+    memmove(&g_frame_notes[at + 1], &g_frame_notes[at], (g_frame_note_count - 1 - at) * sizeof(g_frame_notes[0]));
+    g_frame_notes[at].what = what;
+    g_frame_notes[at].who = who;
+    g_frame_notes[at].a = a;
+    g_frame_notes[at].b = b;
+    g_frame_notes[at].us = micros;
+}
+
+void vprof_record(vprof_phase_t phase, long long micros, const char *what, int n1, int n2) {
+    if (what != NULL)
+        vprof_note(what, NULL, n1, n2, micros);
     vprof_call_accum_t *a = &g_call_accum[phase];
     a->total_us += micros;
     a->samples++;
@@ -583,7 +657,7 @@ void vprof_mark_begin(vprof_phase_t phase) {
 }
 
 void vprof_mark_end(vprof_phase_t phase) {
-    vprof_record(phase, sceKernelGetProcessTimeWide() - g_mark_t0[phase]);
+    vprof_record(phase, sceKernelGetProcessTimeWide() - g_mark_t0[phase], NULL, 0, 0);
 }
 
 void vprof_frame_begin(void) {
@@ -611,6 +685,7 @@ void vprof_frame_begin(void) {
     g_rastq_at_frame_begin = rastq_stats;
     g_vgpu_at_frame_begin = vgpu_counters;
     g_frame_discard = 0;
+    g_frame_note_count = 0;
 
     g_frame_t0 = now;
 }

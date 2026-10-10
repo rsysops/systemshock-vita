@@ -264,7 +264,39 @@ spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00
 `t` is when the frame ended, in seconds. The times are that one
 frame's, in ms, under the names of the second's line; `other` is what
 the five parts of a frame leave. `cmds` and `views` are the frame's
-counts. `grep '^spike' profile.txt` lists a capture's stutters. A
+counts. `grep '^spike' profile.txt` lists a capture's stutters.
+
+The line ends with `notes=`: the frame's six longest pieces of 1 ms and
+more, longest first, as `ms:name`, with `@address` and `#number/number`
+where the piece has them:
+
+```
+notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.66:render_run()
+```
+
+| name | what |
+|---|---|
+| a statement, such as `ai_run()` or `inventory_draw()` | what a timer wraps: `VPROF_RUN` gives its statement's own text as the name, spaces taken out |
+| `ui@address#type` | a handler of the interface library called for an input event of that type (hex): the function at that address |
+| `hotkey@address#key` | a hotkey's function, and the key (hex) |
+| `res#id/bytes` | a resource read from the card: its id (hex) and its size |
+| `view@address` | a 3D view drawn (`fr_rend`), and where it was asked for from |
+| `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |
+
+The pieces sit inside one another: a handler that has a resource read
+shows both, and that is how to read them. An address is looked up in
+the build that made the capture:
+
+```
+arm-vita-eabi-nm -n build-profile/systemshock | awk '$1 <= "810a1234"' | tail -1
+```
+
+(in the build's Docker image; the last symbol at or under the address
+is the function). The session's first lines have
+`sym vprof_frame_end=`, that function's address on the console: if it
+isn't the one `nm` gives, the game was loaded elsewhere and every
+address is off by the difference (0x3a000 higher on the console, in
+the capture of step S3). A
 stutter in a second that isn't logged (the screen changed) still gets
 its line, with the next second's.
 
@@ -399,6 +431,12 @@ for side in ('gpu', 'cpu'):
    frame_max_ms(VPROF_MYPHASE)` at the end of the arguments. New fields
    go last so that scripts written for older captures still read the
    line.
+
+A piece that should only be named when a frame stutters needs no
+phase: `VPROF_NOTE("name", address_or_NULL, number, number, statement);`
+puts it among the frame's notes (see [Stutters](#stutters)).
+`VPROF_RUN_AS(phase, "name", number, number, statement)` is a phase's
+timer under a name and numbers of its choosing.
 
 Things to know:
 

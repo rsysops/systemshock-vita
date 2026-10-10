@@ -2206,18 +2206,23 @@ the spike lines are what to go by, not the feel.
 
 Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
-written here. S1, S1b and S2 are done; S3 is next; S4 is not started.
+written here. S1, S1b, S2 and S3 are done; S5 is next; S4, S6 and S7
+are not started.
 
 | step | what | for |
 |---|---|---|
 | S1 | Sound effects decoded before they are played | **done**: none of the 12 stutters is left, for 10.4 s of a background thread at start-up and 23.4 MB |
 | S1b | Audio logs converted while they play, and read by a thread of their own | **done**: starting a log takes the main thread 0.6 ms, from 1.6 to 5.4 s; the voice starts 0.13 to 0.38 s later |
 | S2 | The draw list shared with the workers only when the frame is short of time | **done**: the workers asleep where frames have time to spare, at the same fps; 23 mA less drawn from the battery, a little under 6% |
-| S3 | The other stutters: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | all that is left once the audio logs are dealt with, up to 117 ms |
+| S3 | The other stutters named: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | **done**: every stutter has a name; three quarters are the side panels' update |
 | S4 | A quieter profile build | its own hitches, several a second |
+| S5 | The side panels' update: find what its 16 ms are, then make it cheap | 189 of the 257 stutters of S3's capture |
+| S6 | Art read before it is needed: when the level loads, or by a reader of its own as for the audio logs | 19 stutters, the longest ones (up to 104 ms) |
+| S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's | 37 stutters |
 
 The order is by what the player gains. S4 is the smallest and could go
-first.
+whenever it helps. S5 to S7 came out of S3's capture, in the order of
+what they weigh.
 
 **S1: sound effects decoded before they are played.** Done; results
 below.
@@ -2538,19 +2543,66 @@ picked from the reader, a resource read of 54 to 66 ms in the panels
 and input-only frames of 93 to 161 ms. None can be fixed before it is
 named.
 
-- First timers, in the profile build, on the stutter's own line: what
-  the input handling spends its time on (`input_chk`, `pump_events`);
-  the largest resource read of the frame (which resource, how many bytes,
-  how long, and how many reads: `src/Libraries/RES/Source/resload.c`);
-  who asked for each 3D view of the frame (leads: `view360.c` draws
-  several in a loop, `render.c` one per hacked camera); the game's
-  rules in their five parts (`gameloop.c`: state, AI, game system,
-  animations, wares); starting an audio log (`audiolog_play`), which
-  `docs/TODO.md` suspects and no capture has shown.
-- Then the fix, as a second half (S3b), decided from that capture. The
-  likely one: what a level needs is read when the level loads, not
-  when it first comes into view.
-- The capture should show: every stutter with a name.
+Done; results below. One mechanism in place of a timer for each
+suspect: the profiler keeps the six longest pieces of each frame that
+it is told about, and a stutter's line ends with them (`notes=`, see
+`docs/PROFILING.md`).
+
+- **Every timer there was names itself**: `VPROF_RUN` passes its
+  statement's own text. That alone names the parts of the game's rules
+  (`ai_run()`, `gamesys_run()`, ...), the panels' updates
+  (`inventory_draw()`, `mfd_update()`, ...), `input_chk()` and
+  `pump_events()`.
+- **Who handled an input**: the two places where the interface library
+  calls into the game, a region's handler (`UI/Source/event.c`) and a
+  hotkey's function (`hotkey.c`), with the function's address and the
+  event's type or the key.
+- **Which resource was read**: its id and size (`RES/Source/resload.c`).
+- **Who asked for a 3D view**: `fr_rend` (`frmain.c`), with its
+  caller's address, for the frames with 6 or 7 views.
+- **The three parts of `input_chk()`**: polling the interface, the
+  mouse, the movement keys.
+- Addresses are turned into names on the PC, from the build's own file.
+- Profile build only. In the normal build the code of the six files
+  touched is the same as before, instruction for instruction.
+
+Results (`docs/profiles-perf/profile-step-s3.txt`): 717 logged seconds,
+710 of them in the game, with the panels, the inventory and the mail
+reader used on purpose. 266 spike lines; the addresses in their notes
+are 0x3a000 above those of the build's file (its `sym` line). 260 are
+in the game, 3 of them a level being loaded (1.9 to 7.9 s). The other
+257, each counted once:
+
+| what | count | the frame | the named piece |
+|---|---|---|---|
+| the side panels' update | 189 | 25 to 44 ms | `mfd_update()`: 16.5 ms at the median, 11 to 20 |
+| art read when first seen | 15 | 28 to 104 ms | resource reads inside `render_run()`, 10 to 82 ms a frame; twice from the hacked cameras' views |
+| the inventory redrawn | 14 | 25 to 35 ms | `inventory_draw()`, 9 to 22 ms |
+| a click in the 3D view | 13 | 26 to 58 ms | `view3d_mouse_handler`, 8 to 37 ms: `fr_get_at` draws the view again to find what is under the cursor, for 3 to 5 views in the frame |
+| a click in the inventory | 5 | 34 to 166 ms | `inventory_mouse_handler`, 16 to 86 ms |
+| the mail reader's input | 5 | 25 to 31 ms | `email_invpanel_input_handler`, 11 to 20 ms |
+| creatures' art read when first needed | 4 | 32 to 44 ms | resource reads inside `ai_run()` and `advance_animations()`, 18 to 29 ms |
+| the options panel | 4 | 45 to 186 ms | `opanel_kb_handler` |
+| other | 8 | 26 to 39 ms | two more panel clicks (`mfd_view_callback_full`), six with nothing standing out |
+
+- **The side panels are three quarters of it.** Any redraw of a side
+  panel costs about 16 ms, a whole frame. 128 of the 189 came between
+  t=600 and t=660, one every 0.27 s, while a panel was updating
+  continuously. Which panel function, and what in it, the notes don't
+  say: `mfd_update()` is one piece to them. That is S5.
+- **The resource reads are slow by the read, not by the byte.** 42
+  reads were noted outside the level loads, 9 KB at the median, and
+  each takes 6.5 ms at the median: a frame that needs eight of them is
+  over 50 ms. They are object and creature art (`OBJART2.RES`,
+  `OBJART3.RES`: 28 reads), wall textures (`CITMAT.RES`: 7) and 3D
+  models (`OBJ3D.RES`: 5). That is S6.
+- **The frames with 6 or 7 views of the earlier captures are clicks in
+  the 3D view**: the game finds what is under the cursor by drawing the
+  view again, small, once or several times (`fr_get_at`). With the
+  inventory's redraw and its handler, that is S7.
+- 22 stutters a minute, against 5.5 in S1's capture: the panels were
+  used on purpose this time.
+- `sndready=115/115`, no `sndload` or `alogload` in any spike line.
 
 **S4: a quieter profile build.**
 
