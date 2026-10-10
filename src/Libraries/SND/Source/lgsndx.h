@@ -111,6 +111,19 @@ void snd_stop_music();
 void snd_resume_music();
 
 int   snd_sample_play(int snd_ref, int len, uchar *smp, struct snd_digi_parms *dprm);
+// The effects decoded ahead of their first play, by a thread that reads them
+// from their file: where each one's bytes are there.
+typedef struct {
+   int   snd_ref;
+   long  offset;
+   long  size;
+} snd_preload_item;
+void  snd_preload(const char *path, const snd_preload_item *items, int count);
+// Is the effect decoded? Then snd_sample_play needs no bytes for it.
+int   snd_sample_decoded(int snd_ref);
+// For the profiler: effects of the list that are decoded, of how many, and
+// what the thread's share of them took and takes up.
+void  snd_preload_stats(int *ready, int *total, int *decode_ms, int *bytes);
 int   snd_alog_play(int snd_ref, int len, Uint8 *smp, struct snd_digi_parms *dprm);
 void  snd_end_sample(int hnd_id);
 bool  snd_sample_playing(int hnd_id);

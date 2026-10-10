@@ -2202,18 +2202,180 @@ the spike lines are what to go by, not the feel.
 `check=0/112`, `leaks=0`, `hudcheck=0/170`, `gpufallbacks=0`, 5 dumps,
 7.1% of the compared pixels differ (6.3% in G12).
 
-### To choose from, none of it started
+### The next steps
 
-- **Sound effects decoded off the main thread**, or when the level
-  loads: 12 of the 28 stutters, and 7 of the 9 over 100 ms.
-- **The list shared only when the frame is short of time.** Any list
-  of 64 calls keeps two cores awake for 0.4 ms in a frame with 4 ms to
-  spare. A count can't tell the start room (131 calls) from the
-  hallway angle (133), so it would go by the time left over in the
-  last frames. For the battery and the heat; no change in fps
-  expected.
-- **A quieter profile build**: the log written from another thread, so
-  that what is seen while profiling is closer to the game's own.
-- **The resource reads** (10 stutters, up to 100 ms), **the frames
-  with 6 or 7 views and the `sim` frame**: more timers before anything
-  else.
+Taken one at a time: a plan, a build checked on the PC, a capture
+on the Vita (`docs/profiles-gpu/profile-step-sN.txt`), its results
+written here. S1 is done; S1b is next; the others are not started.
+
+| step | what | for |
+|---|---|---|
+| S1 | Sound effects decoded before they are played | **done**: none of the 12 stutters is left, for 10.4 s of a background thread at start-up and 23.4 MB |
+| S1b | Audio logs converted while they play, and read off the main thread | the freeze when a log starts: 1.6 to 5.4 s measured |
+| S2 | The draw list shared with the workers only when the frame is short of time | two cores at 100% for 0.4 ms: battery and heat |
+| S3 | The other stutters: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | all that is left once the audio logs are dealt with, up to 117 ms |
+| S4 | A quieter profile build | its own hitches, several a second |
+
+The order is by what the player gains. S4 is the smallest and could go
+first.
+
+**S1: sound effects decoded before they are played.** Done; results
+below.
+
+When an effect is first played, two things happen on the main thread
+(`play_digi_fx_master` in `src/GameSrc/digifx.c`): it is read from the
+card (`ResLock`, 2 to 29 ms) and it is decoded and converted to the
+mixer's format (`Mix_LoadWAV_RW` in `snd_sample_play`,
+`src/MacSrc/SDLSound.c`, 16 to 239 ms). `DIGIFX.RES` holds 115 effects
+(resources 201 to 315), all uncompressed 8-bit mono at 11 or 22 kHz,
+1.9 MB in all, 128 s of sound; in the mixer's format (48 kHz, stereo,
+16-bit) that is 24.6 MB, of a heap of 256 MB.
+
+- **A background thread decodes them all once** (`snd_preload`), started
+  from `digifx_init` when the resource files are open and the mixer is
+  up. The logos, the menus and a level's loading (over 20 s in both
+  captures) give it the time.
+- **It reads the file itself**, through a handle of its own: the
+  resource system has one file position and shared lists, and is not
+  made for two threads. The main thread only says where each effect's
+  bytes are (`ResFilePlace`, new in the resource library). So the
+  start-up pays nothing, and a decoded effect's raw bytes are never
+  loaded at all.
+- **Nothing gets worse than before.** An effect is untouched, claimed
+  or ready. Whoever gets to an untouched one first claims it: the
+  thread on its way through the list, or the main thread for an effect
+  played before the thread got there, which is then read and decoded as
+  it always was. If the thread is on that very effect, the main thread
+  waits for it, never longer than decoding it itself. A decode that
+  fails leaves the effect untouched, to be tried at its next play.
+- **Its priority is below the workers'** (two steps under the main
+  thread's; the workers are one), on any core: it runs when a core has
+  nothing better to do and can't hold up a worker the main thread waits
+  for. In the game, if it isn't through, it gets what the main thread's
+  wait for the screen leaves on core 0.
+- **Left to the old way**: an effect that is compressed, or that a mod
+  file replaces (it is then in another file).
+- At exit the thread is told to stop and waited for, before the mixer
+  closes.
+- Not chosen: decoding everything on the main thread at start-up, 10 s
+  more before the menu.
+- Not run on the PC: there is no SDL on it. That `Mix_LoadWAV_RW`
+  (SDL_mixer 2.8.2) is safe on a second thread is what its design says
+  (it works on buffers of its own and only reads the opened device's
+  format); on the Vita it decoded all 115 without a fault.
+
+New in the log: `sndready=a/b` (effects decoded, of those to decode
+ahead), `snddecode` (what the thread has spent, ms), `sndmem` (what its
+effects take up, MB), and `alogload`, a timer on an audio log's loading
+for S1b, in the second's line and in the spike line.
+
+Results (`docs/profiles-gpu/profile-step-s1.txt`): a new game, the walk
+of the stutter capture, on into the level with fights, and eight audio
+logs played. 512 logged seconds, 482 of them in the game, 50 spike
+lines.
+
+- **The thread is through before the first menu**: `sndready=115/115`
+  in the first logged second (t=20, the intro).
+- **No `sndload` in any second or spike line.** The stutter capture had
+  12 in 154 s of play.
+- **The cost**: 10.4 s of the thread's time (`snddecode`), 23.4 MB
+  (`sndmem`). 63.1 fps at the median, as before.
+- `check=0/241`, `leaks=0`, `hudcheck=0/569`, `gpufallbacks=0`, 8.4% of
+  the compared pixels differ (7.1% in the stutter capture; S1 draws
+  nothing).
+- Not in the log, to confirm by ear and by hand: every effect at its
+  volume and side in the normal build; quitting without a hang.
+
+What stutters now, 44 in the game:
+
+| cause | count | the frame |
+|---|---|---|
+| time in the input handling, nothing in the timers | 13 | 26 to 45 ms, 14 to 29 ms of it `input` |
+| a resource read from the card | 13 | 25 to 117 ms, 12 to 98 ms of it the read |
+| an audio log | 8 | 1.6 to 5.5 s |
+| the panels (`ui2d`) | 3 | 25 to 27 ms |
+| the game's rules (`sim`) | 1 | 41 ms |
+| nothing standing out | 5 | 25 to 28 ms |
+| leaving the game | 1 | 173 ms |
+
+Of the 10 over 100 ms, 8 are audio logs. The frames with time in the
+input handling are new as a group: the stutter capture was too short to
+show them.
+
+**S1b: audio logs.** `audiolog_play` (`src/GameSrc/audiolog.c`) opens
+the logs' file, reads the whole log and converts it on the main thread
+before it plays, every time it is played. The 118 logs are 53 MB (12 KB
+to 1.3 MB each, 432 KB at the median), about 460 MB once converted:
+they can't be made ready ahead as the effects are.
+
+Measured in S1's capture (`alogload`), eight plays, each a freeze:
+
+| | shortest | longest |
+|---|---|---|
+| the whole freeze | 1.55 s | 5.42 s |
+| of which reading from the card | 0.10 s | 0.35 s |
+| of which converting | 1.45 s | 5.07 s |
+
+- Converting is over 90% of it: 75 to 80 ms for a second of sound (the
+  effects' 128 s took the thread 10.4 s too).
+- The same log played twice froze twice, 4.74 s each (t=195 and
+  t=201): nothing is kept.
+- So a thread alone would trade the freeze for a wait of up to 5 s
+  before the voice starts. Converted block by block while it plays, a
+  log starts at once and costs under a tenth of a core for as long as
+  it plays: that is the way to go, with the read taken off the main
+  thread.
+
+**S2: the draw list shared only when the frame is short of time.** Any
+list of 64 calls is cut by all three threads (`gpu_cut_list` in
+`rastq.c`), which keeps the two workers awake all the time: 0.4 ms
+saved in the start room's frame, which has 4.2 ms to spare, 1.7 ms at
+the hallway angle, where 1 ms is spare.
+
+- First a measurement: the battery's remaining capacity
+  (`scePowerGetBatteryRemainCapacity`) in the log, and five minutes in
+  the start room against five on the slope: what the two awake cores
+  cost, in mAh a minute. If that is too small to matter, the step
+  stops there.
+- Then the change: the time a frame has to spare is its wait in
+  `vita2d_swap_buffers` (`src/MacSrc/Shock.c`, measured today only in
+  the profile build; two clock reads in the normal one). The list is
+  shared only while the last frames had less than a couple of
+  milliseconds to spare, with a margin so that it doesn't flip every
+  frame. A count can't tell the start room (131 calls) from the
+  hallway angle (133).
+- The capture should show: the workers asleep in the start room at the
+  same fps; the hallway angle in full screen at G12's 62 fps; the
+  battery figure for both.
+
+**S3: the other stutters.** In S1's capture: 13 have a resource read
+from the card in them (12 to 98 ms); 13 have 14 to 29 ms in the input
+handling with nothing in the timers; the stutter capture also had 2
+frames that draw 6 or 7 views from the input handling, and 26 ms in the
+game's rules. None can be fixed before it is named.
+
+- First timers, in the profile build, on the stutter's own line: what
+  the input handling spends its time on (`input_chk`, `pump_events`);
+  the largest resource read of the frame (which resource, how many bytes,
+  how long, and how many reads: `src/Libraries/RES/Source/resload.c`);
+  who asked for each 3D view of the frame (leads: `view360.c` draws
+  several in a loop, `render.c` one per hacked camera); the game's
+  rules in their five parts (`gameloop.c`: state, AI, game system,
+  animations, wares); starting an audio log (`audiolog_play`), which
+  `docs/TODO.md` suspects and no capture has shown.
+- Then the fix, as a second half (S3b), decided from that capture. The
+  likely one: what a level needs is read when the level loads, not
+  when it first comes into view.
+- The capture should show: every stutter with a name.
+
+**S4: a quieter profile build.**
+
+- The log line is still built on the main thread, but written to the
+  card by another thread, the file kept open.
+- A switch in `src/Libraries/H/vprof.h`, like `VPROF_ALTERNATE`, to
+  build without the self-checks and the frame dumps for a session spent
+  on stutters. They stay on by default: they are what catches a wrong
+  picture.
+- The capture should show: `logwrite` near zero; with the checks off,
+  `skipped=0` and the workers asleep on the slope with none of the 10%
+  of watching.

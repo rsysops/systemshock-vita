@@ -173,6 +173,7 @@ MemStack temp_memstack;
 
 extern char which_lang;
 int mfdart_res_file;
+int digifx_res_file;
 //#ifdef DEMO
 // uchar *mfdart_files[] = { "mfdart.rsrc", "mfdart.rsrc", "mfdart.rsrc" };
 //#else
@@ -700,7 +701,7 @@ errtype init_load_resources() {
         critical_error(CRITERR_RES | 9);
 
     // Open the Digital sound FX file
-    if (ResOpenFile("res/data/digifx.res") < 0)
+    if ((digifx_res_file = ResOpenFile("res/data/digifx.res")) < 0)
         critical_error(CRITERR_RES | 9);
 
     // Go load the additional mod files

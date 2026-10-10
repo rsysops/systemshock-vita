@@ -291,6 +291,10 @@ static const char *vprof_spike_cause(const vprof_spike_t *s, SceInt64 *us) {
         *us = s->phase_us[VPROF_SNDLOAD];
         return "sndload";
     }
+    if (2 * s->phase_us[VPROF_ALOGLOAD] > s->frame_us) {
+        *us = s->phase_us[VPROF_ALOGLOAD];
+        return "alogload";
+    }
     if (2 * s->phase_us[VPROF_RESLOAD] > s->frame_us) {
         *us = s->phase_us[VPROF_RESLOAD];
         return "resload";
@@ -351,8 +355,8 @@ static void vprof_spikes_write(FILE *fp) {
         fprintf(fp,
                 "spike t=%.2f mode=%d frame=%.2f input=%.2f sim=%.2f render3d=%.2f ui2d=%.2f present=%.2f "
                 "other=%.2f | traverse=%.2f sendview=%.2f raster=%.2f record=%.2f helpscan=%.2f hud=%.2f "
-                "viewout=%.2f sndload=%.2f resload=%.2f | gpuwait=%.2f gpusubmit=%.2f gpuupload=%.2f "
-                "gputex=%.1fKB swapwait=%.2f cmds=%u views=%u\n",
+                "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f | gpuwait=%.2f gpusubmit=%.2f "
+                "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u\n",
                 (double)s->at_us / 1000000.0, s->mode, us_to_ms(s->frame_us),
                 us_to_ms(s->phase_us[VPROF_INPUT]), us_to_ms(s->phase_us[VPROF_SIM]),
                 us_to_ms(s->phase_us[VPROF_RENDER3D]), us_to_ms(s->phase_us[VPROF_UI2D]),
@@ -361,7 +365,7 @@ static void vprof_spikes_write(FILE *fp) {
                 us_to_ms(s->phase_us[VPROF_RASTER]), us_to_ms(s->phase_us[VPROF_RECORD]),
                 us_to_ms(s->phase_us[VPROF_HELPSCAN]), us_to_ms(s->phase_us[VPROF_HUD]),
                 us_to_ms(s->phase_us[VPROF_VIEWOUT]), us_to_ms(s->phase_us[VPROF_SNDLOAD]),
-                us_to_ms(s->phase_us[VPROF_RESLOAD]),
+                us_to_ms(s->phase_us[VPROF_RESLOAD]), us_to_ms(s->phase_us[VPROF_ALOGLOAD]),
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
                 us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views);
@@ -375,6 +379,7 @@ static void vprof_window_flush(SceInt64 now) {
     double frame_avg, frame_max;
     double raster_calls_per_frame, raster_call_avg_ms;
     SceInt64 write_t0;
+    int snd_ready, snd_total, snd_decode_ms, snd_bytes;
 
     if (!g_window_open || g_frame_samples == 0) {
         return;
@@ -393,6 +398,7 @@ static void vprof_window_flush(SceInt64 now) {
     g_lists_solo = (double)rastq_stats.gpu_lists_solo / g_frame_samples;
     g_lists_solo_calls = (double)rastq_stats.gpu_solo_calls / g_frame_samples;
     g_prev_frame_avg_us = g_frame_total_us / g_frame_samples;
+    snd_preload_stats(&snd_ready, &snd_total, &snd_decode_ms, &snd_bytes);
 
     write_t0 = sceKernelGetProcessTimeWide();
     fp = vprof_open_log();
@@ -419,7 +425,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "hudkept=text:%.1f/%.2f,scaled:%.1f/%.2f hudcheck=%u/%u | gpucut=%.1f/%.1f/%.1f | "
                 "wjob=%.1f/%.1f%% wspin=%.1f/%.1f%% wsleep=%.1f/%.1f%% wjobs=%.2f/%.2f wsleeps=%u/%u | "
                 "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f | "
-                "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f\n",
+                "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
+                "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -524,7 +531,9 @@ static void vprof_window_flush(SceInt64 now) {
                 g_lists_shared, g_lists_solo, g_lists_solo_calls,
                 g_slow[0], g_slow[1], g_slow[2], g_slow[3],
                 g_skipped, us_to_ms(g_skipped_max_us),
-                us_to_ms(g_logwrite_us));
+                us_to_ms(g_logwrite_us),
+                snd_ready, snd_total, snd_decode_ms, (double)snd_bytes / (1024.0 * 1024.0),
+                frame_avg_ms(VPROF_ALOGLOAD, g_frame_samples), frame_max_ms(VPROF_ALOGLOAD));
         vprof_spikes_write(fp);
         fclose(fp);
     }

@@ -219,11 +219,15 @@ All zero in the seconds the CPU draws.
 |---|---|
 | `hudparts=` | of `hud`: weapon `hand`, help `label`, `text` (compass, messages), and in full screen `buttons`, `mfd` side panels, `inv`entory, `vitals`, `icons` |
 | `hudkept=text:a/b,scaled:c/d` | texts and stretched bitmaps copied from a kept picture / drawn again (`src/GameSrc/hudkeep.c`) |
-| `sndload` | decoding a sound effect for its first use |
+| `sndload` | decoding a sound effect on the main thread: one played before the background thread got to it, or waited for while the thread was on it |
 | `resload` | reading a resource from the card |
+| `alogload` | an audio log read and converted before it plays (`audiolog_play`); its `resload` is part of it |
+| `sndready=a/b` | total: sound effects decoded, of those to decode ahead (`snd_preload` in `src/MacSrc/SDLSound.c`) |
+| `snddecode` | total: what the background thread has spent reading and decoding them, in ms |
+| `sndmem` | total: what its decoded effects take up, in MB |
 
-A second with a large `frame_max` and a large `sndload` or `resload`
-maximum is a stall from loading, not from drawing.
+A second with a large `frame_max` and a large `sndload`, `resload` or
+`alogload` maximum is a stall from loading, not from drawing.
 
 ### Stutters
 
@@ -240,7 +244,7 @@ the log was last written each get a line of their own, after that
 second's line:
 
 ```
-spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1
+spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1
 ```
 
 `t` is when the frame ended, in seconds. The times are that one

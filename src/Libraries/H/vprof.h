@@ -22,6 +22,7 @@ typedef enum {
     VPROF_VIEWOUT,  // of sendview: the cursor and the view's way to the screen
     VPROF_SNDLOAD,  // a sound effect decoded for its first use
     VPROF_RESLOAD,  // a resource read from the card
+    VPROF_ALOGLOAD, // an audio log read and converted, before it plays
     // of hud:
     VPROF_HUD_HAND,    // the weapon in hand
     VPROF_HUD_LABEL,   // the help label

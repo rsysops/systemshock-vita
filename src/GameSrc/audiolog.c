@@ -37,6 +37,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "mainloop.h"
 #include "bark.h"
 #include "miscqvar.h"
+#include "vprof.h"
 
 #define AUDIOLOG_BASE_ID 2741
 #define AUDIOLOG_BARK_BASE_ID 3100
@@ -101,6 +102,8 @@ errtype audiolog_play(int email_id) {
         return ERR_NOEFFECT;
 
     begin_wait();
+    // from here to the log's sound converted: all of it before it plays
+    VPROF_MARK_BEGIN(VPROF_ALOGLOAD);
 
     // Open up the appropriate sound-only movie file.
     if (email_id > (AUDIOLOG_BARK_BASE_ID - AUDIOLOG_BASE_ID))
@@ -111,6 +114,7 @@ errtype audiolog_play(int email_id) {
     // Make sure this is a thing we have an audiolog for...
     if (!ResInUse(AUDIOLOG_BASE_ID + email_id)) {
         ResCloseFile(new_alog_fn);
+        VPROF_MARK_END(VPROF_ALOGLOAD);
         end_wait();
         return ERR_FREAD;
     }
@@ -121,6 +125,7 @@ errtype audiolog_play(int email_id) {
     if (AfilePrepareRes(AUDIOLOG_BASE_ID + email_id, palog) < 0) {
         WARN("%s: Cannot open Afile by id $%x", __FUNCTION__, AUDIOLOG_BASE_ID + email_id);
         free(palog);
+        VPROF_MARK_END(VPROF_ALOGLOAD);
         return ERR_FREAD;
     }
 
@@ -143,6 +148,7 @@ errtype audiolog_play(int email_id) {
     audiolog_audiobuffer_size = cvt.len_cvt;
     audiolog_audiobuffer_pos = audiolog_audiobuffer;
 
+    VPROF_MARK_END(VPROF_ALOGLOAD);
     end_wait();
 
     // bureaucracy
