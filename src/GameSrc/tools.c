@@ -612,7 +612,9 @@ errtype begin_wait() {
         retval = uiPushGlobalCursor(&wait_cursor);
         uiShowMouse(NULL);
 
-        SDLDraw();
+        // a whole frame presented, and waited for: the profiler's note
+        // says who asked for the wait cursor
+        VPROF_NOTE("wait_cursor", __builtin_return_address(0), 0, 0, SDLDraw());
     }
     wait_count++;
 

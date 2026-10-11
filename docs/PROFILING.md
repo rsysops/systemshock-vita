@@ -237,6 +237,9 @@ All zero in the seconds the CPU draws.
 | `resload` | reading a resource: from the card, or from its file's copy in memory once that is there |
 | `resimg=a/b` | total: art files read whole into memory, of those wanted (`src/GameSrc/resimage.c`). At the end of the line |
 | `resimgmb`, `resimgms` | total: what those copies take up, in MB, and how long their thread has taken to read them, in ms |
+| `applog=lines:ms` | the game's own log (`log_log`, warnings and errors): lines written in this second, by any thread, and what they took together. A line goes out to the console's debug output and holds its thread up meanwhile |
+| `applogmax=address:ms` | the longest of them and the function it was written from. In a stutter's line the same is a note, `log@address` |
+| `resmax=from#id:ms` | the slowest resource read of this second: from the card (`res`) or from memory (`resm`), its id (hex) and its time. `res#0:0.00` when nothing was read. At the end of the line |
 | `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
 | `alogcpu` | the share of one core the audio thread spends on a log while it plays: converting it, a slice at each of its calls |
 | `alogcbmax` | the longest of those calls in this second, in ms. A call has 43 ms before the sound runs dry |
@@ -263,7 +266,7 @@ A second with a large `frame_max` and a large `sndload`, `resload` or
 | `slow=20:a,34:b,50:c,100:d` | frames of this second longer than 20, 34, 50 and 100 ms: one, two, three and six screen refreshes (not per frame) |
 | `skipped=a/b` | frames left out of the timings in this second, and the longest in ms. A self-check draws its frame twice: a hitch you can see, but the profiler's own |
 | `logwrite` | how long the main thread took to build the previous second's lines and queue them, in ms. Between two frames, so in no frame's time, but the screen waits for it |
-| `logio` | the longest write of the log's own thread since the line before, in ms. Nothing waits for it, unless a read of the game's falls on it |
+| `logio` | the longest write of the log's own thread since the line before, in ms. Nothing waits for it, unless a read or a write of the game's falls on it. 0.00 for seconds on end, then a large figure: the card held a write that long (30.8 s once, in S7c's capture), and anything of the game's that touched the card in that time waited with it |
 | `logdrop` | total: times the lines found the queue full and were dropped. Must be 0 |
 
 A frame is a stutter when it takes at least 25 ms and half again as
@@ -281,7 +284,7 @@ frame's, in ms, under the names of the second's line; `other` is what
 the five parts of a frame leave. `cmds` and `views` are the frame's
 counts. `grep '^spike' profile.txt` lists a capture's stutters.
 
-The line ends with `notes=`: the frame's six longest pieces of 1 ms and
+The line ends with `notes=`: the frame's ten longest pieces of 1 ms and
 more, longest first, as `ms:name`, with `@address` and `#number/number`
 where the piece has them:
 
@@ -297,6 +300,14 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `res#id/bytes` | a resource read from the card: its id (hex) and its size |
 | `resm#id/bytes` | the same read from its file's copy in memory |
 | `view@address` | a 3D view drawn (`fr_rend`), and where it was asked for from |
+| `inv_select@address#row`, `inv_use@…`, `inv_drop@…` | a click in the inventory handed to the page's own function at that address, for that row (hex) |
+| `mfd_handler@address#function/panel`, `mfd_simp@…` | a click on a side panel handed to the panel function's handler at that address |
+| `wait_cursor@address` | the frame `begin_wait()` presents to show the wait cursor, and who asked for it. A present waits for the screen: up to 16.7 ms |
+| `audiolog_bark_play@address#bark` | a bark set off, and from where |
+| `EDMS_soliton_vector`, `edms_delete_go`, `obj_move_to#object`, `compare_locs` | what `physics_run()` is made of |
+| `fade_into_location#x/y`, `check_entrance_triggers#x/y`, `check_hazard_regions` | what `compare_locs` does when the player steps onto a new map square: the music's change, the square's triggers |
+| `audiolog_stop`, `MacTuneUpdateVolume`, `snd_stop_music`, `Mix_HookMusic` | what `audiolog_play` does around reading and starting its log |
+| `read_email`, `audiolog_play`, `inventory_draw_new_page`, `email_skip_lines`, `email_draw_text`, `make_email_cursor`, `inventory_clear`, `mfd_notify_func`, `play_vmail` and the like | what opening a mail or turning its page is made of (`src/GameSrc/email.c`) |
 | `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |
 | `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |
 

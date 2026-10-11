@@ -2206,7 +2206,8 @@ the spike lines are what to go by, not the feel.
 
 Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
-written here. S1 to S6 are done; S7 is not started.
+written here. S1 to S7 are done, with S7b and S7c after it. What is
+left is listed at the end.
 
 | step | what | for |
 |---|---|---|
@@ -2217,7 +2218,9 @@ written here. S1 to S6 are done; S7 is not started.
 | S4 | A quieter profile build | **done**: the log costs the main thread 0.4 ms a second, from 52; the build that measures has no self-checks, and leaves the game alone |
 | S5 | The side panels' update: find what its 16 ms are, then make it cheap | **done**: it was the panels' outlined text, drawn nine times each; now one draw the first time and a copy after. No stutter is a panel paying for its text any more, from 189 of 257 |
 | S6 | Art read before it is needed | **done**: the art files held whole in memory, 14 MB read by a thread of its own at start-up. No stutter has a read from the card in it any more, from 18 of 32; 3.2 stutters a minute, from 8.5; a new game loads in 3 s, from 6 |
-| S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's (a page of a mail is 24 ms of handler, 6 of them its words' text) | 37 stutters |
+| S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's | **done**: the view under the cursor is drawn for 21 rows of the 544, and no click in the 3D view stutters any more, from 29; 1.4 stutters a minute, from 3.2. The mail's clicks are named: 19 ms of `audiolog_play` |
+| S7b | The game's own log, written in the middle of the game; the text strings read from the card; the panels' art unpacked when first shown | **done in part**: no read from the card in the game any more. A log line is 1.7 ms, not the 19 I took it for, and the panels' art was unloaded again when a game started |
+| S7c | The wait cursor's frame at each log's start; the panels' art held; the logs' files opened at start-up | **done**: no mail or log opening stutters any more; 0.6 stutters a minute |
 
 The order is by what the player gains. S4 is the smallest and could go
 whenever it helps. S5 to S7 came out of S3's capture, in the order of
@@ -2866,3 +2869,214 @@ and that one was reopened by the second new game.
   handler at t=547 (a save or a load), and 19 s at t=339 in a click
   that played something through, the screen being refreshed all the
   while.
+
+**S7: clicks.** Done; results below. Clicks are 42 of the 50 stutters
+of S6's capture, and two different things.
+
+**A click in the 3D view (29 of them).** To find what is under the
+cursor the game draws the view again in flat colours, one for each
+object, and reads the pixel there (`fr_get_at` in
+`src/GameSrc/frutil.c`). That drawing is the whole view, 960x544, on
+the CPU's three threads, the workers woken for it: 10 to 20 ms each
+time. A double-click does it up to three times (`view3d_dclick`), a
+shot twice (`weapons.c`). Of all those pixels it reads the one under
+the cursor and, failing an object there, a spiral of some five pixels
+around it (`check_around`).
+
+- **Only the rows that are read are drawn**: the cursor's and ten
+  either side, 21 of 544. The queue already replays a view in bands of
+  rows and skips every call that doesn't reach a band;
+  `rastq_rows_next(top, bot)` asks it for one band and no more, on
+  the calling thread, the workers left asleep. A call whose mapper
+  knows nothing of bands is drawn whole when it reaches the rows and
+  left out otherwise.
+- The walk through the level's geometry is still done for each look-up:
+  it is the filling that goes.
+- A view picked for a self-check is replayed whole, so the checks
+  flavour checks what it did.
+- The on-screen help's scan is a view of its own, read all over, and is
+  not touched.
+- **Checked on the PC** (`tests/rastq/run.sh`): each of the test's
+  scenes replayed for a few rows at a random place, on one thread and
+  with three set up: those rows are the whole replay's, pixel for
+  pixel; and under the self-check the view comes out whole.
+
+**A click in the inventory or on a panel (13).** Opening a mail takes
+24 ms in its handler, 6 of them the page's text (S5). The other 18 are
+in no timer, and the code doesn't say: opening a mail starts its audio
+log, redraws the inventory's page, skips through the message's lines,
+changes a side panel, makes a cursor and draws the text (`read_email`,
+`email_draw_text` in `src/GameSrc/email.c`). So, in the profile build
+only:
+
+- timers with notes on each of those, on the inventory page's own
+  functions (`inv_select@`, `inv_use@`, `inv_drop@`) and on the panel
+  handler a click on a side panel reaches (`mfd_handler@`);
+- a stutter's line keeps its 10 longest pieces, from 6: the six were
+  taken by pieces that hold one another (`input_chk()`, `uiPoll`, the
+  handler), and what is inside fell off the end;
+- `resmax=`, the slowest read of each second by its id, for the 5 ms
+  reads S6 left unnamed.
+
+Results (`docs/profiles-perf/profile-step-s7.txt`): the measuring
+flavour, 560 logged seconds, 548 in the game, with clicks in the 3D
+view, shots, mails and the options panel.
+
+| | S6 | S7 |
+|---|---|---|
+| seconds in the game | 950 | 548 |
+| stutters in the game | 50, 3.2 a minute | 13, 1.4 a minute |
+| of them, a click in the 3D view | 29 | 0 |
+| seconds with such a click: its handler's worst time, median and ninth decile | 5.2 and 17.0 ms (113 seconds) | 3.7 and 7.8 ms (84 seconds) |
+
+- **No click in the 3D view stutters any more.** The PC test's full
+  run: 12,000 views replayed for a few rows, none differing in them.
+- **Opening a mail is `audiolog_play`: 19.1 to 19.4 ms of the 24**, the
+  same every time, in all 8 of these stutters (7 from the inventory,
+  1 from the mail's panel); 71 ms the first time, with the logs' file
+  to open. The page's text is 4.2 to 5.0 ms. The log's reading and
+  starting, S1b's timer inside it, is 0.6 ms: the 19 ms are around it.
+- **The 3 stutters of the options panel, 28 to 29 ms, are its volume
+  sliders.** They and `audiolog_play` have this in common: a change of
+  the music's volume (`UpdateVolumeXMI` in `src/MacSrc/Xmi.c`), which
+  begins by writing a line to the game's own log. That log was at
+  level INFO, and each line goes out unbuffered, in three pieces, to
+  the console's debug output (`log_log`). The capture names the
+  function, not the line: that a line costs 19 ms is what S7b
+  measures.
+- **The 5 ms reads S6 left are the text strings**: `resmax=` names
+  ids 9a3 to aa1, from the card, 4.7 to 5.1 ms and 13.3 once. A mail's
+  text is read when it is first opened.
+- The two others: one in `physics_run()` (28 ms, in every capture some
+  100 s into the game), one with the security cameras' views.
+- Long frames that are not stutters: 12 s in the options panel (a save
+  or a load), cyberspace in 1.5 s and out in 7.2 s, a video mail's
+  3.8 s.
+
+**S7b: what the timers named.** Done in part; results below.
+
+- **The game's log at warnings and errors only** (`main()` in
+  `src/MacSrc/Shock.c`): the INFO lines, which come in the middle of
+  the game, are no longer written.
+- **The log is timed** (profile build): `applog=lines:ms` and
+  `applogmax=address:ms` in the second's line, a note `log@address` in
+  a stutter's; and notes on what `audiolog_play` does around its log,
+  should the 19 ms be elsewhere.
+- **The text strings in memory**: the three languages' files, 0.5 MB,
+  join the art files of S6 (16 files now).
+- **The panels' art unpacked when its file is opened**, at start-up
+  and at a change of language (`resimage_load_all`): the one packed
+  file, 19 pictures, 250 KB. The mail sender's portrait cost 21 ms the
+  first time it was shown.
+
+Results (`docs/profiles-perf/profile-step-s7b.txt`): the measuring
+flavour, 263 logged seconds, 224 in the game, mails and logs opened one
+after another: 13 stutters.
+
+- **No read from the card in the game any more**: `resmax=` names only
+  reads from memory, the longest the portrait's.
+- **A line of the game's log is 1.7 ms, not 19.** Three were written in
+  the whole capture (`applog=`), each 1.71 to 1.76 ms. The reading S7
+  ended on was wrong. The log stays at warnings only, which is what it
+  is worth: 1.7 ms for each INFO line that would come in the game.
+- **Opening a mail or a log is still 13 to 17 ms of `audiolog_play`**
+  (19 with its log line), in 7 of the 8 such stutters; the eighth is
+  the first log of the session, 73 ms, which also opens the logs' file
+  of 50 MB and reads its list. None of the pieces with a timer is
+  it: the stopping of the log before, the music's volume and the two
+  hooks are each under 3 ms where they show at all, the reading and
+  starting 0.6 ms. What is left has no timer: `begin_wait()` and
+  `end_wait()`, the wait cursor around those 0.6 ms. `begin_wait()`
+  (`src/GameSrc/tools.c`) presents a whole frame to show its cursor,
+  and a present waits for the screen, up to 16.7 ms. That too is read
+  from the code, not measured: S7c times it.
+- **The portrait was unpacked in the game all the same** (21 ms): it
+  was loaded at start-up, and starting a game drops every resource
+  that is loaded and not held (`flush_resource_cache` in
+  `empty_slate`, `setup.c`).
+- The 5 others: 3 double-clicks in a heavy view, where a look-up is
+  7 ms, two or three of them on a render of 14 to 18 ms; one in
+  `physics_run()`, 70 ms with nothing named inside; one unnamed.
+  Two of the log openings came from the 3D view: a log picked up.
+
+**S7c.** Done; results below.
+
+- **No wait cursor for a log that its thread reads** (`audiolog_play`):
+  it is kept for the one case that still reads on the main thread, a
+  log packed in its file.
+- **The panels' art held, not just loaded** (`resimage_hold_all`): kept
+  locked from the opening of its file, which the emptying of the cache
+  leaves alone, and let go of before the file is closed at a change of
+  language.
+- **The logs' file and the barks' opened at start-up** and at a change
+  of language (`audiolog_open_files`), not by the first log played.
+- **Timers** (profile build): `wait_cursor@address` on the frame
+  `begin_wait()` presents, wherever it is asked for; `audiolog_bark_play@`
+  for a bark and where it was set off from; and on what `physics_run()`
+  is made of. A bark set off by walking somewhere would be a log
+  started from inside `physics_run()`: its 28 ms of the earlier
+  captures and its 70 ms of this one may be that. The notes will say.
+
+Left as they are: the double-clicks in a heavy view (what is left of a
+look-up is the walk through the level's geometry), and the options
+panel's 28 ms a key, which is a menu.
+
+Results (`docs/profiles-perf/profile-step-s7c.txt`): the measuring
+flavour, 642 logged seconds, 617 in the game: 6 stutters, 0.6 a
+minute.
+
+| | S5b | S6 | S7 | S7b | S7c |
+|---|---|---|---|---|---|
+| seconds in the game | 225 | 950 | 548 | 224 | 617 |
+| stutters a minute | 8.5 | 3.2 | 1.4 | 3.5, mails opened one after another | 0.6 |
+
+- **Opening a mail or a log no longer stutters.** 6 logs were started
+  in the game: the click's handler took 2.9 to 9.4 ms, and the frames
+  16.7 to 22.4. `audiolog_play` was 13 to 17 ms of them before, 73 for
+  the first of a session. It was the wait cursor's frame: taking it out
+  is what changed.
+- **The panels' art is not unpacked in the game any more**: no read of
+  it there (`resmax=`).
+- **`physics_run()`'s stutter has a name**: `compare_locs`, 65.5 ms of
+  a 66 ms `physics_run()`. That is what the game does when the player
+  steps onto a new map square (`src/GameSrc/physics.c`): the music is
+  changed where its zone changes, a new score loaded
+  (`fade_into_location`), and the square's triggers are run. Which of
+  the two, the next capture's notes will say. Every capture has had
+  this stutter in the same place.
+- The 5 others: three frames in a row in a heavy view (16 to 24 ms of
+  `render_run()`, with 4 to 7 ms of sound in two), one with the
+  security cameras' views, one in a present.
+
+**The freeze at quitting.** Quitting to the main menu froze the game:
+21.2 s in the capture, in the options panel's handler. It is the
+memory card, and not the game's doing:
+
+- the profiler's own writer was held in a write to `profile.txt` from
+  t=673, for 30.8 s (`logio=30769`; 26 ms as a rule, and no capture
+  before has one over 0.2 s);
+- the game went on at 60 fps for ten seconds, nothing of its own
+  touching the card;
+- at t=684 the quit closed the options panel, which saves the
+  preferences (`SavePrefs`, `src/MacSrc/Prefs.c`): a small file written
+  to the card. That write waited until the card came back, at t=705.
+
+Why the card held a write for 30 s the capture doesn't say. The normal
+build has no log to write. But the panel saved the preferences every
+time it closed, changed or not, and any stall of the card then froze
+the game the same way: **the preferences are now written only when
+they have changed**. The text is built in memory and held against what
+was last written. With the normal build, quitting to the main menu
+several times over did not freeze, and a changed setting was still
+there after the game was started again.
+
+**What is left**, for a later step:
+
+- the map square's change in `compare_locs`: the music's new score or
+  a trigger, 28 to 70 ms, once or twice a session;
+- heavy views: their own render over a frame's time now and then, and
+  a double-click there (a look-up is still 7 ms, done two or three
+  times);
+- the options panel, 28 ms a key: a menu;
+- saves and loads from the options panel, 9 to 12 s, and leaving
+  cyberspace, up to 7 s: not stutters, but long.

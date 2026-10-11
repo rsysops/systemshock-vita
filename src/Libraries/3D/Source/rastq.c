@@ -145,6 +145,11 @@ static struct {
     int test_bands;                 // > 0: draw band after band on the calling thread
     int test_bounds[RASTQ_MAX_BANDS];
     int test_ranges;
+
+    // A view of which only some rows will be read (rastq_rows_next)
+    int next_top, next_bot; // the caller's word on the view that starts next
+    int rows_only;          // this view: replay rows [rows_top, rows_bot) alone
+    int rows_top, rows_bot;
 } rq = {.threads = 1, .only_band = -1, .gpu_cut_min = RASTQ_GPU_CUT_CALLS};
 
 // The run of calls the threads are drawing
@@ -219,6 +224,11 @@ int rastq_set_threads(int threads) {
 }
 
 void rastq_set_min_rows(int rows) { rq.min_rows = rows; }
+
+void rastq_rows_next(int top, int bot) {
+    rq.next_top = top;
+    rq.next_bot = bot;
+}
 
 void rastq_set_gpu(const rastq_gpu *gpu) { rq.gpu = gpu; }
 
@@ -406,7 +416,12 @@ static void choose_bands(void) {
     int h = rq.canvas->bm.h, i;
 
     rq.bands = 1;
-    if (rq.test_bands > 0) {
+    if (rq.rows_only) {
+        // the rows asked for are the middle band of three, the only one drawn
+        rq.bands = 3;
+        rq.rows[1] = rq.rows_top;
+        rq.rows[2] = rq.rows_bot;
+    } else if (rq.test_bands > 0) {
         rq.bands = rq.test_bands;
         for (i = 1; i < rq.bands; i++)
             rq.rows[i] = rq.test_bounds[i - 1];
@@ -509,6 +524,10 @@ static void run_batch(unsigned first, unsigned end) {
     batch.first = first;
     batch.end = end;
 
+    if (rq.rows_only) {
+        VPROF_RUN(VPROF_RASTER, draw_batch(0, 1));
+        return;
+    }
     if (rq.only_band >= 0) {
         draw_batch(0, rq.only_band);
         return;
@@ -556,8 +575,9 @@ static void replay(void) {
             k++;
         } else if (!c->band_safe) {
             // The other threads are idle, so this call's place in the
-            // drawing order is kept.
-            if (rq.only_band < 0) {
+            // drawing order is kept. (Where only some rows are wanted, a
+            // call that doesn't reach them is left out.)
+            if (rq.only_band < 0 && !(rq.rows_only && (c->row_bot <= rq.rows_top || c->row_top >= rq.rows_bot))) {
                 apply_state(c);
                 VPROF_RUN(VPROF_RASTER, draw_cmd(c, &full_band));
                 if (!rq.checking)
@@ -1822,6 +1842,10 @@ void rastq_begin(void) {
     // a clear left to a GPU that doesn't get this view after all
     if (rq.clear_pending && !(rq.gpu_view_next && gpu_takes(grd_canvas)))
         clear_on_cpu();
+    rq.rows_top = rq.next_top < 0 ? 0 : rq.next_top;
+    rq.rows_bot = rq.next_bot > grd_canvas->bm.h ? grd_canvas->bm.h : rq.next_bot;
+    rq.next_top = rq.next_bot = 0;
+    rq.rows_only = 0;
     if (rq.mode == RASTQ_OFF)
         return;
 
@@ -1856,6 +1880,12 @@ void rastq_begin(void) {
     }
 #endif
     (void)view;
+    // Not for a view the GPU draws, nor one picked for a check: that one is
+    // compared whole with its direct drawing.
+    if (rq.rows_bot > rq.rows_top && !rq.gpu_view && !rq.checking) {
+        rq.rows_only = 1;
+        rq.balance = NULL;
+    }
 }
 
 void rastq_end(void) {

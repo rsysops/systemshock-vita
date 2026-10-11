@@ -33,6 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "frintern.h"
 #include "frparams.h"
 #include "frflags.h"
+#include "rastq.h"
 
 uchar fr_cur_obj_col;
 ushort fr_col_to_obj[256];
@@ -109,7 +110,11 @@ ushort fr_get_at(frc *fr, int x, int y, uchar transp) {
         fr_get_idx = fr_cspace_idx;
     else
         fr_get_idx = fr_pickup_idx;
+    // Of this drawing only (x, y) and the pixels check_around looks at are
+    // read: the rows around the cursor are all that need drawing.
+    rastq_rows_next(y - SEARCH_DIAM, y + SEARCH_DIAM + 1);
     fr_rend(fr);
+    rastq_rows_next(0, 0); // had the view not been drawn after all
     fr_get_idx = fr_ptr_idx;
     _fr_glob_flags = of;
     return fr_get_real(_fr, x, y);

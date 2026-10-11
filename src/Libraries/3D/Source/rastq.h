@@ -108,6 +108,10 @@ void rastq_set_mode(int mode);
 int rastq_set_threads(int threads);
 // Views with fewer canvas rows than this are replayed by the caller alone.
 void rastq_set_min_rows(int rows);
+// Of the view that starts next, only canvas rows [top, bot) will be read:
+// its replay may leave the others as they are, and is the caller's alone.
+// For the one view; an empty range withdraws it.
+void rastq_rows_next(int top, int bot);
 
 // A GPU that can fill the recorded calls in place of the CPU. On Vita it is
 // src/MacSrc/VitaGpu.c; see docs/PERFORMANCE-GPU.md.

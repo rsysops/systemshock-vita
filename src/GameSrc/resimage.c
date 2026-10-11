@@ -15,8 +15,8 @@
 static const char *const files[] = {
     "res/data/objart3.res", "res/data/objart2.res", "res/data/citmat.res",  "res/data/obj3d.res",
     "res/data/mfdart.res",  "res/data/mfdfrn.res",  "res/data/mfdger.res",  "res/data/gamescr.res",
-    "res/data/handart.res", "res/data/objart.res",  "res/data/sideart.res", "res/data/vidmail.res",
-    "res/data/texture.res",
+    "res/data/handart.res", "res/data/objart.res",  "res/data/sideart.res", "res/data/cybstrng.res",
+    "res/data/frnstrng.res", "res/data/gerstrng.res", "res/data/vidmail.res", "res/data/texture.res",
 };
 #define FILES (int)(sizeof(files) / sizeof(files[0]))
 
@@ -119,6 +119,23 @@ void resimage_poll(void) {
             left++;
     }
     all_given = left == 0;
+}
+
+void resimage_hold_all(int filenum) {
+    Id id;
+
+    for (id = ID_MIN; id <= resDescMax; id++)
+        if (ResInUse(id) && ResFilenum(id) == (uint32_t)filenum && ResIsCompound(id))
+            ResLock(id);
+}
+
+void resimage_release_all(int filenum) {
+    Id id;
+
+    for (id = ID_MIN; id <= resDescMax; id++)
+        if (ResInUse(id) && ResFilenum(id) == (uint32_t)filenum && ResIsCompound(id) && ResPtr(id) != NULL &&
+            ResLocked(id))
+            ResUnlock(id);
 }
 
 void resimage_stats(int *ready, int *wanted, int *bytes, int *ms) {

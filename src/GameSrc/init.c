@@ -33,6 +33,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "criterr.h"
 #include "cybmem.h"
 #include "resimage.h"
+#include "audiolog.h"
 #include "cybrnd.h"
 #include "drugs.h"
 #include "frprotox.h"
@@ -695,6 +696,7 @@ errtype init_load_resources() {
     // Open the appropriate mfd art file
     if ((mfdart_res_file = ResOpenFile("res/data/mfdart.res")) < 0)
         critical_error(CRITERR_RES | 2);
+    resimage_hold_all(mfdart_res_file); // its pictures are unpacked here, not when first shown
 
     // Open the 3d objects
     if (ResOpenFile("res/data/obj3d.res") < 0)
@@ -707,6 +709,9 @@ errtype init_load_resources() {
     // Open the Digital sound FX file
     if ((digifx_res_file = ResOpenFile("res/data/digifx.res")) < 0)
         critical_error(CRITERR_RES | 9);
+
+    // The audio logs' files, not at the first log
+    audiolog_open_files();
 
     // Go load the additional mod files
     LoadModFiles();

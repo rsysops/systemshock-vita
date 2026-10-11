@@ -218,8 +218,11 @@ int main(int argc, char **argv) {
     arg_values = argv;
 
     // FIXME externalize this
+    // Warnings and errors only: a line written to the console's debug
+    // output holds the game up for a frame and more (docs/PERFORMANCE-GPU.md,
+    // step S7b), and the INFO lines come in the middle of it.
     log_set_quiet(0);
-    log_set_level(LOG_INFO);
+    log_set_level(LOG_WARN);
 
     INFO("Logger initialized");
 

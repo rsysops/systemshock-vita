@@ -27,6 +27,9 @@
 #include <time.h>
 
 #include "log.h"
+#if defined(__vita__) && defined(VITA_PROFILE)
+#include "vprof.h"
+#endif
 
 #ifdef __vita__
 #include <psp2/kernel/clib.h>
@@ -96,6 +99,11 @@ void log_log(int level, const char *file, int line, const char *fmt, ...) {
     return;
   }
 
+#if defined(__vita__) && defined(VITA_PROFILE)
+  /* what the line costs whoever writes it */
+  SceInt64 vprof_t0 = sceKernelGetProcessTimeWide();
+#endif
+
   /* Acquire lock */
   lock();
 
@@ -141,4 +149,8 @@ void log_log(int level, const char *file, int line, const char *fmt, ...) {
 
   /* Release lock */
   unlock();
+
+#if defined(__vita__) && defined(VITA_PROFILE)
+  vprof_applog_add((unsigned)(sceKernelGetProcessTimeWide() - vprof_t0), __builtin_return_address(0));
+#endif
 }

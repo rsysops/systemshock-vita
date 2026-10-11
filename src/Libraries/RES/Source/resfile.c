@@ -63,7 +63,7 @@ ResFile resFile[MAX_RESFILENUM + 1];
 //	everything that reads through it goes on as before. Only for files
 //	opened to be read (ROM_READ, no directory kept).
 
-#define RES_IMAGES 16
+#define RES_IMAGES 24
 #define RES_IMAGE_NAME 64
 
 typedef struct {

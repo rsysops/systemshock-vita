@@ -96,6 +96,15 @@ extern uchar curr_vol_lev;
 extern uchar curr_alog_vol;
 extern char which_lang;
 
+static int alog_res_file(int barks);
+
+// Opens the logs' file and the barks' for the language in use, where the
+// first log played would: reading the list of a 50 MB file is a long frame.
+void audiolog_open_files(void) {
+    alog_res_file(0);
+    alog_res_file(1);
+}
+
 static int alog_res_file(int barks) {
     if (alog_res_fn[barks] >= 0 && alog_res_lang[barks] != which_lang) {
         ResCloseFile(alog_res_fn[barks]);
@@ -272,14 +281,14 @@ errtype audiolog_play(int email_id) {
         return ERR_NOEFFECT;
 
     // Stop any currently playing alogs.
-    audiolog_stop();
+    // (the profiler's notes: what is around the log's reading and starting)
+    VPROF_NOTE("audiolog_stop", NULL, 0, 0, audiolog_stop());
 
     // woo hoo, what a hack!
     // this is for the player's log-to-self which has no audiolog
     if (email_id == 0x44)
         return ERR_NOEFFECT;
 
-    begin_wait();
     // from here to the log on its way: all of it before the first sound
     VPROF_MARK_BEGIN(VPROF_ALOGLOAD);
 
@@ -289,7 +298,6 @@ errtype audiolog_play(int email_id) {
     // Make sure this is a thing we have an audiolog for...
     if (fn < 0 || !ResInUse(id)) {
         VPROF_MARK_END(VPROF_ALOGLOAD);
-        end_wait();
         return ERR_FREAD;
     }
 
@@ -314,15 +322,19 @@ errtype audiolog_play(int email_id) {
             job = NULL;
         }
     } else {
-        // compressed in its file: read whole here, through the resource system
+        // compressed in its file: read whole here, through the resource
+        // system. The one case that takes its time on this thread, and so
+        // the one with the wait cursor: showing it presents a frame, which
+        // a log read by its thread has no time to lose on.
         Afile *palog = malloc(sizeof(Afile));
 
+        begin_wait();
         ready = alog_take(palog, AfilePrepareRes(id, palog) >= 0);
+        end_wait();
     }
     if (!ready) {
         WARN("%s: Cannot open Afile by id $%x", __FUNCTION__, id);
         VPROF_MARK_END(VPROF_ALOGLOAD);
-        end_wait();
         return ERR_FREAD;
     }
 
@@ -333,7 +345,6 @@ errtype audiolog_play(int email_id) {
     alog_drained = false;
 
     VPROF_MARK_END(VPROF_ALOGLOAD);
-    end_wait();
 
     // bureaucracy
     curr_alog = email_id;
@@ -342,12 +353,13 @@ errtype audiolog_play(int email_id) {
     if (music_on) {
         curr_vol_lev = QVAR_TO_VOLUME(QUESTVAR_GET(MUSIC_VOLUME_QVAR));
         curr_vol_lev = curr_vol_lev * ALOG_MUSIC_DUCK;
-        MacTuneUpdateVolume();
+        VPROF_NOTE("MacTuneUpdateVolume", NULL, 0, 0, MacTuneUpdateVolume());
     }
 
-    snd_stop_music();
+    VPROF_NOTE("snd_stop_music", NULL, 0, 0, snd_stop_music());
     SDL_AtomicSet(&alog_hooked, 1);
-    Mix_HookMusic((void (*)(void*, Uint8*, int))audiolog_callback, NULL);
+    VPROF_NOTE("Mix_HookMusic", NULL, 0, 0,
+               Mix_HookMusic((void (*)(void*, Uint8*, int))audiolog_callback, NULL));
 
     return OK;
 }
@@ -429,8 +441,14 @@ bool audiolog_playing(int email_id) {
 errtype audiolog_bark_play(int bark_id) {
     if (global_fullmap->cyber)
         return ERR_NOEFFECT;
-    else
-        return (audiolog_play(bark_id + (AUDIOLOG_BARK_BASE_ID - AUDIOLOG_BASE_ID)));
+    else {
+        errtype played;
+
+        // (the profiler's note: a bark is set off from anywhere in the game)
+        VPROF_NOTE("audiolog_bark_play", __builtin_return_address(0), bark_id, 0,
+                   played = audiolog_play(bark_id + (AUDIOLOG_BARK_BASE_ID - AUDIOLOG_BASE_ID)));
+        return played;
+    }
 }
 
 //-------------------------------------------------------------

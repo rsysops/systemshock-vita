@@ -32,7 +32,7 @@
 #define VPROF_WORKERS (RASTQ_THREADS - 1)
 // A frame's longest pieces, of those it was told about (vprof_note), from
 // this long up
-#define VPROF_NOTES_KEPT 6
+#define VPROF_NOTES_KEPT 10
 #define VPROF_NOTE_MIN_US 1000
 
 // Per-call stats (one sample per VPROF_RUN/VPROF_MARK_END invocation).
@@ -118,6 +118,12 @@ typedef struct {
     int a, b;
     SceInt64 us;
 } vprof_note_t;
+// The slowest resource read since the second's line: which, from where
+// ("res" the card, "resm" memory), and how long
+static long long g_res_max_us;
+static int g_res_max_id;
+static const char *g_res_max_from = "res";
+
 // The frame under way's, longest first
 static vprof_note_t g_frame_notes[VPROF_NOTES_KEPT];
 static int g_frame_note_count;
@@ -390,6 +396,25 @@ void vprof_alog_add(unsigned micros) {
 
 void vprof_alog_dry(void) { __atomic_fetch_add(&g_alog_dry, 1, __ATOMIC_RELAXED); }
 
+// The game's own log, since the second's line: lines written, their time,
+// and the longest with where it was written from
+static unsigned g_applog_lines, g_applog_us, g_applog_max_us;
+static const void *g_applog_max_from;
+static SceUID g_main_thread;
+
+void vprof_applog_add(unsigned micros, const void *caller) {
+    __atomic_fetch_add(&g_applog_lines, 1, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&g_applog_us, micros, __ATOMIC_RELAXED);
+    // (two threads at once may leave the lesser of two here: no matter)
+    if (micros > __atomic_load_n(&g_applog_max_us, __ATOMIC_RELAXED)) {
+        __atomic_store_n(&g_applog_max_us, micros, __ATOMIC_RELAXED);
+        __atomic_store_n(&g_applog_max_from, caller, __ATOMIC_RELAXED);
+    }
+    // the frame's notes are the main thread's
+    if (g_main_thread != 0 && sceKernelGetThreadId() == g_main_thread)
+        vprof_note("log", caller, 0, 0, micros);
+}
+
 void vprof_audio_add(unsigned micros, int cpu) {
     __atomic_fetch_add(&g_audio_us, micros, __ATOMIC_RELAXED);
     __atomic_store_n(&g_audio_cpu, cpu, __ATOMIC_RELAXED);
@@ -610,7 +635,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
                 "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
                 "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u | "
-                "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d\n",
+                "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
+                "applog=%u:%.2f applogmax=%08x:%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -728,7 +754,15 @@ static void vprof_window_flush(SceInt64 now) {
                 scePowerGetBatteryTemp() / 100.0, (int)scePowerIsBatteryCharging(),
                 us_to_ms(__atomic_exchange_n(&g_log_io_us, 0, __ATOMIC_RELAXED)), g_log_drops,
                 frame_avg_ms(VPROF_OUTLINED, g_frame_samples), frame_max_ms(VPROF_OUTLINED),
-                img_ready, img_wanted, (double)img_bytes / (1024.0 * 1024.0), img_ms);
+                img_ready, img_wanted, (double)img_bytes / (1024.0 * 1024.0), img_ms,
+                g_res_max_from, (unsigned)g_res_max_id, us_to_ms(g_res_max_us),
+                __atomic_exchange_n(&g_applog_lines, 0, __ATOMIC_RELAXED),
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_us, 0, __ATOMIC_RELAXED)),
+                (unsigned)(uintptr_t)__atomic_load_n(&g_applog_max_from, __ATOMIC_RELAXED) & ~1u,
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_max_us, 0, __ATOMIC_RELAXED)));
+        __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
+        g_res_max_us = 0;
+        g_res_max_id = 0;
         vprof_spikes_write();
         log_submit();
     }
@@ -758,6 +792,11 @@ void vprof_note(const char *what, const void *who, int a, int b, long long micro
 void vprof_record(vprof_phase_t phase, long long micros, const char *what, int n1, int n2) {
     if (what != NULL)
         vprof_note(what, NULL, n1, n2, micros);
+    if (phase == VPROF_RESLOAD && what != NULL && micros > g_res_max_us) {
+        g_res_max_us = micros;
+        g_res_max_id = n1;
+        g_res_max_from = what;
+    }
     vprof_call_accum_t *a = &g_call_accum[phase];
     a->total_us += micros;
     a->samples++;
@@ -785,6 +824,7 @@ void vprof_frame_begin(void) {
 
     if (!g_startup_done) {
         g_startup_done = 1;
+        g_main_thread = sceKernelGetThreadId();
         vprof_startup_checks();
     }
 

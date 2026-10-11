@@ -1375,6 +1375,8 @@ int main(int argc, char **argv) {
     unsigned gpu_scenes = 0, gpu_polys = 0, gpu_culled = 0, gpu_cpu_calls = 0, gpu_whole_checks = 0;
     unsigned gpu_pieces = 0;
     unsigned cut_lists = 0, cut_bad = 0, cut_calls = 0, cut_by_workers = 0;
+    unsigned rows_views = 0, rows_bad = 0;
+    long rows_left = 0;
     long gpu_diff = 0, gpu_far = 0;
     int s, f;
     // RASTQ_HASH: only draw directly and print a checksum per frame, to
@@ -1479,6 +1481,52 @@ int main(int argc, char **argv) {
                             explain(ops, count, split);
                         }
                         bad++;
+                    }
+                }
+
+                // Only some rows asked for, as the game does to find what is
+                // under the cursor: those rows must be the whole replay's,
+                // whatever is left in the others. On this thread alone and
+                // with three set up; then under the self-check, which is to
+                // replay the view whole.
+                {
+                    int top = aux_in(-8, ch - 1), bot = top + aux_in(1, 40), from, to, y, k;
+
+                    from = top < 0 ? 0 : top;
+                    to = bot > ch ? ch : bot;
+                    for (k = 0; k < 3; k++) {
+                        int wrong = 0;
+
+                        set_split(k == 1 ? SPLIT_THREADS : SPLIT_NONE);
+                        rastq_set_check_interval(k == 2 ? 1 : 0);
+                        memset(&rastq_stats, 0, sizeof(rastq_stats));
+                        rastq_rows_next(top, bot);
+                        draw_scene(ops, count, k == 0 ? RASTQ_COPY_ALL : RASTQ_TRUST_STABLE, result[4]);
+                        set_split(SPLIT_NONE);
+                        for (y = from; y < to; y++)
+                            wrong += memcmp(result[0] + (size_t)y * crow, result[4] + (size_t)y * crow, (size_t)cw) != 0;
+                        if (k == 2) {
+                            // whole, and found right by the check
+                            wrong += differing(result[0], result[4]) != 0 || rastq_stats.check_bad_rows != 0 ||
+                                     rastq_stats.check_runs == 0;
+                        } else {
+                            // rows that were not drawn: there must be some,
+                            // or nothing was left out and this checks nothing
+                            for (y = 0; y < ch; y++)
+                                if (y < from || y >= to)
+                                    rows_left += memcmp(background + (size_t)y * crow, result[4] + (size_t)y * crow,
+                                                        (size_t)cw) == 0 &&
+                                                 memcmp(result[0] + (size_t)y * crow, result[4] + (size_t)y * crow,
+                                                        (size_t)cw) != 0;
+                        }
+                        rows_views++;
+                        if (wrong) {
+                            if (bad < 10)
+                                printf("  %dx%d frame %d (%d calls), rows %d to %d only (%s): %d rows differ\n", cw, ch,
+                                       f, count, top, bot, k == 0 ? "alone" : k == 1 ? "threads" : "checked", wrong);
+                            rows_bad++;
+                            bad++;
+                        }
                     }
                 }
 
@@ -1641,6 +1689,16 @@ int main(int argc, char **argv) {
     if (gpu_far > GPU_RUN_LIMIT * total) {
         printf("  that is more than %.2f%%\n", 100.0 * GPU_RUN_LIMIT);
         bad++;
+    }
+#endif
+#ifndef RASTQ_REFERENCE
+    if (!hash_only) {
+        printf("  rows only: %u views replayed for a few rows, %u differ there; %ld rows left undrawn\n", rows_views,
+               rows_bad, rows_left);
+        if (rows_left == 0) {
+            printf("  no row was ever left out\n");
+            bad++;
+        }
     }
 #endif
     printf("  %ld frames differ\n", bad);

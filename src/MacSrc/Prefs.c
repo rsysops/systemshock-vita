@@ -28,6 +28,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 //--------------------
 //  Includes
 //--------------------
+#include <string.h>
+
 #include "Shock.h"
 #include "Prefs.h"
 
@@ -258,6 +260,37 @@ int16_t LoadPrefs(void) {
 //	  Save global settings in the preferences file.
 //--------------------------------------------------------------------
 int16_t SavePrefs(void) {
+    // What was last written: the same text isn't written again. The options
+    // panel saves each time it closes, a setting changed or not, and a write
+    // waits for the memory card, however long it takes.
+    static char written[1024];
+    char text[sizeof(written)];
+    size_t at = 0;
+
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_LANGUAGE, which_lang);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_CAPTUREMOUSE, gShockPrefs.goCaptureMouse ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_INVERTMOUSEY, gShockPrefs.goInvertMouseY ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MUSIC_VOL, curr_vol_lev);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_SFX_VOL, sfx_on ? curr_sfx_vol : 0);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_VOL, curr_alog_vol);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_VIDEOMODE, mode_id);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_HALFRES, DoubleSize ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DETAIL, _fr_global_detail);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_SETTING, audiolog_setting);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_BACKEND, gShockPrefs.soMidiBackend);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_OUTPUT, gShockPrefs.soMidiOutput);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_GYRO, gShockPrefs.gyroAiming);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
+    if (at >= sizeof(text)) // (never: the text is under half of that)
+        at = sizeof(text) - 1;
+    if (strcmp(text, written) == 0)
+        return 0;
+
     INFO("Saving preferences");
 
     FILE *f = fopen(GetPrefsPathFilename(), "w");
@@ -265,26 +298,8 @@ int16_t SavePrefs(void) {
         printf("ERROR: Failed to open preferences file\n");
         return -1;
     }
-
-    fprintf(f, "%s = %d\n", PREF_LANGUAGE, which_lang);
-    fprintf(f, "%s = %s\n", PREF_CAPTUREMOUSE, gShockPrefs.goCaptureMouse ? "yes" : "no");
-    fprintf(f, "%s = %s\n", PREF_INVERTMOUSEY, gShockPrefs.goInvertMouseY ? "yes" : "no");
-    fprintf(f, "%s = %d\n", PREF_MUSIC_VOL, curr_vol_lev);
-    fprintf(f, "%s = %d\n", PREF_SFX_VOL, sfx_on ? curr_sfx_vol : 0);
-    fprintf(f, "%s = %d\n", PREF_ALOG_VOL, curr_alog_vol);
-    fprintf(f, "%s = %d\n", PREF_VIDEOMODE, mode_id);
-    fprintf(f, "%s = %s\n", PREF_HALFRES, DoubleSize ? "yes" : "no");
-    fprintf(f, "%s = %d\n", PREF_DETAIL, _fr_global_detail);
-    fprintf(f, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
-    fprintf(f, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
-    fprintf(f, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
-    fprintf(f, "%s = %d\n", PREF_ALOG_SETTING, audiolog_setting);
-    fprintf(f, "%s = %d\n", PREF_MIDI_BACKEND, gShockPrefs.soMidiBackend);
-    fprintf(f, "%s = %d\n", PREF_MIDI_OUTPUT, gShockPrefs.soMidiOutput);
-    fprintf(f, "%s = %d\n", VITA_GYRO, gShockPrefs.gyroAiming);
-    fprintf(f, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
-    fprintf(f, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
-    fprintf(f, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
+    if (fwrite(text, 1, at, f) == at)
+        strcpy(written, text);
     fclose(f);
     return 0;
 }

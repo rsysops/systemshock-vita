@@ -65,6 +65,9 @@ void vprof_audio_add(unsigned micros, int cpu);
 void vprof_alog_add(unsigned micros);
 // And of a call that had no sound to give: the log wasn't read yet.
 void vprof_alog_dry(void);
+// Called from any thread with the time a line of the game's own log
+// (log_log) took to write, and where it was written from.
+void vprof_applog_add(unsigned micros, const void *caller);
 
 // `what`, if not NULL, names this piece of the phase among the frame's notes
 // (see vprof_note), with two numbers of its own.

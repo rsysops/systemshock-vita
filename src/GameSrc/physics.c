@@ -68,6 +68,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "wares.h"
 #include "weapons.h"
 #include "mouselook.h"
+#include "vprof.h"
 
 #define EXPAND_FIX(x) fix_int(x), fix_frac(x)
 
@@ -267,7 +268,9 @@ errtype compare_locs(void) {
                     decon_count = 0;
                 in_peril = me_bits_peril(newElem);
                 if (old_bits != me_bits_music(newElem)) {
-                    fade_into_location(PLAYER_BIN_X, PLAYER_BIN_Y);
+                    // (the profiler's notes: what stepping onto a new square costs)
+                    VPROF_NOTE("fade_into_location", NULL, PLAYER_BIN_X, PLAYER_BIN_Y,
+                               fade_into_location(PLAYER_BIN_X, PLAYER_BIN_Y));
                     old_bits = me_bits_music(newElem);
                 }
             }
@@ -281,9 +284,10 @@ errtype compare_locs(void) {
 
         // Look for traps
         if (time_passes)
-            check_entrance_triggers(old_x, old_y, PLAYER_BIN_X, PLAYER_BIN_Y);
+            VPROF_NOTE("check_entrance_triggers", NULL, PLAYER_BIN_X, PLAYER_BIN_Y,
+                       check_entrance_triggers(old_x, old_y, PLAYER_BIN_X, PLAYER_BIN_Y));
 
-        check_hazard_regions(newElem);
+        VPROF_NOTE("check_hazard_regions", NULL, 0, 0, check_hazard_regions(newElem));
 
         old_x = PLAYER_BIN_X;
         old_y = PLAYER_BIN_Y;
@@ -565,9 +569,10 @@ errtype physics_run(void) {
             EDMS_control_pelvis(PLAYER_PHYSICS, plr_y, plr_alpha, plr_side, plr_lean, plr_z,
                                 crouch_controls[player_struct.posture]);
 
-            EDMS_soliton_vector(time_diff / CIT_CYCLE);
+            // (the profiler's notes: what a long physics_run() is made of)
+            VPROF_NOTE("EDMS_soliton_vector", NULL, 0, 0, EDMS_soliton_vector(time_diff / CIT_CYCLE));
 
-        edms_delete_go();
+        VPROF_NOTE("edms_delete_go", NULL, 0, 0, edms_delete_go());
 
         if (--safety_fail_count == 0)
             safety_fail_oid = -1;
@@ -647,7 +652,7 @@ errtype physics_run(void) {
                 }
 
                 if (allow_move)
-                    obj_move_to(oid, &newloc, FALSE);
+                    VPROF_NOTE("obj_move_to", NULL, oid, 0, obj_move_to(oid, &newloc, FALSE));
                 else
                     allow_move = TRUE;
             }
@@ -670,7 +675,7 @@ errtype physics_run(void) {
             run_cspace_collisions(objPhysicss[specid].id, PLAYER_OBJ, objPhysicss[specid].owner);
         }
     }
-    compare_locs();
+    VPROF_NOTE("compare_locs", NULL, 0, 0, compare_locs());
     return (OK);
 }
 

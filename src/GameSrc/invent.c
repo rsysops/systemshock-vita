@@ -30,6 +30,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "email.h"
 #include "invent.h"
+#include "vprof.h"
 #include "leanmetr.h"
 #include "objprop.h"
 #include "objwpn.h"
@@ -1894,10 +1895,11 @@ uchar inventory_handle_leftbutton(uiEvent *ev, inv_display *dp, int row) {
     switch (input_cursor_mode) {
     case INPUT_NORMAL_CURSOR:
         if (dp != NULL && row >= 0) {
+            // the profiler's notes name the page's own function by its address
             if (dp->select != NULL)
-                retval = dp->select(dp, row);
+                VPROF_NOTE("inv_select", dp->select, row, 0, retval = dp->select(dp, row));
             else
-                retval = do_selection(dp, row);
+                VPROF_NOTE("inv_select", do_selection, row, 0, retval = do_selection(dp, row));
         }
         break;
     case INPUT_OBJECT_CURSOR:
@@ -1950,7 +1952,7 @@ uchar inventory_handle_rightbutton(uiEvent *ev, LGRegion *reg, inv_display *dp, 
             int str = cyber ? REF_STR_InvCybFailSoft : REF_STR_InvCybFailHard;
             string_message_info(str);
         } else if (dp->drop != NULL) {
-            dp->drop(dp, row);
+            VPROF_NOTE("inv_drop", dp->drop, row, 0, dp->drop(dp, row));
         }
         lastrow = -1;
         lastdp = NULL;
@@ -2034,7 +2036,7 @@ uchar inventory_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
     // Handle left doubleclick
     if (ev->subtype & UI_MOUSE_LDOUBLE)
         if (dp != NULL && (row >= 0) && (dp->use != NULL)) {
-            retval = dp->use(dp, row);
+            VPROF_NOTE("inv_use", dp->use, row, 0, retval = dp->use(dp, row));
         }
     return retval;
 }

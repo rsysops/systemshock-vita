@@ -13,6 +13,14 @@ void resimage_start(void);
 // (ResUseImage). From the main thread, between two uses of that system.
 void resimage_poll(void);
 
+// Loads every compound resource of an open file now, as its first use
+// would, and holds it (locked): starting a game drops whatever is loaded
+// and not held (flush_resource_cache). For a small file whose pictures are
+// packed (the panels' art): unpacking one when it is first shown is a long
+// frame. resimage_release_all() lets go of them, before the file is closed.
+void resimage_hold_all(int filenum);
+void resimage_release_all(int filenum);
+
 // For the profiler: files read of those wanted, their size, and how long
 // the reading has taken so far.
 void resimage_stats(int *ready, int *wanted, int *bytes, int *ms);
