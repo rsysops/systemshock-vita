@@ -95,7 +95,7 @@ The root `CMakeLists.txt` only builds for the Vita and expects the VitaSDK toolc
 2. Sets `VITA_LIBS`, linking SDL2, vita2d, libjpeg/png/webp/z, vorbis/ogg, mikmod/modplug/xmp-lite, opus(file), FLAC, mpg123, and Vita system stub libraries (`SceCtrl`, `SceTouch`, `SceMotion`, `SceGxm`, `taihen`, etc.).
 3. Includes `vita/vita.cmake` to produce the `.vpk`.
 
-Its one option is `ENABLE_VITA_PROFILE`, which defines `VITA_PROFILE` for the profile build (`./build.sh profile`).
+Its options are `ENABLE_VITA_PROFILE`, which defines `VITA_PROFILE` for the profile build (`./build.sh profile`), and `ENABLE_VITA_PROFILE_CHECKS`, which adds `VITA_PROFILE_CHECKS` for the flavour of it that checks its own drawing (`./build.sh profile checks`).
 
 It then adds `src/Libraries/`, defines the `MAC_SRC`/`GAME_SRC` file lists, and links the final `systemshock` executable against `GAME_LIB` and every library target.
 

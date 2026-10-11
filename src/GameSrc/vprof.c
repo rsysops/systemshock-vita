@@ -4,7 +4,10 @@
 #ifdef VITA_PROFILE
 
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
 #include <psp2/power.h>
+#include <SDL.h>
+#include <stdarg.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -135,8 +138,8 @@ static unsigned g_spikes_total;
 static vprof_spike_t g_last_spike;
 static SceInt64 g_prev_frame_avg_us;
 
-// How long the last write to the log took: between two frames, so in no
-// frame's time, but the screen waits for it all the same.
+// How long the main thread last took to build the log's lines and queue them:
+// between two frames, so in no frame's time, but the screen waits for it.
 static SceInt64 g_logwrite_us;
 
 // Music synthesis time, added by the audio thread and taken by the main
@@ -163,21 +166,131 @@ static FILE *vprof_open_log(void) {
     return fopen(path, "a");
 }
 
+// ---- the log ----------------------------------------------------------------
+// The main thread builds its lines in memory and queues them; a thread of
+// their own writes them to the card, which takes tens of milliseconds and
+// used to hold the screen up once a second.
+
+#define LOG_TEXT_BYTES 12288
+#define LOG_QUEUE_BYTES 65536 // a power of two
+#define LOG_WRITER_NAP_MS 250
+// the file is closed and opened again after this many writes, so that what
+// was written is safely in it
+#define LOG_WRITES_PER_OPEN 30
+
+static char g_log_text[LOG_TEXT_BYTES]; // the lines being built
+static int g_log_len;
+static char g_log_queue[LOG_QUEUE_BYTES];
+static SDL_atomic_t g_log_head; // where the main thread puts
+static SDL_atomic_t g_log_tail; // where the writer takes
+static SDL_Thread *g_log_thread;
+static SDL_atomic_t g_log_stop;
+static unsigned g_log_drops;   // lines' worth of text the queue had no room for
+static unsigned g_log_io_us;   // the writer's longest write since it was last read
+
+static void log_printf(const char *fmt, ...) {
+    va_list args;
+    int room = (int)sizeof(g_log_text) - g_log_len, n;
+
+    if (room <= 1)
+        return;
+    va_start(args, fmt);
+    n = vsnprintf(g_log_text + g_log_len, room, fmt, args);
+    va_end(args);
+    if (n > 0)
+        g_log_len += n < room ? n : room - 1;
+}
+
+static void log_putc(char c) {
+    if (g_log_len < (int)sizeof(g_log_text) - 1)
+        g_log_text[g_log_len++] = c;
+}
+
+static int log_writer(void *unused) {
+    FILE *fp = NULL;
+    int writes = 0;
+
+    (void)unused;
+    // on any core, when nothing of the game's wants it
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
+    SDL_SetThreadPriority(SDL_THREAD_PRIORITY_LOW);
+    for (;;) {
+        int stop = SDL_AtomicGet(&g_log_stop);
+        int head = SDL_AtomicGet(&g_log_head), tail = SDL_AtomicGet(&g_log_tail);
+
+        if (head != tail) {
+            SceInt64 t0 = sceKernelGetProcessTimeWide();
+            unsigned took;
+
+            if (fp == NULL)
+                fp = vprof_open_log();
+            if (fp != NULL) {
+                if (head > tail) {
+                    fwrite(g_log_queue + tail, 1, head - tail, fp);
+                } else {
+                    fwrite(g_log_queue + tail, 1, LOG_QUEUE_BYTES - tail, fp);
+                    fwrite(g_log_queue, 1, head, fp);
+                }
+                fflush(fp);
+                if (++writes % LOG_WRITES_PER_OPEN == 0) {
+                    fclose(fp);
+                    fp = NULL;
+                }
+            }
+            SDL_AtomicSet(&g_log_tail, head);
+            took = (unsigned)(sceKernelGetProcessTimeWide() - t0);
+            if (took > __atomic_load_n(&g_log_io_us, __ATOMIC_RELAXED))
+                __atomic_store_n(&g_log_io_us, took, __ATOMIC_RELAXED);
+        }
+        if (stop)
+            break;
+        SDL_Delay(LOG_WRITER_NAP_MS);
+    }
+    if (fp != NULL)
+        fclose(fp);
+    return 0;
+}
+
+// The last lines, when the game ends.
+static void log_finish(void) {
+    SDL_AtomicSet(&g_log_stop, 1);
+    SDL_WaitThread(g_log_thread, NULL);
+    g_log_thread = NULL;
+}
+
+// Queues what was built, all of it or none: the game doesn't wait for room.
+static void log_submit(void) {
+    int head = SDL_AtomicGet(&g_log_head), tail = SDL_AtomicGet(&g_log_tail);
+    int room = LOG_QUEUE_BYTES - 1 - ((head - tail) & (LOG_QUEUE_BYTES - 1));
+    int first = LOG_QUEUE_BYTES - head;
+
+    if (g_log_thread == NULL && !SDL_AtomicGet(&g_log_stop)) {
+        g_log_thread = SDL_CreateThread(log_writer, "vprof_log", NULL);
+        if (g_log_thread != NULL)
+            atexit(log_finish);
+    }
+    if (g_log_thread == NULL || g_log_len > room) {
+        g_log_drops++;
+    } else {
+        if (first > g_log_len)
+            first = g_log_len;
+        memcpy(g_log_queue + head, g_log_text, first);
+        memcpy(g_log_queue, g_log_text + first, g_log_len - first);
+        SDL_AtomicSet(&g_log_head, (head + g_log_len) & (LOG_QUEUE_BYTES - 1));
+    }
+    g_log_len = 0;
+}
+
 // One-off checks run before the first frame, logged once at the top of the
 // session.
 static void vprof_startup_checks(void) {
-    FILE *fp;
-
     g_fixdiv_mismatches = fix_div_selfcheck(VPROF_FIXDIV_CHECK_CASES, &g_fixdiv_checked);
-    fp = vprof_open_log();
-    if (fp != NULL) {
-        fprintf(fp, "fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
-        fprintf(fp, "%s\n", vgpu_report());
-        // where a function of the game's file is on this console, for the
-        // addresses in the stutters' notes
-        fprintf(fp, "sym vprof_frame_end=%08x\n", (unsigned)(uintptr_t)&vprof_frame_end & ~1u);
-        fclose(fp);
-    }
+    log_printf("fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
+    log_printf("%s\n", vgpu_report());
+    // where a function of the game's file is on this console, for the
+    // addresses in the stutters' notes
+    log_printf("sym vprof_frame_end=%08x\n", (unsigned)(uintptr_t)&vprof_frame_end & ~1u);
+    log_submit();
 }
 
 static void vprof_window_reset(SceInt64 now, short loop_mode) {
@@ -383,34 +496,34 @@ static void vprof_spike_add(SceInt64 now, SceInt64 elapsed) {
 
 // The frame's longest pieces: time:name, then @ the address and # the two
 // numbers where there are any.
-static void vprof_notes_write(FILE *fp, const vprof_spike_t *s) {
+static void vprof_notes_write(const vprof_spike_t *s) {
     int i;
 
-    fputs(" | notes=", fp);
+    log_printf(" | notes=");
     if (s->note_count == 0)
-        fputc('-', fp);
+        log_putc('-');
     for (i = 0; i < s->note_count; i++) {
         const vprof_note_t *n = &s->notes[i];
         const char *c;
         int len = 0;
 
-        fprintf(fp, "%s%.2f:", i ? ";" : "", us_to_ms(n->us));
+        log_printf("%s%.2f:", i ? ";" : "", us_to_ms(n->us));
         // a statement's text, without what would cut the field short
         for (c = n->what; *c != '\0' && len < 40; c++) {
             if (*c != ' ' && *c != '|' && *c != ';') {
-                fputc(*c, fp);
+                log_putc(*c);
                 len++;
             }
         }
         if (n->who != NULL)
-            fprintf(fp, "@%08x", (unsigned)(uintptr_t)n->who & ~1u);
+            log_printf("@%08x", (unsigned)(uintptr_t)n->who & ~1u);
         if (n->a != 0 || n->b != 0)
-            fprintf(fp, "#%x/%d", (unsigned)n->a, n->b);
+            log_printf("#%x/%d", (unsigned)n->a, n->b);
     }
-    fputc('\n', fp);
+    log_putc('\n');
 }
 
-static void vprof_spikes_write(FILE *fp) {
+static void vprof_spikes_write(void) {
     int i;
 
     for (i = 0; i < g_spikes_kept; i++) {
@@ -418,7 +531,7 @@ static void vprof_spikes_write(FILE *fp) {
         SceInt64 other = s->frame_us - s->phase_us[VPROF_INPUT] - s->phase_us[VPROF_SIM] -
                          s->phase_us[VPROF_RENDER3D] - s->phase_us[VPROF_UI2D] - s->phase_us[VPROF_PRESENT];
 
-        fprintf(fp,
+        log_printf(
                 "spike t=%.2f mode=%d frame=%.2f input=%.2f sim=%.2f render3d=%.2f ui2d=%.2f present=%.2f "
                 "other=%.2f | traverse=%.2f sendview=%.2f raster=%.2f record=%.2f helpscan=%.2f hud=%.2f "
                 "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f | gpuwait=%.2f gpusubmit=%.2f "
@@ -435,13 +548,12 @@ static void vprof_spikes_write(FILE *fp) {
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
                 us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views);
-        vprof_notes_write(fp, s);
+        vprof_notes_write(s);
     }
     g_spikes_kept = 0;
 }
 
 static void vprof_window_flush(SceInt64 now) {
-    FILE *fp;
     double fps;
     double frame_avg, frame_max;
     double raster_calls_per_frame, raster_call_avg_ms;
@@ -468,9 +580,8 @@ static void vprof_window_flush(SceInt64 now) {
     snd_preload_stats(&snd_ready, &snd_total, &snd_decode_ms, &snd_bytes);
 
     write_t0 = sceKernelGetProcessTimeWide();
-    fp = vprof_open_log();
-    if (fp != NULL) {
-        fprintf(fp,
+    {
+        log_printf(
                 "t=%lld mode=%d var=%d fps=%.1f frame_avg=%.2f frame_max=%.2f "
                 "input=%.2f/%.2f sim=%.2f/%.2f render3d=%.2f/%.2f "
                 "ui2d=%.2f/%.2f present=%.2f/%.2f | "
@@ -494,7 +605,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f,rested:%.2f | "
                 "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
                 "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
-                "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d\n",
+                "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -609,9 +720,10 @@ static void vprof_window_flush(SceInt64 now) {
                 us_to_ms(__atomic_load_n(&g_alog_max_us, __ATOMIC_RELAXED)),
                 __atomic_load_n(&g_alog_dry, __ATOMIC_RELAXED),
                 scePowerGetBatteryRemainCapacity(), scePowerGetBatteryVolt(),
-                scePowerGetBatteryTemp() / 100.0, (int)scePowerIsBatteryCharging());
-        vprof_spikes_write(fp);
-        fclose(fp);
+                scePowerGetBatteryTemp() / 100.0, (int)scePowerIsBatteryCharging(),
+                us_to_ms(__atomic_exchange_n(&g_log_io_us, 0, __ATOMIC_RELAXED)), g_log_drops);
+        vprof_spikes_write();
+        log_submit();
     }
     g_logwrite_us = sceKernelGetProcessTimeWide() - write_t0;
 }

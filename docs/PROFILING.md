@@ -15,8 +15,15 @@ the normal build in three ways:
 - it draws six lines of figures over the picture;
 - it appends one line a second to a log on the memory card, and one
   for each stutter;
-- it checks its own drawing now and then (see
+- in its second flavour, it checks its own drawing now and then (see
   [What it changes](#what-it-changes-in-the-game)).
+
+It comes in two flavours:
+
+| command | folder | for |
+|---|---|---|
+| `./build.sh profile` | `build-profile/` | measuring: the game with its timers and nothing else |
+| `./build.sh profile checks` | `build-profile-checks/` | work on the drawing code: the same with the self-checks and the frame dumps, which hitch three times a second and so are kept out of the first |
 
 In the normal build every timer compiles to nothing: `VPROF_RUN(phase,
 code)` is just `code`. Nothing of the profiler ships in it.
@@ -24,8 +31,9 @@ code)` is just `code`. Nothing of the profiler ships in it.
 ## Quick start
 
 1. **Build.** `./build.sh profile` gives
-   `build-profile/systemshock.vpk`. The normal build goes to `build/`,
-   so the two don't share anything.
+   `build-profile/systemshock.vpk` (`./build.sh profile checks`:
+   `build-profile-checks/systemshock.vpk`). The normal build goes to
+   `build/`, so none of them share anything.
 2. **Install.** The package has the normal build's title
    (`SHOK00001`), so it replaces it. Saves and settings are in
    `ux0:data/systemshock/` and are kept.
@@ -61,17 +69,19 @@ GPU renderer's (S1 and on), `docs/profiles-perf/`, as `profile-step-N.txt`,
   while frames are short of time (`var=1`, what the game does), ten
   minutes each. The log says which was on (`var=`). That is what makes
   two ways comparable: same place, same moment, same capture.
-- **It checks pictures.** One 3D view in 63 is drawn twice, by two
-  paths, and compared (see [Self-checks](#self-checks-and-frame-dumps)).
-  Such a frame is slow, so it is left out of the timings.
-- **It stops for about four seconds** when it writes a frame dump to
-  the card (3.8 to 4.0 s measured): at most five times in a session,
-  30 seconds apart.
-- **It writes its log once a second**, between two frames. That holds
-  the screen up: 25 to 135 ms measured (`logwrite=`).
-- **So it stutters on its own**, several times a second with the
-  self-checks. To find the game's stutters, go by the `spike` lines
-  and not by the feel (see [Stutters](#stutters)).
+- **It writes its log from a thread of its own**, a few times a second.
+  The main thread only builds the lines (`logwrite=`); the card is the
+  writer's business (`logio=`). A read of the game's that falls on a
+  write can still wait for it.
+- **With the checks flavour only, it checks pictures.** One 3D view in
+  63 is drawn twice, by two paths, and compared (see
+  [Self-checks](#self-checks-and-frame-dumps)). Such a frame is slow,
+  about 68 ms, so it is left out of the timings (`skipped=`); with the
+  HUD's checks that is about three a second. And it stops for about
+  four seconds when it writes a frame dump to the card: at most five
+  times in a session, 30 seconds apart. To find the game's stutters,
+  use the first flavour, or go by the `spike` lines and not by the
+  feel (see [Stutters](#stutters)).
 - **It costs a little.** A timer is two clock reads; the overlay is
   six lines of text.
 
@@ -249,7 +259,9 @@ A second with a large `frame_max` and a large `sndload`, `resload` or
 |---|---|
 | `slow=20:a,34:b,50:c,100:d` | frames of this second longer than 20, 34, 50 and 100 ms: one, two, three and six screen refreshes (not per frame) |
 | `skipped=a/b` | frames left out of the timings in this second, and the longest in ms. A self-check draws its frame twice: a hitch you can see, but the profiler's own |
-| `logwrite` | how long writing the previous second's lines took, in ms. Between two frames, so in no frame's time, but the screen waits for it |
+| `logwrite` | how long the main thread took to build the previous second's lines and queue them, in ms. Between two frames, so in no frame's time, but the screen waits for it |
+| `logio` | the longest write of the log's own thread since the line before, in ms. Nothing waits for it, unless a read of the game's falls on it |
+| `logdrop` | total: times the lines found the queue full and were dropped. Must be 0 |
 
 A frame is a stutter when it takes at least 25 ms and half again as
 long as the average frame of the second before, so that a place that
@@ -295,8 +307,10 @@ arm-vita-eabi-nm -n build-profile/systemshock | awk '$1 <= "810a1234"' | tail -1
 is the function). The session's first lines have
 `sym vprof_frame_end=`, that function's address on the console: if it
 isn't the one `nm` gives, the game was loaded elsewhere and every
-address is off by the difference (0x3a000 higher on the console, in
-the capture of step S3). A
+address is off by the difference. It is not the same from one capture
+to the next (0, 0x3a000 and 0x79000 so far): take it from each
+session's own line, and look the addresses up in the file of the
+flavour that session ran. A
 stutter in a second that isn't logged (the screen changed) still gets
 its line, with the next second's.
 
@@ -311,9 +325,11 @@ its line, with the next second's.
 
 ### Traps
 
-- **`fps` above 60.** It is 1000 / `frame_avg`, and the first second
-  after a switch to a faster path can have frames the screen didn't hold
-  back.
+- **`fps` above 60.** It is 1000 / `frame_avg`, over the frames that
+  count. With the checks flavour it reads 61 to 63 at the screen's
+  60: a check's long frame is left out of the average, and the short
+  frames that catch up after it are not. The measuring flavour reads
+  60.0. The same happens for a second after a switch to a faster path.
 - **Fields that contain others.** `render3d` contains `traverse` and
   `sendview`; `traverse` contains `raster`; with the GPU renderer
   `render3d` and `sendview` also contain `helpscan`, which runs while
@@ -367,6 +383,11 @@ for first, last, name in parts:
 ```
 
 ## Self-checks and frame dumps
+
+The first two are in every profile build. The others are only in the
+checks flavour (`./build.sh profile checks`): without it `check=`,
+`leaks=`, `gpudiff=` and `hudcheck=` stay at zero and no dump is
+written.
 
 | check | when | what it compares | where the result is |
 |---|---|---|---|

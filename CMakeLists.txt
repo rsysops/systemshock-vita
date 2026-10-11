@@ -15,6 +15,8 @@ set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -D__STDC_LIMIT_MACROS")
 
 option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log" OFF)
 add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
+option(ENABLE_VITA_PROFILE_CHECKS "Enable the profile build's self-checks and frame dumps" OFF)
+add_feature_info(ENABLE_VITA_PROFILE_CHECKS ENABLE_VITA_PROFILE_CHECKS "Enable VITA_PROFILE_CHECKS self-checks")
 
 add_compile_options(-fsigned-char -fno-strict-aliasing)
 
@@ -57,6 +59,9 @@ set(VITA_LIBS "-lSDL2 -lvita2d -pthread -ljpeg -lpng -lwebp -lz -lvorbisfile -lv
 if(ENABLE_VITA_PROFILE)
 	add_definitions(-DVITA_PROFILE)
 	set(VITA_LIBS "${VITA_LIBS} -lScePgf_stub")
+endif()
+if(ENABLE_VITA_PROFILE_CHECKS)
+	add_definitions(-DVITA_PROFILE_CHECKS)
 endif()
 SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
 # room after the code segment for what vita-elf-create adds there

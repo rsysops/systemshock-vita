@@ -2206,8 +2206,8 @@ the spike lines are what to go by, not the feel.
 
 Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
-written here. S1, S1b, S2 and S3 are done; S5 is next; S4, S6 and S7
-are not started.
+written here. S1 to S4 are done; S5 is next; S6 and S7 are not
+started.
 
 | step | what | for |
 |---|---|---|
@@ -2215,7 +2215,7 @@ are not started.
 | S1b | Audio logs converted while they play, and read by a thread of their own | **done**: starting a log takes the main thread 0.6 ms, from 1.6 to 5.4 s; the voice starts 0.13 to 0.38 s later |
 | S2 | The draw list shared with the workers only when the frame is short of time | **done**: the workers asleep where frames have time to spare, at the same fps; 23 mA less drawn from the battery, a little under 6% |
 | S3 | The other stutters named: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | **done**: every stutter has a name; three quarters are the side panels' update |
-| S4 | A quieter profile build | its own hitches, several a second |
+| S4 | A quieter profile build | **done**: the log costs the main thread 0.4 ms a second, from 52; the build that measures has no self-checks, and leaves the game alone |
 | S5 | The side panels' update: find what its 16 ms are, then make it cheap | 189 of the 257 stutters of S3's capture |
 | S6 | Art read before it is needed: when the level loads, or by a reader of its own as for the audio logs | 19 stutters, the longest ones (up to 104 ms) |
 | S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's | 37 stutters |
@@ -2604,14 +2604,56 @@ in the game, 3 of them a level being loaded (1.9 to 7.9 s). The other
   used on purpose this time.
 - `sndready=115/115`, no `sndload` or `alogload` in any spike line.
 
-**S4: a quieter profile build.**
+**S4: a quieter profile build.** Done; results below. The profile
+build hitched on its own: 25 to 135 ms each second for its log write,
+about three self-check frames a second of 68 ms, 4 s for each frame
+dump. None of it in the figures, all of it on the screen, and some of
+it in what is measured (S1b's audio thread waiting for the card, S2's
+workers woken once a second).
 
-- The log line is still built on the main thread, but written to the
-  card by another thread, the file kept open.
-- A switch in `src/Libraries/H/vprof.h`, like `VPROF_ALTERNATE`, to
-  build without the self-checks and the frame dumps for a session spent
-  on stutters. They stay on by default: they are what catches a wrong
-  picture.
-- The capture should show: `logwrite` near zero; with the checks off,
-  `skipped=0` and the workers asleep on the slope with none of the 10%
-  of watching.
+- **The log is written by a thread of its own.** The main thread builds
+  the second's lines in memory and queues them (64 KB of queue; a line
+  that finds it full is dropped and counted, never waited for); the
+  writer takes them out four times a second, through a file it keeps
+  open and reopens every 30 writes. At exit what is left is written.
+- **Two flavours**: `./build.sh profile` builds without the self-checks
+  and the frame dumps, for measuring; `./build.sh profile checks`
+  builds with them, into `build-profile-checks/`, for work on the
+  drawing code. Without them their code isn't compiled in at all
+  (`VITA_PROFILE_CHECKS`), so the measuring flavour's queue and HUD
+  code are the normal build's plus the timers.
+- In the log, `logwrite` is now what the lines cost the main thread;
+  `logio` is the writer's longest write, `logdrop` the lines dropped.
+- The normal build's code is unchanged.
+
+Results (`docs/profiles-perf/profile-step-s4.txt`): a session of 627
+logged seconds with the measuring flavour, then one of 391 with the
+checks flavour.
+
+| | before S4 | measuring flavour | checks flavour |
+|---|---|---|---|
+| the log's cost to the main thread, each second (`logwrite`) | about 52 ms, 25 to 135 | 0.37 ms, 0.69 at most | 0.38 ms, 0.70 at most |
+| seconds with a frame drawn twice for a check (`skipped`) | nearly all, about 3 frames in each | none of 627 | 380 of 391 |
+| workers, where the lists aren't shared | asleep 88%, watching 10% | asleep 100% | asleep 88%, watching 10% |
+| `fps` | 62 to 63 | 60.0 | 61.2 |
+
+- **The log no longer holds the screen up.** The writing itself is the
+  writer thread's: 26 ms at the median, up to 155 in the first session
+  and 311 in the second (`logio`). No line was dropped.
+- **The measuring flavour does nothing of its own to the game**: no
+  frame skipped, no check run (`check=0/0`), the workers fully asleep
+  where frames have time to spare.
+- **Its `fps` reads 60.0, the screen's rate.** The 62 to 63 of every
+  capture before it came from the checks: a check's long frame is left
+  out of the average, the short frames that catch up after it are not.
+  The frame's time was the figure to go by; the fps now agrees with it.
+- **The checks flavour still checks**: `check=0/118`, `leaks=0`,
+  `hudcheck=0/1032`, 8.7% of the compared pixels differ.
+- **What stutters is the game's own**: 61 in the first session, 6.3 a
+  minute, every one with a name. The side panels' update 19, art read
+  when first seen 11, the inventory's handler 8, the mail reader's 8,
+  creatures' art 5, clicks in the 3D view 4, the rest 6. S5 to S7's
+  list, as S3 left it.
+- The addresses of the notes were 0 above the file's in the first
+  session and 0x79000 in the second (0x3a000 in S3's capture): the
+  offset is to be taken from each session's `sym` line.

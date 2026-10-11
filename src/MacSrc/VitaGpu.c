@@ -685,7 +685,7 @@ static void vgpu_end(void) {
     in_scene = 0;
 }
 
-#ifdef VITA_PROFILE
+#ifdef VITA_PROFILE_CHECKS
 // ---- frame pairs for looking at on a PC -------------------------------------
 
 static void write_rows(const char *path, const uchar *pixels, int w, int h, int row) {
