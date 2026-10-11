@@ -382,6 +382,11 @@ int32_t ResPack(int32_t filenum);                   // remove empty entries
 //#define ResAutoPackOff(filenum) (resFile[filenum].pedit->flags &=
 //~RFF_AUTOPACK) #define ResNeedsPacking(filenum) (resFile[filenum].pedit->flags
 //& RFF_NEEDSPACK)
+// A resource file's whole content, to read it from in place of the file
+// (resfile.c)
+bool ResUseImage(const char *fname, const void *bytes, size_t size);
+bool ResOnImage(Id id); // is this resource's file read from memory?
+
 // DG: a case-insensitive fopen()-wrapper (see resfile.c)
 extern FILE *fopen_caseless(const char *path, const char *mode);
 

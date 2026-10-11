@@ -95,7 +95,8 @@ void *ResLoadResource(Id id, const ResourceFormat *format) {
 	if (prd->ptr == NULL)
 	    return (NULL);
 	// Load from disk
-	VPROF_RUN_AS(VPROF_RESLOAD, "res", id, prd->fsize, ResRetrieve(id, prd->ptr));
+	// "resm": read from the file's copy in memory
+	VPROF_RUN_AS(VPROF_RESLOAD, ResOnImage(id) ? "resm" : "res", id, prd->fsize, ResRetrieve(id, prd->ptr));
     } else {
 	assert(format->decoder != NULL);
     }

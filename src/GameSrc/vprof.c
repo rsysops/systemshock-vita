@@ -21,6 +21,7 @@
 #include "vprof.h"
 #include "VitaGpu.h"
 #include "hudkeep.h"
+#include "resimage.h"
 
 #define VPROF_FIXDIV_CHECK_CASES 1000000
 // A stutter: a frame of at least this long that is also half again as long
@@ -560,6 +561,7 @@ static void vprof_window_flush(SceInt64 now) {
     double raster_calls_per_frame, raster_call_avg_ms;
     SceInt64 write_t0;
     int snd_ready, snd_total, snd_decode_ms, snd_bytes;
+    int img_ready, img_wanted, img_bytes, img_ms;
 
     if (!g_window_open || g_frame_samples == 0) {
         return;
@@ -579,6 +581,7 @@ static void vprof_window_flush(SceInt64 now) {
     g_lists_solo_calls = (double)rastq_stats.gpu_solo_calls / g_frame_samples;
     g_prev_frame_avg_us = g_frame_total_us / g_frame_samples;
     snd_preload_stats(&snd_ready, &snd_total, &snd_decode_ms, &snd_bytes);
+    resimage_stats(&img_ready, &img_wanted, &img_bytes, &img_ms);
 
     write_t0 = sceKernelGetProcessTimeWide();
     {
@@ -607,7 +610,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
                 "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
                 "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u | "
-                "outlined=%.2f/%.2f\n",
+                "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -724,7 +727,8 @@ static void vprof_window_flush(SceInt64 now) {
                 scePowerGetBatteryRemainCapacity(), scePowerGetBatteryVolt(),
                 scePowerGetBatteryTemp() / 100.0, (int)scePowerIsBatteryCharging(),
                 us_to_ms(__atomic_exchange_n(&g_log_io_us, 0, __ATOMIC_RELAXED)), g_log_drops,
-                frame_avg_ms(VPROF_OUTLINED, g_frame_samples), frame_max_ms(VPROF_OUTLINED));
+                frame_avg_ms(VPROF_OUTLINED, g_frame_samples), frame_max_ms(VPROF_OUTLINED),
+                img_ready, img_wanted, (double)img_bytes / (1024.0 * 1024.0), img_ms);
         vprof_spikes_write();
         log_submit();
     }

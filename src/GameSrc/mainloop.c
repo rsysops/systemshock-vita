@@ -54,6 +54,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "sdl_events.h"
 #include "setup.h"
 #include "status.h"
+#include "resimage.h"
 #include "tickcount.h"
 #include "tools.h"
 #include "vprof.h"
@@ -116,6 +117,7 @@ void mainloop(int argc, char *argv[]) {
     while (_current_loop >= 0 && gPlayingGame) {
         VPROF_FRAME_BEGIN();
         gShockTicks = TickCount();
+        resimage_poll(); // the art files read into memory since the last frame
 
         if (!(_change_flag & (ML_CHG_BASE << 1)))
             loopLine(ML | 1, VPROF_RUN(VPROF_INPUT, input_chk())); // go get the UI stuff going

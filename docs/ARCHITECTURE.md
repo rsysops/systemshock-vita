@@ -33,6 +33,7 @@ Grouped by concern:
 - **World/objects** — `objects.c`, `objsim.c`, `objuse.c`, `objload.c`, `gameobj.c`, `trigger.c`.
 - **Automap / cyberspace** — `amap.c`, `automap.c`, `fullamap.c`, `cyber.c`, `cybrnd.c`.
 - **Game loop / lifecycle** — `mainloop.c`, `gameloop.c`, `gamesys.c`, `gametime.c`, `setup.c`, `cutsloop.c`, `saveload.c`.
+- **Game data in memory** — `resimage.c` (reads the art files whole into memory on a background thread, for the resource library to read from in place of the card).
 - **Profiling** — `vprof.c`, the on-device profiler of the profile build (see [PROFILING.md](PROFILING.md)).
 
 ### `src/MusicSrc/`
@@ -46,7 +47,7 @@ Each row with sources is its own CMake target, defined in `src/Libraries/CMakeLi
 | `2D` | Bitmap/blit primitives |
 | `3D` | 3D math and texture mapping; the rasterizer queue and its worker threads (`rastq.c`, `rastqthr.c`) |
 | `GR` | Graphics abstraction (its sources live in `2D/Source/GR`) |
-| `RES` | Reads the original `.res` game data files (`resacc.c`, `lzw.c`) |
+| `RES` | Reads the original `.res` game data files (`resacc.c`, `lzw.c`), from the card or from a file's copy in memory (`ResUseImage` in `resfile.c`) |
 | `LG` | "Looking Glass" core utilities: temporary memory (`tmpalloc.c`, `stack.c`), per-thread slots for the rasterizer's workers (`lgslot.c`), logging (vendored, `LG/Source/LOG`) |
 | `INPUT` | Input; `sdl_events.c` turns SDL controller, touch and gyro events into the game's keyboard and mouse events |
 | `UI` | UI widgets |

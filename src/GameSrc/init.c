@@ -32,6 +32,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "criterr.h"
 #include "cybmem.h"
+#include "resimage.h"
 #include "cybrnd.h"
 #include "drugs.h"
 #include "frprotox.h"
@@ -684,6 +685,9 @@ errtype init_3d_objects() {
 }
 
 errtype init_load_resources() {
+    // The art files are read into memory in the background from here on
+    resimage_start();
+
     // Open the screen resource stuff
     if (ResOpenFile("res/data/gamescr.res") < 0)
         critical_error(CRITERR_RES | 1);

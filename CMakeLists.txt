@@ -180,6 +180,7 @@ set(GAME_SRC
 	src/GameSrc/popups.c
 	src/GameSrc/render.c
 	src/GameSrc/rendtool.c
+	src/GameSrc/resimage.c
 	src/GameSrc/saveload.c
 	src/GameSrc/schedule.c
 	src/GameSrc/screen.c

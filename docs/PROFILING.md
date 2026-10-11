@@ -234,7 +234,9 @@ All zero in the seconds the CPU draws.
 | `hudkept=text:a/b,scaled:c/d` | texts and stretched bitmaps copied from a kept picture / drawn again (`src/GameSrc/hudkeep.c`). For a text, drawn again is a picture made of it, or the nine draws where it can't be kept |
 | `outlined=a/b` | all the outlined text of a frame: copied from its picture, made into one, or drawn nine times (`draw_shadowed_string`). The HUD's messages and, in full screen, the side panels' text. At the end of the line |
 | `sndload` | decoding a sound effect on the main thread: one played before the background thread got to it, or waited for while the thread was on it |
-| `resload` | reading a resource from the card |
+| `resload` | reading a resource: from the card, or from its file's copy in memory once that is there |
+| `resimg=a/b` | total: art files read whole into memory, of those wanted (`src/GameSrc/resimage.c`). At the end of the line |
+| `resimgmb`, `resimgms` | total: what those copies take up, in MB, and how long their thread has taken to read them, in ms |
 | `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
 | `alogcpu` | the share of one core the audio thread spends on a log while it plays: converting it, a slice at each of its calls |
 | `alogcbmax` | the longest of those calls in this second, in ms. A call has 43 ms before the sound runs dry |
@@ -293,6 +295,7 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `ui@address#type` | a handler of the interface library called for an input event of that type (hex): the function at that address |
 | `hotkey@address#key` | a hotkey's function, and the key (hex) |
 | `res#id/bytes` | a resource read from the card: its id (hex) and its size |
+| `resm#id/bytes` | the same read from its file's copy in memory |
 | `view@address` | a 3D view drawn (`fr_rend`), and where it was asked for from |
 | `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |
 | `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |

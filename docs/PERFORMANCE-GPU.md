@@ -2206,7 +2206,7 @@ the spike lines are what to go by, not the feel.
 
 Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
-written here. S1 to S5 are done; S6 and S7 are not started.
+written here. S1 to S6 are done; S7 is not started.
 
 | step | what | for |
 |---|---|---|
@@ -2216,7 +2216,7 @@ written here. S1 to S5 are done; S6 and S7 are not started.
 | S3 | The other stutters named: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | **done**: every stutter has a name; three quarters are the side panels' update |
 | S4 | A quieter profile build | **done**: the log costs the main thread 0.4 ms a second, from 52; the build that measures has no self-checks, and leaves the game alone |
 | S5 | The side panels' update: find what its 16 ms are, then make it cheap | **done**: it was the panels' outlined text, drawn nine times each; now one draw the first time and a copy after. No stutter is a panel paying for its text any more, from 189 of 257 |
-| S6 | Art read before it is needed: when the level loads, or by a reader of its own as for the audio logs | 19 stutters, the longest ones (up to 104 ms) |
+| S6 | Art read before it is needed | **done**: the art files held whole in memory, 14 MB read by a thread of its own at start-up. No stutter has a read from the card in it any more, from 18 of 32; 3.2 stutters a minute, from 8.5; a new game loads in 3 s, from 6 |
 | S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's (a page of a mail is 24 ms of handler, 6 of them its words' text) | 37 stutters |
 
 The order is by what the player gains. S4 is the smallest and could go
@@ -2768,3 +2768,101 @@ mail reader used on purpose in all of them.
   seen 17 (`render_run()`), creatures' art 4 (`ai_run()`,
   `advance_animations()`), clicks 10 (the 7 mail pages, the portrait's
   read among them), one in `physics_run()`.
+
+**S6: art read from memory, not from the card.** Done; results below.
+
+What the reads are, from the four captures since S3 and the data files
+themselves:
+
+- **It is the card, not the size and not unpacking.** The stutter
+  frames read 77 different resources, 210 times. All but the panels'
+  art (`MFDART.RES`) are stored unpacked, and 1 KB takes 5 ms,
+  sometimes 12 to 20: finding the place in the file is what costs.
+- **They come from few files, and small ones**: `OBJART3.RES` (80 of
+  the reads), `CITMAT.RES` (40), `OBJART2.RES` (39), `OBJ3D.RES` (23),
+  `TEXTURE.RES` (14), `MFDART.RES` (10), then `VIDMAIL`, `GAMESCR`,
+  `OBJART` and `HANDART`. With the panels' art in the two other
+  languages and `SIDEART`, 13 files and 14 MB. The game has 256 MB of
+  heap.
+- **A level change throws the creatures' art away**:
+  `free_dynamic_memory` (`src/GameSrc/cybmem.c`) closes `texture`,
+  `handart`, `objart2` and `objart3`, which frees what was read from
+  them, and they are opened again for the new level. That art is read
+  again piece by piece on every level.
+
+So there is no guessing at what a level needs: the files themselves are
+kept in memory.
+
+- **A thread reads them once, at start-up** (`src/GameSrc/resimage.c`),
+  below the game's threads as the one that decodes the sound effects,
+  128 KB at a time through a handle of its own. Most read first, the
+  textures last: a level's are loaded with the level anyway.
+- **The resource library reads a file from its copy**
+  (`ResUseImage` in `src/Libraries/RES/Source/resfile.c`): the file's
+  handle is opened on the memory (`fmemopen`) in place of the card, so
+  everything that reads through it is as it was, the directory at
+  opening and the packed resources too. A file already open when its
+  copy arrives is switched over there and then. Only files opened to
+  be read: a saved game is never one. The library has no thread of its
+  own: the main thread hands it the copies, once a frame and before a
+  level's files are opened again.
+- **Until its copy is there a file is read from the card**, as before:
+  the menus and the first level's load, by and large. A file that
+  can't be read or has no memory stays on the card.
+- **Checked on the PC** (`tests/resimage/run.sh <DATA folder>`): for
+  the 13 files, 1,668 resources, each read from the disk, then from
+  the copy arriving while the file is open, then from a file opened on
+  its copy: the same bytes, and the same tables for the compound ones.
+- **New in the log** (profile build): `resimg=a/b`, `resimgmb` and
+  `resimgms` (the files in memory, their size, the reader's time); a
+  read from a copy is noted `resm#id/bytes`, one from the card still
+  `res#`.
+- What does not change: which bytes a read gives, what is kept loaded
+  and when it is dropped.
+
+Results (`docs/profiles-perf/profile-step-s6.txt`): the measuring
+flavour, 989 logged seconds, 950 in the game. Two new games, the first
+level walked through at length, mails read, and cyberspace entered and
+left twice. The lift wasn't found, but cyberspace is a level change
+that closes and reopens the creatures' files as the lift does
+(`DYNMEM_PARTIAL` in `go_to_different_level`,
+`src/GameSrc/saveload.c`); the lift closes the textures' file as well,
+and that one was reopened by the second new game.
+
+| | S5b | S6 |
+|---|---|---|
+| seconds in the game | 225 | 950 |
+| stutters in the game | 32, 8.5 a minute | 50, 3.2 a minute |
+| of them, with art read from the card (`render_run()`, `ai_run()`, `advance_animations()`) | 18 | 0 |
+| a new game's load | 5.8 to 6.2 s | 3.1 and 2.9 s |
+| the mail sender's portrait | 61 ms, read from the card | 21 ms, unpacked from memory |
+
+- **The files are in memory before the first frame**: `resimg=13/13`,
+  13.9 MB, read in 5.7 s during start-up. The sound effects' thread
+  took 0.3 s longer beside it (10.9 s).
+- **No stutter has a read from the card in it any more**, on the first
+  level or after either return from cyberspace. The frame's reads now
+  average 0.003 ms.
+- **A new game loads in half the time**: the level's own art comes from
+  memory too (the objects' art, 752 KB, in 3.6 ms from about 250; a
+  texture of 288 KB in 1.2 ms from about 80).
+- **The portrait still makes its click a stutter**: read from memory,
+  it has to be unpacked, 21 ms. The panels' art is the one packed
+  file. With the mail's page it is S7's.
+- **What stutters now is clicks: 42 of the 50.** 29 in the 3D view
+  (`view3d_mouse_handler`, most with `fr_get_at` drawing the view
+  again), 10 in the inventory, mail pages mostly, 1 on a panel, 2 in
+  the options panel. The rest: 2 in `physics_run()` (27 and 29 ms, as
+  in S5's captures), 3 in the frame's presentation, 3 with nothing
+  standing out. That is S7.
+- Left over, none of it in a stutter but the portrait: 21 of the 950
+  seconds have a read of over 1 ms, 5 ms typically, 13 once. The log
+  names a read only in a stutter's line. The text strings' file isn't
+  among the 13 and is the likely one. And the title screen's art
+  (`INTRO.RES`, 14 and 6 ms) is read from the card each time the main
+  menu shows.
+- Long frames that are not stutters: the levels' loads (cyberspace in
+  2.7 and 3.1 s, out in 7.1 and 2.8 s), 9.4 s in the options panel's
+  handler at t=547 (a save or a load), and 19 s at t=339 in a click
+  that played something through, the screen being refreshed all the
+  while.

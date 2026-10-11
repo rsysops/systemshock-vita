@@ -39,6 +39,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 #include <assert.h>
 #include <string.h>
+#include <strings.h>
 #include <stdlib.h>
 
 #include "lg.h"
@@ -52,6 +53,82 @@ char resFileSignature[16] = {'L', 'G', ' ', 'R', 'e', 's', ' ', 'F', 'i', 'l', '
 //	The active resource file info table
 
 ResFile resFile[MAX_RESFILENUM + 1];
+
+//	---------------------------------------------------------
+//		FILES HELD IN MEMORY
+//	---------------------------------------------------------
+//
+//	A file's whole content given with ResUseImage() is read from there
+//	in place of the disk: the file's handle is opened on the memory, and
+//	everything that reads through it goes on as before. Only for files
+//	opened to be read (ROM_READ, no directory kept).
+
+#define RES_IMAGES 16
+#define RES_IMAGE_NAME 64
+
+typedef struct {
+    char name[RES_IMAGE_NAME];
+    const void *bytes;
+    size_t size;
+} ResImage;
+
+static ResImage resImage[RES_IMAGES];
+static int resImageCount;
+// For each open file that could be read from an image: its name, and
+// whether it is.
+static char resFileName[MAX_RESFILENUM + 1][RES_IMAGE_NAME];
+static bool resFileOnImage[MAX_RESFILENUM + 1];
+
+static const ResImage *ResFindImage(const char *fname) {
+    int i;
+
+    for (i = 0; i < resImageCount; i++)
+        if (strcasecmp(resImage[i].name, fname) == 0)
+            return &resImage[i];
+    return NULL;
+}
+
+static FILE *ResOpenImage(const ResImage *image) { return fmemopen((void *)image->bytes, image->size, "rb"); }
+
+//	ResUseImage() gives the whole content of a resource file, to be read
+//	from in place of the file, now if it is open and whenever it is
+//	opened from then on. The bytes must stay where they are for good.
+//
+//		fname = the name the file is opened by (case doesn't matter)
+//		bytes = its content
+//		size  = and how much
+//
+//	Returns: false if it can't be kept (the file is read from disk)
+
+bool ResUseImage(const char *fname, const void *bytes, size_t size) {
+    ResImage *image;
+    int32_t filenum;
+
+    if (resImageCount == RES_IMAGES || strlen(fname) >= RES_IMAGE_NAME || ResFindImage(fname) != NULL)
+        return false;
+    image = &resImage[resImageCount++];
+    strcpy(image->name, fname);
+    image->bytes = bytes;
+    image->size = size;
+
+    for (filenum = 1; filenum <= MAX_RESFILENUM; filenum++) {
+        FILE *fd;
+
+        if (resFile[filenum].fd == NULL || resFileOnImage[filenum] || strcasecmp(resFileName[filenum], fname) != 0)
+            continue;
+        fd = ResOpenImage(image);
+        if (fd == NULL)
+            continue;
+        fclose(resFile[filenum].fd);
+        resFile[filenum].fd = fd;
+        resFileOnImage[filenum] = true;
+    }
+    return true;
+}
+
+//	ResOnImage() says whether a resource's file is read from memory.
+
+bool ResOnImage(Id id) { return ResInUse(id) && resFileOnImage[ResFilenum(id)]; }
 
 //	Global datapath for res files, other data modules may piggyback
 
@@ -122,12 +199,24 @@ int32_t ResOpenResFile(const char *fname, ResOpenMode mode, bool auxinfo) {
 
     TRACE("%s: %s", __FUNCTION__, fname);
 
+    resFileName[filenum][0] = '\0';
+    resFileOnImage[filenum] = false;
+
     if (mode != ROM_CREATE) {
         //		fd = DatapathFDOpen(&gDatapath, fname, openMode[mode]);
 
-        if (mode == ROM_READ)
-            fd = fopen_caseless(fname, "rb");
-        else
+        if (mode == ROM_READ) {
+            fd = NULL;
+            if (!auxinfo && strlen(fname) < RES_IMAGE_NAME) {
+                const ResImage *image = ResFindImage(fname);
+
+                strcpy(resFileName[filenum], fname);
+                if (image != NULL && (fd = ResOpenImage(image)) != NULL)
+                    resFileOnImage[filenum] = true;
+            }
+            if (fd == NULL)
+                fd = fopen_caseless(fname, "rb");
+        } else
             fd = fopen_caseless(fname, "rb+");
 
         if (fd != NULL) {
@@ -243,6 +332,8 @@ void ResCloseFile(int32_t filenum) {
     // Close file
     fclose(resFile[filenum].fd);
     resFile[filenum].fd = NULL;
+    resFileName[filenum][0] = '\0';
+    resFileOnImage[filenum] = false;
 }
 
 //	--------------------------------------------------------------
