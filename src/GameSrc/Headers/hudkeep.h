@@ -4,8 +4,8 @@
 // Pictures kept of what the HUD draws identically frame after frame, to
 // copy in place of drawing it again. A kept picture gives the pixels the
 // drawing would: where that can't be said, these draw nothing and return 0,
-// and the caller draws as it always did. See docs/PERFORMANCE-GPU.md, step
-// G9.
+// and the caller draws as it always did. See docs/PERFORMANCE-GPU.md, steps
+// G9 and S5.
 
 #include "2d.h"
 

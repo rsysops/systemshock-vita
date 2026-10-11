@@ -23,6 +23,7 @@ typedef enum {
     VPROF_SNDLOAD,  // a sound effect decoded for its first use
     VPROF_RESLOAD,  // a resource read from the card
     VPROF_ALOGLOAD, // an audio log read and converted, before it plays
+    VPROF_OUTLINED, // text drawn with an outline: copied from its picture, made into one, or drawn nine times
     // of hud:
     VPROF_HUD_HAND,    // the weapon in hand
     VPROF_HUD_LABEL,   // the help label

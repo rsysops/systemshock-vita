@@ -534,7 +534,7 @@ static void vprof_spikes_write(void) {
         log_printf(
                 "spike t=%.2f mode=%d frame=%.2f input=%.2f sim=%.2f render3d=%.2f ui2d=%.2f present=%.2f "
                 "other=%.2f | traverse=%.2f sendview=%.2f raster=%.2f record=%.2f helpscan=%.2f hud=%.2f "
-                "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f | gpuwait=%.2f gpusubmit=%.2f "
+                "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f outlined=%.2f | gpuwait=%.2f gpusubmit=%.2f "
                 "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u",
                 (double)s->at_us / 1000000.0, s->mode, us_to_ms(s->frame_us),
                 us_to_ms(s->phase_us[VPROF_INPUT]), us_to_ms(s->phase_us[VPROF_SIM]),
@@ -545,6 +545,7 @@ static void vprof_spikes_write(void) {
                 us_to_ms(s->phase_us[VPROF_HELPSCAN]), us_to_ms(s->phase_us[VPROF_HUD]),
                 us_to_ms(s->phase_us[VPROF_VIEWOUT]), us_to_ms(s->phase_us[VPROF_SNDLOAD]),
                 us_to_ms(s->phase_us[VPROF_RESLOAD]), us_to_ms(s->phase_us[VPROF_ALOGLOAD]),
+                us_to_ms(s->phase_us[VPROF_OUTLINED]),
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
                 us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views);
@@ -605,7 +606,8 @@ static void vprof_window_flush(SceInt64 now) {
                 "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f,rested:%.2f | "
                 "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
                 "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
-                "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u\n",
+                "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u | "
+                "outlined=%.2f/%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -721,7 +723,8 @@ static void vprof_window_flush(SceInt64 now) {
                 __atomic_load_n(&g_alog_dry, __ATOMIC_RELAXED),
                 scePowerGetBatteryRemainCapacity(), scePowerGetBatteryVolt(),
                 scePowerGetBatteryTemp() / 100.0, (int)scePowerIsBatteryCharging(),
-                us_to_ms(__atomic_exchange_n(&g_log_io_us, 0, __ATOMIC_RELAXED)), g_log_drops);
+                us_to_ms(__atomic_exchange_n(&g_log_io_us, 0, __ATOMIC_RELAXED)), g_log_drops,
+                frame_avg_ms(VPROF_OUTLINED, g_frame_samples), frame_max_ms(VPROF_OUTLINED));
         vprof_spikes_write();
         log_submit();
     }

@@ -55,6 +55,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "popups.h"
 #include "statics.h"
 #include "gr2ss.h"
+#include "vprof.h"
 
 #include "cybstrng.h"
 
@@ -1077,7 +1078,8 @@ uchar mfd_update_current_slot(ubyte mfd_id, ubyte status, ubyte num_steps) {
             gr_pop_canvas();
         }
 
-        f->expose(m, control); // pass # steps + flags to
+        // which panel function, by its address and its number, and which panel
+        VPROF_NOTE("mfd", f->expose, f_id, mfd_id, f->expose(m, control)); // pass # steps + flags to
         ss_set_hack_mode(0, &temp);
         gr2ss_override = old_over;
 

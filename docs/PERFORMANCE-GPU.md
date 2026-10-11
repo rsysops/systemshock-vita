@@ -2206,8 +2206,7 @@ the spike lines are what to go by, not the feel.
 
 Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
-written here. S1 to S4 are done; S5 is next; S6 and S7 are not
-started.
+written here. S1 to S5 are done; S6 and S7 are not started.
 
 | step | what | for |
 |---|---|---|
@@ -2216,9 +2215,9 @@ started.
 | S2 | The draw list shared with the workers only when the frame is short of time | **done**: the workers asleep where frames have time to spare, at the same fps; 23 mA less drawn from the battery, a little under 6% |
 | S3 | The other stutters named: resource reads, time in the input handling, the frames with 6 or 7 views, the `sim` frames | **done**: every stutter has a name; three quarters are the side panels' update |
 | S4 | A quieter profile build | **done**: the log costs the main thread 0.4 ms a second, from 52; the build that measures has no self-checks, and leaves the game alone |
-| S5 | The side panels' update: find what its 16 ms are, then make it cheap | 189 of the 257 stutters of S3's capture |
+| S5 | The side panels' update: find what its 16 ms are, then make it cheap | **done**: it was the panels' outlined text, drawn nine times each; now one draw the first time and a copy after. No stutter is a panel paying for its text any more, from 189 of 257 |
 | S6 | Art read before it is needed: when the level loads, or by a reader of its own as for the audio logs | 19 stutters, the longest ones (up to 104 ms) |
-| S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's | 37 stutters |
+| S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's (a page of a mail is 24 ms of handler, 6 of them its words' text) | 37 stutters |
 
 The order is by what the player gains. S4 is the smallest and could go
 whenever it helps. S5 to S7 came out of S3's capture, in the order of
@@ -2657,3 +2656,115 @@ checks flavour.
 - The addresses of the notes were 0 above the file's in the first
   session and 0x79000 in the second (0x3a000 in S3's capture): the
   offset is to be taken from each session's `sym` line.
+
+**S5: the side panels' update.** Done; results below.
+
+What the 16 ms are was in the captures already. In full screen a
+panel's text is drawn with an outline, so that it reads over the 3D
+view (`mfd_full_draw_string` in `src/GameSrc/newmfd.c`, then
+`draw_shadowed_string` in `tools.c`): the string eight times in the
+outline's colour, a pixel around its place, then once more as the
+text. Step G9 kept such texts as pictures for the HUD's messages
+(`hudkeep_outlined`), but it kept 8, made a picture only of a text
+asked for twice, and made it by the nine draws, clearing and searching
+a canvas of 1024x128 each time. A panel has more than 8 texts: redrawn,
+it found none of them kept and paid nine draws for each. In the seconds
+with a side-panel stutter, 49 texts a second were drawn afresh in S3's
+capture and 20 in S4's; under 2 in the other seconds.
+
+- **One draw, not nine.** The outline is the text's shape grown by a
+  pixel in the eight directions. The text is drawn once, then the
+  outline's colour goes on every empty pixel that touches it
+  (`text_grow` in `src/GameSrc/hudkeep.c`): the nine draws' pixels.
+- **Kept from the first time, and 256 of them.** A picture now costs
+  less than the nine draws, so every text gets one when first asked
+  for. A text that changes all the time (a counter) leaves a picture
+  per value, never asked for again: past 128 of those, they are the
+  ones a new text replaces, so that they don't push out a panel's
+  texts between two of its redraws. (96 and 32 in the first capture:
+  too few, see the results.)
+- **Less to clear and to search.** The draw says how far the text goes
+  (`ss_scale_string_sized` in `gr2ss.c`): only that much of the scratch
+  canvas is searched, and cleared afterwards.
+- **A flaw of G9's keep, found by the new test and fixed**: a text too
+  large for the scratch canvas was only noticed when its pixels reached
+  the canvas's far edge. One that ended on a blank line or a space was
+  kept cut. With the text's size known, what doesn't fit is left to the
+  nine draws, always. The captures' `hudcheck=` never caught such a
+  text (0 of 1,032 in S4's): it takes one over 1024x128 pixels.
+- What stays with the nine draws: a text too large, one with characters
+  its font hasn't, palette colour 0, an unusual fill type.
+- **Checked on the PC** (`tests/hudkeep/run.sh <DATA folder>`): the
+  game's own `hudkeep.c` and `gr2ss.c`, with the 12 one-colour fonts of
+  `GAMESCR.RES` in each of the four screen modes, 400 texts and 1,200
+  askings for each at changing places, a sixth of them at the canvas's
+  edges or past them: 57,600 askings, 48,760 copied from a picture,
+  each the same bytes as the nine draws, and the scratch canvas left
+  clean every time. The rest were left to the nine draws, with nothing
+  drawn. (The six other fonts have colours of their own and are never
+  outlined.)
+- **New in the log** (profile build): `outlined=`, the time of all the
+  outlined text of a frame, in the second's line and in a stutter's;
+  the note `mfd@address#function/panel`, which names the panel function
+  a redraw ran.
+- Unlike the profiler's steps, this one changes the normal build: it is
+  the game's text drawing.
+
+Results, from two captures. `docs/profiles-perf/profile-step-s5.txt`:
+a session of 328 logged seconds with the checks flavour, then one of
+339 with the measuring flavour, 302 of them in the game.
+`profile-step-s5b.txt`: the measuring flavour again, 245 seconds, 225
+in the game, with 256 texts kept in place of 96. Panels, inventory and
+mail reader used on purpose in all of them.
+
+| | S3 | S4, measuring | S5, measuring | S5b |
+|---|---|---|---|---|
+| seconds logged | 717 | 627 | 339 | 245 |
+| stutters in the game | 257 | 61 | 29 | 32 |
+| of them, a side panel's redraw | 189 | 19 | 2, both art read from the card | 1, the same |
+| `mfd_update()` in those | 16.5 ms at the median | 14.7 ms | 12 and 66 ms, the read 11 and 62 | 64 ms, the read 61 |
+| a click in the inventory or on a panel, a page of a mail by every sign: its handler | | 30 to 40 ms for most | 24 ms | 24 ms |
+
+- **The pictures are the nine draws' on the console**:
+  `hudcheck=0/789` in the checks session, with `check=0/111` and
+  `leaks=0`.
+- **No panel redraw stutters for its text any more**, in either
+  capture. The stutters that still have `mfd_update()` in them are a
+  picture read from the card inside a panel function: the weapon's
+  (`mfd_weapon_expose`, 9 KB, 11 ms) and the portrait of a mail's
+  sender (`mfd_emailmug_expose`, 119 KB, 61 to 62 ms). Both are S6's
+  kind.
+- **Outlined text takes 0.07 to 0.08 ms of a frame on average**
+  (`outlined=`), 0.09 to 0.14 ms in the median second's worst frame.
+- **What still costs is a page of a mail: 5.3 to 6.5 ms of text, at a
+  click.** 8 clicks of the first measuring session and 7 of S5b have
+  it, with 24 to 42 pictures made at each. The mail reader draws
+  a message word by word, each word an outlined text of its own
+  (`email_draw_string` in `src/GameSrc/email.c`), and a click on
+  "more", in the inventory panel or on the mail panel's buttons, shows
+  a page of new words: new pictures, about 0.17 ms each. The capture
+  doesn't say which texts were made; what points to the mail is the
+  count, the two handlers (`inventory_mouse_handler`,
+  `mfd_view_callback_full`), and the sender's portrait read before
+  these clicks begin in each session.
+- **That page cost about three times as much before**: these handlers
+  took 30 to 40 ms in S4's capture for most of their stutters, and 24
+  now. The mail reader's key handler (`email_invpanel_input_handler`),
+  11 stutters of 13 to 19 ms in S4's capture, is in neither of S5's.
+  The 18 ms of the handler that aren't text are S7's to look at.
+- **A fault in the replacement rule, found on the way and fixed, but
+  not what the capture showed.** As first built the keep held 96 texts
+  and, past 32 asked for once, a new text replaced the oldest of
+  those. A page of more than 32 texts is drawn only when it changes,
+  so its texts have all been asked for once, and with the keep full
+  they replace one another at every redraw, for good: the PC test now
+  has the case, and on that rule a page of 100 texts made 100 pictures
+  at each redraw, and 100 again after a counter's 1,000 values. With
+  256 kept and the rule holding from 128, none after the first
+  showing. I first took the first capture's bursts for this. S5b says
+  otherwise: its bursts begin at t=94, with 128 pictures made in all
+  and nothing yet replaced.
+- The other stutters are the list S3 left. In S5b: art read when first
+  seen 17 (`render_run()`), creatures' art 4 (`ai_run()`,
+  `advance_animations()`), clicks 10 (the 7 mail pages, the portrait's
+  read among them), one in `physics_run()`.

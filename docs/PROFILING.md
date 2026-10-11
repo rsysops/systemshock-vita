@@ -231,7 +231,8 @@ All zero in the seconds the CPU draws.
 | field | what |
 |---|---|
 | `hudparts=` | of `hud`: weapon `hand`, help `label`, `text` (compass, messages), and in full screen `buttons`, `mfd` side panels, `inv`entory, `vitals`, `icons` |
-| `hudkept=text:a/b,scaled:c/d` | texts and stretched bitmaps copied from a kept picture / drawn again (`src/GameSrc/hudkeep.c`) |
+| `hudkept=text:a/b,scaled:c/d` | texts and stretched bitmaps copied from a kept picture / drawn again (`src/GameSrc/hudkeep.c`). For a text, drawn again is a picture made of it, or the nine draws where it can't be kept |
+| `outlined=a/b` | all the outlined text of a frame: copied from its picture, made into one, or drawn nine times (`draw_shadowed_string`). The HUD's messages and, in full screen, the side panels' text. At the end of the line |
 | `sndload` | decoding a sound effect on the main thread: one played before the background thread got to it, or waited for while the thread was on it |
 | `resload` | reading a resource from the card |
 | `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
@@ -270,7 +271,7 @@ the log was last written each get a line of their own, after that
 second's line:
 
 ```
-spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1
+spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 outlined=0.30 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1
 ```
 
 `t` is when the frame ended, in seconds. The times are that one
@@ -293,6 +294,7 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `hotkey@address#key` | a hotkey's function, and the key (hex) |
 | `res#id/bytes` | a resource read from the card: its id (hex) and its size |
 | `view@address` | a 3D view drawn (`fr_rend`), and where it was asked for from |
+| `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |
 | `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |
 
 The pieces sit inside one another: a handler that has a resource read
