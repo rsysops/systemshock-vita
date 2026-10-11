@@ -70,6 +70,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "tools.h"
 #include "trigger.h"
 #include "verify.h"
+#include "vprof.h"
 
 
 // INTERNAL PROTOTYPES
@@ -336,12 +337,14 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
     //      free_dynamic_memory(DYNMEM_PARTIAL);
 
     // Open the file we're going to save into.
-    fd = ResEditFile(CURRENT_GAME_FNAME, TRUE);
+    // (the profiler's notes: what a level's saving is made of)
+    VPROF_NOTE("level_save_open", NULL, 0, 0, fd = ResEditFile(CURRENT_GAME_FNAME, TRUE));
     if (fd < 0) {
         ERROR("No file!");
         end_wait();
         return ERR_FOPEN;
     }
+    VPROF_SPAN_BEGIN(pieces_began);
 
 #define REF_WRITE(id_num, index, x)			\
     write_id(id_num, index, map_version, &(x), sizeof(x), fd, 0)
@@ -447,7 +450,8 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
     */
     verify_cookie = VERIFY_COOKIE_VALID;
     REF_WRITE(SAVELOAD_VERIFICATION_ID, 0, verify_cookie);
-    ResCloseFile(fd);
+    VPROF_SPAN_END(pieces_began, "level_save_pieces", idx, 0);
+    VPROF_NOTE("level_save_close", NULL, 0, 0, ResCloseFile(fd));
 
     // FlushVol(nil, fSpec->vRefNum);                   // Make sure everything is saved.
 
@@ -736,7 +740,8 @@ errtype load_current_map(Id id_num) {
     INFO("Loading map %x", id_num);
 
     begin_wait();
-    free_dynamic_memory(dynmem_mask);
+    // (the profiler's notes: what a level's loading is made of)
+    VPROF_NOTE("free_dynamic_memory", NULL, 0, 0, free_dynamic_memory(dynmem_mask));
     trigger_check = FALSE;
     if (PLAYER_OBJ != OBJ_NULL) {
         plr_loc = objs[PLAYER_OBJ].loc;
@@ -748,7 +753,8 @@ errtype load_current_map(Id id_num) {
     }
 
     // Open the saved-game (or archive) file.
-    fd = ResOpenFile(CURRENT_GAME_FNAME);
+    VPROF_NOTE("level_load_open", NULL, 0, 0, fd = ResOpenFile(CURRENT_GAME_FNAME));
+    VPROF_SPAN_BEGIN(pieces_began);
     if (fd < 0) {
         // Warning(("Could not load map file %s (%s) , rv = %d!\n",dpath_fn,fn,retval));
         ERROR("Could not load map file %d", retval);
@@ -1321,15 +1327,16 @@ obj_out:
     }
 
 out:
-    ResCloseFile(fd);
+    VPROF_SPAN_END(pieces_began, "level_load_pieces", 0, 0);
+    VPROF_NOTE("level_load_close", NULL, 0, 0, ResCloseFile(fd));
 
     reset_pathfinding();
     old_bits = -1;
 
     trigger_check = TRUE;
 
-    load_dynamic_memory(dynmem_mask);
-    load_level_data();
+    VPROF_NOTE("load_dynamic_memory", NULL, 0, 0, load_dynamic_memory(dynmem_mask));
+    VPROF_NOTE("load_level_data", NULL, 0, 0, load_level_data());
 
     for (i = 0; i < NUM_O_AMAP; i++) {
         if (!oAMap(i)->init && (savedMaps & (1 << i))) {

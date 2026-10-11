@@ -148,6 +148,7 @@ bool ResRetrieve(Id id, void *buffer) {
     }
 
     // Seek to data, set up
+    ResTailLost(prd->filenum);
     fseek(fd, RES_OFFSET_DESC2REAL(prd->offset), SEEK_SET);
     p = (uint8_t *)buffer;
     size = prd->fsize;

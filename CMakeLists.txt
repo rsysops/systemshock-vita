@@ -116,6 +116,7 @@ set(GAME_SRC
 	src/GameSrc/effect.c
 	src/GameSrc/email.c
 	src/GameSrc/faceobj.c
+	src/GameSrc/filecopy.c
 	src/GameSrc/fixtrmfd.c
 	src/GameSrc/frcamera.c
 	src/GameSrc/frclip.c

@@ -232,6 +232,7 @@ RefTable *ResReadRefTable(Id id) {
 
     prd = RESDESC(id);
     fd = resFile[prd->filenum].fd;
+    ResTailLost(prd->filenum);
 
     if (fd == NULL) {
         ERROR("%s: id $%x doesn't exist", __FUNCTION__, id);
@@ -320,6 +321,7 @@ int32_t RefInject(RefTable *prt, Ref ref, void *buff)
 
         prd = RESDESC(REFID(ref));
         fd = resFile[prd->filenum].fd;
+        ResTailLost(prd->filenum);
         index = REFINDEX(ref);
 
    // get reftable date from rt or by seeking.

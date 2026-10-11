@@ -54,6 +54,11 @@ char resFileSignature[16] = {'L', 'G', ' ', 'R', 'e', 's', ' ', 'F', 'i', 'l', '
 
 ResFile resFile[MAX_RESFILENUM + 1];
 
+// What a file opened for writing collects before it goes to the disk: a
+// level's resources, written one after the other, in one go at the closing
+// (see ResWrite). The C library's own buffer is a kilobyte.
+#define RES_EDIT_BUFFER (256 * 1024)
+
 //	---------------------------------------------------------
 //		FILES HELD IN MEMORY
 //	---------------------------------------------------------
@@ -201,6 +206,7 @@ int32_t ResOpenResFile(const char *fname, ResOpenMode mode, bool auxinfo) {
 
     resFileName[filenum][0] = '\0';
     resFileOnImage[filenum] = false;
+    ResTailLost(filenum);
 
     if (mode != ROM_CREATE) {
         //		fd = DatapathFDOpen(&gDatapath, fname, openMode[mode]);
@@ -216,8 +222,11 @@ int32_t ResOpenResFile(const char *fname, ResOpenMode mode, bool auxinfo) {
             }
             if (fd == NULL)
                 fd = fopen_caseless(fname, "rb");
-        } else
+        } else {
             fd = fopen_caseless(fname, "rb+");
+            if (fd != NULL)
+                setvbuf(fd, NULL, _IOFBF, RES_EDIT_BUFFER);
+        }
 
         if (fd != NULL) {
             fread(&fileHead, sizeof(ResFileHeader), 1, fd);
@@ -244,6 +253,7 @@ int32_t ResOpenResFile(const char *fname, ResOpenMode mode, bool auxinfo) {
             WARN("%s: Can't create file: %s", __FUNCTION__, fname);
             return (-2);
         }
+        setvbuf(fd, NULL, _IOFBF, RES_EDIT_BUFFER);
     }
 
     //	If aux info, allocate space for it
@@ -552,6 +562,7 @@ void ResWriteDir(int32_t filenum) {
     TRACE("%s: writing directory for filenum %d", __FUNCTION__, filenum);
 
     prf = &resFile[filenum];
+    ResTailLost(filenum);
     fseek(prf->fd, prf->pedit->currDataOffset, SEEK_SET);
     fwrite(prf->pedit->pdir, sizeof(ResDirHeader) + (prf->pedit->pdir->numEntries * sizeof(ResDirEntry)), 1, prf->fd);
 }
@@ -573,6 +584,7 @@ void ResWriteHeader(int32_t filenum) {
     prf = &resFile[filenum];
     prf->pedit->hdr.dirOffset = prf->pedit->currDataOffset;
 
+    ResTailLost(filenum);
     fseek(prf->fd, 0, SEEK_SET);
     fwrite(&prf->pedit->hdr, sizeof(ResFileHeader), 1, prf->fd);
 }

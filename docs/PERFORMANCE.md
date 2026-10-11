@@ -69,6 +69,8 @@ and read its log is in [PROFILING.md](PROFILING.md).
     - [S7b: what the timers named](#s7b-what-the-timers-named)
     - [S7c](#s7c)
     - [S8: saving and loading a game](#s8-saving-and-loading-a-game)
+    - [S8b: the game file's packing](#s8b-the-game-files-packing)
+    - [S8c: a level's pieces written together](#s8c-a-levels-pieces-written-together)
     - [S9: stepping onto a new map square](#s9-stepping-onto-a-new-map-square)
     - [S10: changing level](#s10-changing-level)
     - [S11: heavy views](#s11-heavy-views)
@@ -3471,8 +3473,9 @@ the spike lines are what to go by, not the feel.
 
 Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
-written here. S1 to S7 are done, with S7b and S7c after it. S8 to S11,
-what those left, are not started.
+written here. S1 to S7 are done, with S7b and S7c after it. Of what
+those left, S8 is done with S8b and S8c, and S10 with them for
+cyberspace; S9 and S11 are not started.
 
 | step | what | for |
 |---|---|---|
@@ -3486,9 +3489,11 @@ what those left, are not started.
 | S7 | Clicks: finding what is under the cursor, the inventory's redraw and its handler, the mail reader's | **done**: the view under the cursor is drawn for 21 rows of the 544, and no click in the 3D view stutters any more, from 29; 1.4 stutters a minute, from 3.2. The mail's clicks are named: 19 ms of `audiolog_play` |
 | S7b | The game's own log, written in the middle of the game; the text strings read from the card; the panels' art unpacked when first shown | **done in part**: no read from the card in the game any more. A log line is 1.7 ms, not the 19 I took it for, and the panels' art was unloaded again when a game started |
 | S7c | The wait cursor's frame at each log's start; the panels' art held; the logs' files opened at start-up | **done**: no mail or log opening stutters any more; 0.6 stutters a minute |
-| S8 | Saving and loading a game | not started. 9.4 and 12.0 s in the options panel; a new game 3 s |
+| S8 | Saving and loading a game | **done**, with S8b and S8c: a save 0.9 s from 9 to 12; a load 0.7 s; a new game 0.85 s from 3. Here: the game file copied in one read and one write (2.69 s to 0.32) |
+| S8b | The game file's packing, at a save and at a change of level | **done**: the part of the file to close up read whole, packed in memory, written back whole: 6.35 s to 0.45. A save 1.9 s; cyberspace in 1.7 s, out 1.3 s |
+| S8c | A level's pieces written one by one | **done**: a file being written collects its resources in memory and hands them to the card together: 1 s to 0.03. A save 0.88 s; cyberspace in 0.78 s, out 0.47 s |
 | S9 | Stepping onto a new map square | not started. One stutter of 28 to 70 ms, in the same place, in every capture |
-| S10 | Changing level: cyberspace and the lift | not started. Into cyberspace 1.5 to 3.1 s, out 2.8 to 7.2 s |
+| S10 | Changing level: cyberspace and the lift | **done for cyberspace**, by S8b and S8c: in 0.78 s, out 0.47 s, from up to 7.2. The lift not measured |
 | S11 | Heavy views: the render, and clicks there | not started. 4 of the 6 stutters S7c left; a look-up under the cursor still 7 ms there |
 
 The order is by what the player gains. S4 is the smallest and could go
@@ -4367,8 +4372,8 @@ before anything is changed.
 
 #### S8: saving and loading a game
 
-Not started. 9.4 and 12.0 s in the
-options panel's handler; a new game 3 s.
+Done: loads and new games here, saves in S8b and S8c. 9.4 and 12.0 s in
+the options panel's handler before; a new game 3 s.
 
 - Read in the code (`src/GameSrc/gamewrap.c`): a save copies the whole
   game-in-progress file to its slot and a load copies it back, one byte
@@ -4383,6 +4388,191 @@ options panel's handler; a new game 3 s.
 - Checks: on the PC, the copy is byte for byte the file; on the Vita, a
   save of the build before loads in the new one and the other way
   round. Nothing in the file's format changes.
+
+As built:
+
+- **The copy is one read and one write** (`file_copy` in
+  `src/GameSrc/filecopy.c`): the file whole into memory, then out. A
+  read or a write that fails is now an error; the old copy didn't look.
+  The destination is opened only once the source is read, so a source
+  that can't be read leaves it as it was.
+- **The old copy is timed beside it, in the same capture.** The
+  profile build's first save of a session also copies the game file
+  the old way, a byte at a time, into a scratch file it then removes
+  (`copy_bytewise` in the notes, `copy_file#0/bytes` for the new one).
+  So the reading above gets its measurement and the fix its result
+  from one save. (Taken out again after S8c's capture: timed in three,
+  2.7, 3.5 and 4.4 s against 0.32 to 0.40.)
+- **A save's, a load's and a new game's pieces have timers** (profile
+  build): the file's head, the level, the copy; in the level's saving
+  and loading, the opening, the pieces, the closing and what sets the
+  level up.
+- **The resource library's writing is summed over the frame**:
+  `reswrite=` and, inside it, `respack=`, in a stutter's line. That is
+  S10's measurement, taken here since a save goes through it.
+- **Checked on the PC** (`tests/filecopy/run.sh`): files of 0 bytes to
+  3 MB, each copied onto nothing, onto a shorter file and onto a longer
+  one: 36 copies, each the source's bytes and no more; a missing source
+  is an error and leaves the destination alone.
+
+Results (`docs/profiles-perf/profile-step-s8.txt`): the measuring
+flavour, two sessions: a new game, a save, cyberspace in and out, a
+second save, loads; then the game started again and both saves loaded.
+
+| | before | S8 |
+|---|---|---|
+| a new game | 2.9 to 3.1 s | 0.68 s |
+| a load | not told apart from a save | 0.70 to 0.79 s |
+| the game file's copy, 676 KB | 2.69 s, the old way, in the same save | 0.32 s |
+| a save | 9.4 and 12.0 s | 10.8 s the first (8.1 without the old copy run beside it), 3.5 s the second |
+
+- **The copy is 8 times faster**, measured both ways in one save:
+  2,686 ms a byte at a time, 318 ms whole. 337 to 345 ms for the
+  613 KB archive and for the loads' copies.
+- **A load is 0.7 s**: the copy 0.34, the level 0.12 to 0.16, the
+  player and the schedules 0.05.
+- **The copy was 2.7 s of a save, not the 9 to 12.** The reading this
+  step started from named a real cost and not the main one.
+- **A save is the game file's packing.** The first save's pieces:
+
+| piece | time |
+|---|---|
+| opening the game file to write the level into it (`level_save_open`) | 6.40 s |
+| the level's 34 pieces written (`level_save_pieces`) | 0.94 s |
+| the copy to the slot | 0.32 s |
+| the player and the schedules (`save_head`) | 0.30 s |
+| closing (`level_save_close`) | 0.08 s |
+
+- `respack=6347`: the opening's 6.4 s are the resource library packing
+  the file. The second save: 1.7 s of packing, across its two openings.
+- **Going into cyberspace is the same**: 7.2 s, 5.9 of them that
+  opening; coming out 2.5 s, 1.2 of them. S10's cause, measured.
+- **Why the packing is that slow** (`ResPack` in
+  `src/Libraries/RES/Source/resbuild.c`). A resource rewritten into the
+  game file leaves the old one dead in it; the file is packed the next
+  time it is opened for writing. Packing moved every resource that
+  comes after the first dead one down the file, one at a time: a seek,
+  a read, a seek and a write on the card for each. The game file has
+  some 900 resources and a level's pieces sit near its start: nearly
+  all of them moved, 3,600 card operations. (The reading under S10
+  had it packing after each piece. It packs once an opening, the whole
+  file.)
+
+#### S8b: the game file's packing
+
+Done; results below.
+
+- **The packing is done in memory**: the part of the file from the
+  first dead resource to the end of the data is read in one go, closed
+  up there, and written back in one go; then the file is cut to its
+  new length as before. Two card operations for thousands. With no
+  memory for it, or a read that falls short, the old way is used.
+- **The file that comes out is the old packing's, byte for byte**: the
+  same resources at the same places, and between them the same
+  leftover bytes, since closing up in memory moves what moving in the
+  file moved.
+- **Checked on the PC** (`tests/respack/run.sh`): the resource library
+  as it was and as it is, each given the same life of a file: 700
+  resources of a few bytes to 65 KB, a third of them compressed, then
+  14 openings for writing with 20 to 70 resources rewritten in each, in
+  a run as a level's are or here and there, and a new one added now
+  and then. The file after each round: the same bytes from both, 16
+  times of 16; every resource read back as last written. The test
+  fails 14 times of 16 on a packing made wrong on purpose.
+- **A timer on the compressing** (profile build): `reslzw=`, in a
+  stutter's line, the part of `reswrite=` spent compressing. A level's
+  34 pieces take 0.94 to 1.05 s to write: once the packing is cheap
+  that is the largest piece of a save, and whether it is the
+  compressing or the 34 writes isn't known.
+
+Results (`docs/profiles-perf/profile-step-s8b.txt`): a new game, a
+save, cyberspace in and out, two more saves, the three loaded.
+
+| | before S8 | S8 | S8b |
+|---|---|---|---|
+| the file's packing, at the first save | | 6.35 s | 0.45 s |
+| a save | 9.4 and 12.0 s | 8.1 s, then 3.5 s | 3.1 s the first, then 1.9 s |
+| into cyberspace | 1.5 to 7.2 s | 7.2 s | 1.7 s |
+| out of cyberspace | 2.5 to 7.2 s | 2.5 s | 1.3 s |
+| a load | | 0.70 to 0.79 s | 0.85 to 0.88 s |
+
+(The first save's figures leave out the old copy run beside it for the
+comparison: 2.7 s in S8's capture, 3.5 s in this one.)
+
+- **The packing is 14 times shorter**: 446 ms where it was 6,347; 103
+  to 312 ms at the later openings.
+- **The saves load right.** Each of the three loads puts the player
+  back on the square, at the height and facing the way the log has for
+  its save (`at=`).
+- **A save is now its level's 34 pieces**: 1.0 to 1.1 s of the 1.9, with
+  the copy to the slot 0.35, the player and the schedules 0.3 and the
+  opening and closing 0.15. A level change is the same pieces: 0.92 to
+  0.95 s.
+- **Those pieces are not the compressing**: `reslzw=` is 17 to 25 ms.
+  What is left is their writing, 28 ms a piece.
+
+#### S8c: a level's pieces written together
+
+Done; results below.
+
+Read in `ResWrite` (`src/Libraries/RES/Source/resbuild.c`): each
+resource written begins with a seek to the end of the data, which is
+where the file already stands after the one before. A seek has the C
+library hand what it holds to the disk, and its own buffer is a
+kilobyte: so every piece of a level is a write on the card of its own,
+34 of them for some 70 KB. That is a reading; this step times it and
+takes it out together.
+
+- **A file opened for writing gets a buffer of 256 KB**, where its
+  resources collect.
+- **A resource is written where the file stands, with no seek, when the
+  last thing done to the file was the write before it.** After anything
+  else, a read, the packing, the directory's writing, the opening, the
+  seek is made as it was (`ResTailLost`). And the file is asked where
+  it stands after each write: no seek is spared on a guess.
+- The pieces reach the card when the file is closed, in one write or
+  two. The file's bytes are the same.
+- **`resio=`** (profile build), in a stutter's line: the part of
+  `reswrite=` spent in the file's seeks and writes.
+- **Checked on the PC** (`tests/respack/run.sh`, three seeds): the
+  test of S8b, with resources now also read from the file between two
+  writes while it is open for writing. The file after each round is
+  still the reference library's, byte for byte, and every resource
+  reads back as last written. The test fails 13 times of 16 on a
+  library in which a read no longer brings the seek back, and 14 of 16
+  on a packing made wrong.
+
+Results (`docs/profiles-perf/profile-step-s8c.txt`): a new game, a
+save, cyberspace in and out, a second save, the two loaded.
+
+| | before S8 | S8 | S8b | S8c |
+|---|---|---|---|---|
+| a save | 9.4 and 12.0 s | 8.1 s, then 3.5 s | 3.1 s, then 1.9 s | 1.1 s, then 0.88 s |
+| into cyberspace | 1.5 to 7.2 s | 7.2 s | 1.7 s | 0.78 s |
+| out of cyberspace | 2.5 to 7.2 s | 2.5 s | 1.3 s | 0.47 s |
+| a load | | 0.70 to 0.79 s | 0.85 to 0.88 s | 0.71 to 0.73 s |
+| a new game | 2.9 to 3.1 s | 0.68 s | 0.87 s | 0.85 s |
+
+(First-save figures without the old copy run beside it, 4.4 s here.)
+
+- **The reading held, and the timer says so.** A level's 34 pieces: 22
+  to 30 ms, from 0.92 to 1.67 s. Of that, the file's seeks and writes
+  are 0.3 to 0.4 ms (`resio=`) and the compressing 17 to 25 ms: the
+  pieces are no longer handed to the card one by one.
+- **They go at the closing**: 95 to 139 ms, where it was 80 to 117.
+- **The saves load right**: both loads put the player back on the
+  square, at the height and facing the way the log has for their save.
+  With the normal build: saved, the game closed and started again,
+  loaded; the same after cyberspace and back; and a save from before
+  S8 loaded. All as they should be.
+- **A save's 0.88 s**: the copy to the slot 0.36, the player and the
+  schedules 0.24, the closing 0.12, the opening with its packing 0.11,
+  the pieces 0.03. Nothing stands out; the step stops here.
+- **S10's question is answered for cyberspace** by S8b and S8c
+  together: its seconds were the packing, then the pieces. The lift was
+  not taken in any of these captures. It writes and reads a level the
+  same way, and reopens the textures' file, which is in memory since
+  S6.
 
 #### S9: stepping onto a new map square
 
@@ -4402,7 +4592,10 @@ Not started. `compare_locs`,
 
 #### S10: changing level
 
-Not started. Into cyberspace 1.5 to 3.1 s, out
+Done for cyberspace by S8b and S8c: in 0.78 s, out 0.47 s. Its cause
+was the game file's packing (5.9 of the 7.2 s of going in), then the
+level's pieces written one by one. The lift not measured. What follows
+is the step as first planned. Into cyberspace 1.5 to 3.1 s, out
 2.8 to 7.2 s. Since S6 the art's side of a level change costs nothing.
 
 - Read in the code (`save_current_map` in `saveload.c`, `ResWrite` and

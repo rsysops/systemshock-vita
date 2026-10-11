@@ -581,7 +581,8 @@ static void vprof_spikes_write(void) {
         log_printf(
                 "spike t=%.2f mode=%d frame=%.2f input=%.2f sim=%.2f render3d=%.2f ui2d=%.2f present=%.2f "
                 "other=%.2f | traverse=%.2f sendview=%.2f raster=%.2f record=%.2f helpscan=%.2f hud=%.2f "
-                "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f outlined=%.2f | gpuwait=%.2f gpusubmit=%.2f "
+                "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f outlined=%.2f reswrite=%.2f respack=%.2f reslzw=%.2f resio=%.2f | "
+                "gpuwait=%.2f gpusubmit=%.2f "
                 "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u at=%s",
                 (double)s->at_us / 1000000.0, s->mode, us_to_ms(s->frame_us),
                 us_to_ms(s->phase_us[VPROF_INPUT]), us_to_ms(s->phase_us[VPROF_SIM]),
@@ -592,7 +593,9 @@ static void vprof_spikes_write(void) {
                 us_to_ms(s->phase_us[VPROF_HELPSCAN]), us_to_ms(s->phase_us[VPROF_HUD]),
                 us_to_ms(s->phase_us[VPROF_VIEWOUT]), us_to_ms(s->phase_us[VPROF_SNDLOAD]),
                 us_to_ms(s->phase_us[VPROF_RESLOAD]), us_to_ms(s->phase_us[VPROF_ALOGLOAD]),
-                us_to_ms(s->phase_us[VPROF_OUTLINED]),
+                us_to_ms(s->phase_us[VPROF_OUTLINED]), us_to_ms(s->phase_us[VPROF_RESWRITE]),
+                us_to_ms(s->phase_us[VPROF_RESPACK]), us_to_ms(s->phase_us[VPROF_RESLZW]),
+                us_to_ms(s->phase_us[VPROF_RESIO]),
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
                 us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views, s->place);

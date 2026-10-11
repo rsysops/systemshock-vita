@@ -24,6 +24,10 @@ typedef enum {
     VPROF_RESLOAD,  // a resource read from the card
     VPROF_ALOGLOAD, // an audio log read and converted, before it plays
     VPROF_OUTLINED, // text drawn with an outline: copied from its picture, made into one, or drawn nine times
+    VPROF_RESWRITE, // a resource written to its file (a level saved), the packing below included
+    VPROF_RESPACK,  // of that: the file packed after a resource was replaced in it
+    VPROF_RESLZW,   // and of the writing: a resource compressed
+    VPROF_RESIO,    // and of the writing: the file's seeks and writes
     // of hud:
     VPROF_HUD_HAND,    // the weapon in hand
     VPROF_HUD_LABEL,   // the help label
@@ -98,6 +102,10 @@ void vprof_overlay_draw(void);
         code;                                                                                   \
         vprof_note((what), (const void *)(who), (a), (b), sceKernelGetProcessTimeWide() - _vprof_n0); \
     } while (0)
+// A note for a stretch of several statements: BEGIN declares `var`, END
+// notes the time since.
+#define VPROF_SPAN_BEGIN(var) SceInt64 var = sceKernelGetProcessTimeWide()
+#define VPROF_SPAN_END(var, what, a, b) vprof_note((what), NULL, (a), (b), sceKernelGetProcessTimeWide() - (var))
 #define VPROF_MARK_BEGIN(phase) vprof_mark_begin(phase)
 #define VPROF_MARK_END(phase) vprof_mark_end(phase)
 #define VPROF_FRAME_BEGIN() vprof_frame_begin()
@@ -108,6 +116,8 @@ void vprof_overlay_draw(void);
 #define VPROF_RUN(phase, code) code
 #define VPROF_RUN_AS(phase, what, a, b, code) code
 #define VPROF_NOTE(what, who, a, b, code) code
+#define VPROF_SPAN_BEGIN(var)
+#define VPROF_SPAN_END(var, what, a, b)
 #define VPROF_MARK_BEGIN(phase)
 #define VPROF_MARK_END(phase)
 #define VPROF_FRAME_BEGIN()

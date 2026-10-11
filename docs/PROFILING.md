@@ -276,7 +276,7 @@ the log was last written each get a line of their own, after that
 second's line:
 
 ```
-spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 outlined=0.30 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1 at=1:23.50,41.25,96@180
+spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 outlined=0.30 reswrite=0.00 respack=0.00 reslzw=0.00 resio=0.00 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1 at=1:23.50,41.25,96@180
 ```
 
 `t` is when the frame ended, in seconds. The times are that one
@@ -302,6 +302,9 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `view@address` | a 3D view drawn (`fr_rend`), and where it was asked for from |
 | `inv_select@address#row`, `inv_use@…`, `inv_drop@…` | a click in the inventory handed to the page's own function at that address, for that row (hex) |
 | `mfd_handler@address#function/panel`, `mfd_simp@…` | a click on a side panel handed to the panel function's handler at that address |
+| `copy_file#0/bytes` | a whole file copied: a save to its slot, a slot back for a load, the archive for a new game |
+| `save_head`, `write_level_to_disk#level`, `level_save_open`, `level_save_pieces#count`, `level_save_close` | what a save is made of: the player and the schedules written, then the level, piece by piece |
+| `empty_slate`, `closedown_game`, `load_head`, `load_level_from_file#level`, `free_dynamic_memory`, `level_load_open`, `level_load_pieces`, `level_load_close`, `load_dynamic_memory`, `load_level_data`, `obj_load_art` | what a load, a new game or a change of level is made of |
 | `wait_cursor@address` | the frame `begin_wait()` presents to show the wait cursor, and who asked for it. A present waits for the screen: up to 16.7 ms |
 | `audiolog_bark_play@address#bark` | a bark set off, and from where |
 | `EDMS_soliton_vector`, `edms_delete_go`, `obj_move_to#object`, `compare_locs` | what `physics_run()` is made of |
@@ -310,6 +313,13 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `read_email`, `audiolog_play`, `inventory_draw_new_page`, `email_skip_lines`, `email_draw_text`, `make_email_cursor`, `inventory_clear`, `mfd_notify_func`, `play_vmail` and the like | what opening a mail or turning its page is made of (`src/GameSrc/email.c`) |
 | `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |
 | `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |
+
+In a stutter's line, `reswrite=` is the frame's time in `ResWrite`,
+resources written to a file (a level saved), `reslzw=` the part of it
+spent compressing them and `resio=` the part spent in the file's seeks
+and writes. `respack=` is the time spent packing a file
+whose resources were replaced: at its next opening for writing, not
+when they are written (`src/Libraries/RES/Source/resbuild.c`).
 
 The pieces sit inside one another: a handler that has a resource read
 shows both, and that is how to read them. An address is looked up in

@@ -78,6 +78,8 @@ extern uchar mlimbs_on;
 // Enhanced edition uses 64.
 #define PL_MFD_PUZZLE_SIZE 64
 #include "playerlayout.h"
+#include "filecopy.h"
+#include "vprof.h"
 #undef PL_MFD_PUZZLE_SIZE
 
 const ResLayout *PlayerLayouts[] = { &PlayerLayout_M32, &PlayerLayout_M64 };
@@ -107,28 +109,13 @@ errtype interpret_qvars(void);
 #define OldResIdFromLevel(level) (OLD_SAVE_GAME_ID_BASE + (level * 2) + 2)
 
 errtype copy_file(char *src_fname, char *dest_fname) {
-    FILE *fsrc, *fdst;
+    long size = 0;
+    int failed;
+
     DEBUG("copy_file: %s to %s", src_fname, dest_fname);
-
-    fsrc = fopen_caseless(src_fname, "rb");
-    if (fsrc == NULL) {
-        return ERR_FOPEN;
-    }
-
-    fdst = fopen_caseless(dest_fname, "wb");
-    if (fdst == NULL) {
-        return ERR_FOPEN;
-    }
-
-    int b;
-    while ((b = fgetc(fsrc)) != EOF) {
-        fputc(b, fdst);
-    }
-
-    fclose(fsrc);
-    fclose(fdst);
-
-    return OK;
+    // (the profiler's note has the file's size, in bytes)
+    VPROF_NOTE("copy_file", NULL, 0, (int)size, failed = file_copy(src_fname, dest_fname, &size));
+    return failed ? ERR_FOPEN : OK;
 }
 
 void closedown_game(uchar visible) {
@@ -173,6 +160,8 @@ errtype save_game(char *fname, char *comment) {
 
     // Open the current game file to save some more resources into it.
     // FSMakeFSSpec(gDataVref, gDataDirID, CURRENT_GAME_FNAME, &currSpec);
+    // (the profiler's notes: what a save is made of)
+    VPROF_SPAN_BEGIN(head_began);
     filenum = ResEditFile(CURRENT_GAME_FNAME, FALSE);
     if (filenum < 0) {
         ERROR("Couldn't open Current Game");
@@ -219,9 +208,11 @@ errtype save_game(char *fname, char *comment) {
     idx++;
 
     ResCloseFile(filenum);
+    VPROF_SPAN_END(head_began, "save_head", 0, 0);
 
     // Save current level
-    retval = write_level_to_disk(ResIdFromLevel(player_struct.level), TRUE);
+    VPROF_NOTE("write_level_to_disk", NULL, player_struct.level, 0,
+               retval = write_level_to_disk(ResIdFromLevel(player_struct.level), TRUE));
     if (retval) {
         ERROR("Return value from write_level_to_disk is non-zero!"); //
         critical_error(CRITERR_FILE | 3);
@@ -295,15 +286,17 @@ errtype load_game(char *fname) {
 
     INFO("load_game %s", fname);
 
-    empty_slate();
+    // (the profiler's notes: what a load is made of)
+    VPROF_NOTE("empty_slate", NULL, 0, 0, empty_slate());
 
-    closedown_game(TRUE);
+    VPROF_NOTE("closedown_game", NULL, 0, 0, closedown_game(TRUE));
     // KLC - don't do this here   stop_music();
 
     // Copy the save file into the current game
     copy_file(fname, CURRENT_GAME_FNAME);
 
     // Load in player and current level
+    VPROF_SPAN_BEGIN(head_began);
     filenum = ResOpenFile(CURRENT_GAME_FNAME);
     old_plr = player_struct.rep;
     orig_lvl = player_struct.level;
@@ -322,14 +315,15 @@ errtype load_game(char *fname) {
         bad_save = TRUE;
 
     ResCloseFile(filenum);
+    VPROF_SPAN_END(head_began, "load_head", 0, 0);
 
     if (orig_lvl == player_struct.level) {
         //      Warning(("HEY, trying to be clever about loading the game! %d vs %d\n",orig_lvl,player_struct.level));
         dynmem_mask = DYNMEM_PARTIAL;
     }
 
-    load_level_from_file(player_struct.level);
-    obj_load_art(FALSE); // KLC - added here (removed from load_level_data)
+    VPROF_NOTE("load_level_from_file", NULL, player_struct.level, 0, load_level_from_file(player_struct.level));
+    VPROF_NOTE("obj_load_art", NULL, 0, 0, obj_load_art(FALSE)); // KLC - added here (removed from load_level_data)
     // KLC   string_message_info(REF_STR_LoadGameLoaded);
     dynmem_mask = DYNMEM_ALL;
     chg_set_flg(_current_3d_flag);
@@ -411,9 +405,9 @@ uchar create_initial_game_func(short undefined1, ulong undefined2, void *undefin
 
     player_struct.rep = OBJ_NULL;
 
-    load_level_from_file(player_struct.level);
+    VPROF_NOTE("load_level_from_file", NULL, player_struct.level, 0, load_level_from_file(player_struct.level));
 
-    obj_load_art(FALSE); // KLC - added here (removed from load_level_data)
+    VPROF_NOTE("obj_load_art", NULL, 0, 0, obj_load_art(FALSE)); // KLC - added here (removed from load_level_data)
     amap_reset();
 
     player_create_initial();
