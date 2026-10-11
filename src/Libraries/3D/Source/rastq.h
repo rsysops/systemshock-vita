@@ -4,7 +4,7 @@
 // Records the calls that hand a finished 2D polygon to the pixel-filling
 // mappers during a 3D pass, and replays them later in the same order, on one
 // thread or on several that each draw a band of rows. See
-// docs/PERFORMANCE-CPU.md, "Multicore rasterizer".
+// docs/PERFORMANCE.md, "Multicore rasterizer".
 
 #include <stddef.h>
 
@@ -21,7 +21,7 @@ enum {
 #define RASTQ_THREADS 3
 // A view with fewer rows than this is better replayed by one thread. On the
 // Vita that is the on-screen help's scan, a third of the screen's size in
-// flat colours that change with almost every call (docs/PERFORMANCE-CPU.md).
+// flat colours that change with almost every call (docs/PERFORMANCE.md).
 #define RASTQ_SMALL_VIEW_ROWS 272
 
 // What the GPU drew of a view, by kind of call
@@ -114,7 +114,7 @@ void rastq_set_min_rows(int rows);
 void rastq_rows_next(int top, int bot);
 
 // A GPU that can fill the recorded calls in place of the CPU. On Vita it is
-// src/MacSrc/VitaGpu.c; see docs/PERFORMANCE-GPU.md.
+// src/MacSrc/VitaGpu.c; see docs/PERFORMANCE.md.
 //
 // Every software texture mapper ends the same way: it picks a texel from the
 // bitmap and passes it through a table of 256 entries, or through none. The

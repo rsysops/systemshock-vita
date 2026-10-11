@@ -219,7 +219,7 @@ int main(int argc, char **argv) {
 
     // FIXME externalize this
     // Warnings and errors only: a line written to the console's debug
-    // output holds the game up for a frame and more (docs/PERFORMANCE-GPU.md,
+    // output holds the game up for a frame and more (docs/PERFORMANCE.md,
     // step S7b), and the INFO lines come in the middle of it.
     log_set_quiet(0);
     log_set_level(LOG_WARN);
@@ -307,7 +307,7 @@ bool CheckArgument(char *arg) {
     return false;
 }
 
-// The canvases the GPU draws views into (see docs/PERFORMANCE-GPU.md):
+// The canvases the GPU draws views into (see docs/PERFORMANCE.md):
 // paletted textures like the screen's, used in turn (see vgpu_canvas). A view
 // drawn there is shown from there, without copying it to the screen buffer:
 // alone if it fills the screen, over the screen buffer's picture if it is

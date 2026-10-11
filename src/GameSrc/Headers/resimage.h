@@ -3,7 +3,7 @@
 
 // The art files held whole in memory, so that art first needed in the
 // middle of the game is copied from there and not read from the card, which
-// takes 5 ms and more for each piece. See docs/PERFORMANCE-GPU.md, step S6.
+// takes 5 ms and more for each piece. See docs/PERFORMANCE.md, step S6.
 
 // Starts reading the files, on a thread of its own. Until a file is read
 // the resource system takes it from the card as before.

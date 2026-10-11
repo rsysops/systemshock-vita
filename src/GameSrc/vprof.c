@@ -1,4 +1,4 @@
-// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE-CPU.md,
+// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE.md,
 // "How to measure", for the spec this implements.
 
 #ifdef VITA_PROFILE
@@ -22,6 +22,9 @@
 #include "VitaGpu.h"
 #include "hudkeep.h"
 #include "resimage.h"
+#include "map.h"
+#include "objects.h"
+#include "player.h"
 
 #define VPROF_FIXDIV_CHECK_CASES 1000000
 // A stutter: a frame of at least this long that is also half again as long
@@ -137,6 +140,7 @@ typedef struct {
     SceInt64 phase_us[VPROF_PHASE_COUNT];
     unsigned long long gpu_wait_us, gpu_submit_us, upload_us, texture_bytes, swap_wait_us;
     unsigned cmds, views;
+    char place[40]; // where the player was (vprof_place)
 } vprof_spike_t;
 // The worst stutters since the log was last written, in the order they came
 static vprof_spike_t g_spikes[VPROF_SPIKES_KEPT];
@@ -452,6 +456,22 @@ static void vprof_workers_share(SceInt64 now) {
     g_workers_read = 1;
 }
 
+// Where the player is, as level:x,y,z@heading. x and y are in map squares,
+// the square's number then how far across it; z is the height and the
+// heading a turn in degrees, both as the game counts them. A "c" after the
+// level: cyberspace. "-" outside the game.
+static void vprof_place(char *to, size_t size) {
+    extern short _current_loop;
+
+    if (_current_loop > FULLSCREEN_LOOP || global_fullmap == NULL || PLAYER_OBJ == OBJ_NULL)
+        snprintf(to, size, "-");
+    else {
+        const ObjLoc *loc = &objs[PLAYER_OBJ].loc;
+        snprintf(to, size, "%d%s:%.2f,%.2f,%d@%d", (int)player_struct.level, global_fullmap->cyber ? "c" : "",
+                 loc->x / 256.0, loc->y / 256.0, (int)loc->z, (int)loc->h * 360 / 256);
+    }
+}
+
 // Where most of a stutter went: a load when one took over half of it,
 // otherwise the largest of the frame's five parts or of what they leave.
 static const char *vprof_spike_cause(const vprof_spike_t *s, SceInt64 *us) {
@@ -514,6 +534,7 @@ static void vprof_spike_add(SceInt64 now, SceInt64 elapsed) {
     s->swap_wait_us = vgpu_counters.swap_wait_us - g_vgpu_at_frame_begin.swap_wait_us;
     s->cmds = rastq_stats.cmds - g_rastq_at_frame_begin.cmds;
     s->views = rastq_stats.views - g_rastq_at_frame_begin.views;
+    vprof_place(s->place, sizeof(s->place));
     memcpy(s->notes, g_frame_notes, sizeof(s->notes));
     s->note_count = g_frame_note_count;
     g_last_spike = *s;
@@ -561,7 +582,7 @@ static void vprof_spikes_write(void) {
                 "spike t=%.2f mode=%d frame=%.2f input=%.2f sim=%.2f render3d=%.2f ui2d=%.2f present=%.2f "
                 "other=%.2f | traverse=%.2f sendview=%.2f raster=%.2f record=%.2f helpscan=%.2f hud=%.2f "
                 "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f outlined=%.2f | gpuwait=%.2f gpusubmit=%.2f "
-                "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u",
+                "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u at=%s",
                 (double)s->at_us / 1000000.0, s->mode, us_to_ms(s->frame_us),
                 us_to_ms(s->phase_us[VPROF_INPUT]), us_to_ms(s->phase_us[VPROF_SIM]),
                 us_to_ms(s->phase_us[VPROF_RENDER3D]), us_to_ms(s->phase_us[VPROF_UI2D]),
@@ -574,7 +595,7 @@ static void vprof_spikes_write(void) {
                 us_to_ms(s->phase_us[VPROF_OUTLINED]),
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
-                us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views);
+                us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views, s->place);
         vprof_notes_write(s);
     }
     g_spikes_kept = 0;
@@ -587,6 +608,7 @@ static void vprof_window_flush(SceInt64 now) {
     SceInt64 write_t0;
     int snd_ready, snd_total, snd_decode_ms, snd_bytes;
     int img_ready, img_wanted, img_bytes, img_ms;
+    char place[40];
 
     if (!g_window_open || g_frame_samples == 0) {
         return;
@@ -607,6 +629,7 @@ static void vprof_window_flush(SceInt64 now) {
     g_prev_frame_avg_us = g_frame_total_us / g_frame_samples;
     snd_preload_stats(&snd_ready, &snd_total, &snd_decode_ms, &snd_bytes);
     resimage_stats(&img_ready, &img_wanted, &img_bytes, &img_ms);
+    vprof_place(place, sizeof(place));
 
     write_t0 = sceKernelGetProcessTimeWide();
     {
@@ -636,7 +659,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
                 "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u | "
                 "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
-                "applog=%u:%.2f applogmax=%08x:%.2f\n",
+                "applog=%u:%.2f applogmax=%08x:%.2f | at=%s\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -759,7 +782,7 @@ static void vprof_window_flush(SceInt64 now) {
                 __atomic_exchange_n(&g_applog_lines, 0, __ATOMIC_RELAXED),
                 us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_us, 0, __ATOMIC_RELAXED)),
                 (unsigned)(uintptr_t)__atomic_load_n(&g_applog_max_from, __ATOMIC_RELAXED) & ~1u,
-                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_max_us, 0, __ATOMIC_RELAXED)));
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_max_us, 0, __ATOMIC_RELAXED)), place);
         __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
         g_res_max_us = 0;
         g_res_max_id = 0;

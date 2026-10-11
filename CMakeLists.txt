@@ -48,7 +48,7 @@ configure_file("${CMAKE_SOURCE_DIR}/src/GameSrc/Headers/shockolate_version.h.in"
 	"${CMAKE_BINARY_DIR}/src/GameSrc/Headers/shockolate_version.h" )
 
 # Keep the music mix the Vita port has always had: both OPL3 emulators
-# play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE-CPU.md).
+# play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE.md).
 add_definitions(-DOPL3_HALF_SQUARE_WAVES)
 set(VITA_FLAGS "-Ofast -mcpu=cortex-a9 -mfpu=neon -fgraphite-identity -floop-nest-optimize -fno-lto")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${VITA_FLAGS}")

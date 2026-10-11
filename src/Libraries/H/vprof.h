@@ -43,7 +43,7 @@ typedef enum {
 
 // Variants of the code under test. Currently the sharing of the GPU's lists
 // with the worker threads (rastq_gpu_frame in rastq.h): 0 = always, as it
-// was, 1 = only while frames are short of time (docs/PERFORMANCE-GPU.md,
+// was, 1 = only while frames are short of time (docs/PERFORMANCE.md,
 // step S2).
 // With VPROF_ALTERNATE set they are alternated every VPROF_WINDOWS_PER_VARIANT
 // 1 s windows, so that they can be compared within one session. Without it

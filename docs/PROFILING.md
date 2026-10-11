@@ -4,8 +4,7 @@ How to measure what the game does on a real console: build the profile
 package, take a capture, read it, and add a measurement of your own.
 
 This is the how-to. What was measured with it, and what was done about
-it, is in [PERFORMANCE-CPU.md](PERFORMANCE-CPU.md) and
-[PERFORMANCE-GPU.md](PERFORMANCE-GPU.md).
+it, is in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## The profile build
 
@@ -239,6 +238,7 @@ All zero in the seconds the CPU draws.
 | `resimgmb`, `resimgms` | total: what those copies take up, in MB, and how long their thread has taken to read them, in ms |
 | `applog=lines:ms` | the game's own log (`log_log`, warnings and errors): lines written in this second, by any thread, and what they took together. A line goes out to the console's debug output and holds its thread up meanwhile |
 | `applogmax=address:ms` | the longest of them and the function it was written from. In a stutter's line the same is a note, `log@address` |
+| `at=level:x,y,z@heading` | where the player is when the line is written: the level's number (a `c` after it in cyberspace), the map square across and along with how far into it (`23.50` is the middle of square 23), the height and the heading in degrees, both as the game counts them. `-` outside the game. At the end of the line; a stutter's line has the same, for where the player was at the end of that frame |
 | `resmax=from#id:ms` | the slowest resource read of this second: from the card (`res`) or from memory (`resm`), its id (hex) and its time. `res#0:0.00` when nothing was read. At the end of the line |
 | `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
 | `alogcpu` | the share of one core the audio thread spends on a log while it plays: converting it, a slice at each of its calls |
@@ -276,7 +276,7 @@ the log was last written each get a line of their own, after that
 second's line:
 
 ```
-spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 outlined=0.30 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1
+spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 outlined=0.30 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1 at=1:23.50,41.25,96@180
 ```
 
 `t` is when the frame ended, in seconds. The times are that one

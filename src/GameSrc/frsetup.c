@@ -486,7 +486,7 @@ int fr_start_view(void) {
     uchar *gpu_bits = NULL; // the GPU's canvas, if this view is drawn into one
 
     // A frame the GPU will draw goes into a GPU canvas, not the view's own
-    // memory, where the CPU is slow (see docs/PERFORMANCE-GPU.md). Only the
+    // memory, where the CPU is slow (see docs/PERFORMANCE.md). Only the
     // main view: not the help scan, the security cameras or the 360 view.
     // Nor in low resolution, where the view is doubled out of its canvas.
     if (_fr->flags & FR_DOUBLEB_MASK) {

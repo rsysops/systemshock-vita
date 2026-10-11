@@ -7,7 +7,7 @@
 //
 // It also checks what the queue hands a GPU: a stand-in fills that with the
 // arithmetic of the Vita's shader, and its picture must be close to the
-// mappers' (see docs/PERFORMANCE-GPU.md, step G3).
+// mappers' (see docs/PERFORMANCE.md, step G3).
 //
 // Usage: rastq_test [frames] [seed]
 // RASTQ_GPU_EXPLAIN=frames prints how each frame of the GPU comparison did;
@@ -1092,7 +1092,7 @@ static void explain_gpu(const op_t *ops, int count) {
 #endif
 
 #ifndef RASTQ_REFERENCE
-// ---- the overlays' drawing (docs/PERFORMANCE-GPU.md, step G9) -------------
+// ---- the overlays' drawing (docs/PERFORMANCE.md, step G9) -------------
 // These have a generator of their own: the frames' must give the reference
 // build the same scenes.
 static uint64_t ov_state = 0x9E3779B97F4A7C15ULL;

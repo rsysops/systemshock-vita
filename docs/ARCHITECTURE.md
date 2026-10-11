@@ -87,7 +87,7 @@ Three paths can fill the 3D view's pixels. All three look the same; they differ 
 
 The game uses the GPU, and three cores for the views the GPU isn't given or when it can't be used; there is no setting. `main()` in `Shock.c` sets the queue up that way once, at start-up. The one-core path is what the queue's tests (`tests/rastq`) compare the others against.
 
-The GPU's shaders are compiled when the game starts, which needs `ur0:data/libshacccg.suprx`; without it the game says so in a message box and stays on the CPU. The design and measurements are in [PERFORMANCE-CPU.md](PERFORMANCE-CPU.md) ("Multicore rasterizer") and [PERFORMANCE-GPU.md](PERFORMANCE-GPU.md).
+The GPU's shaders are compiled when the game starts, which needs `ur0:data/libshacccg.suprx`; without it the game says so in a message box and stays on the CPU. The design and measurements are in [PERFORMANCE.md](PERFORMANCE.md): [Part 1](PERFORMANCE.md#part-1-three-cores) ("Multicore rasterizer") and [Part 2](PERFORMANCE.md#part-2-the-gpu-renderer).
 
 ## Build system
 
