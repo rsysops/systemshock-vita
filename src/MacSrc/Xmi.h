@@ -15,6 +15,14 @@ extern int NumUsedChannels; // number of in-use device channels
 
 void FreeXMI(void);
 int ReadXMI(const char *filename);
+// Starts reading the level scores of this music type and their tables into
+// memory, on a thread of its own, once. A score then first wanted in the
+// middle of the game isn't read from the card there (docs/PERFORMANCE.md,
+// step S9c).
+void XmiReadAhead(const char *music_type);
+// The bytes of a file read ahead, by the name it is opened with, or NULL if
+// it wasn't or isn't yet.
+const unsigned char *XmiAhead(const char *filename, int *size);
 void StartTrack(int i, unsigned int track);
 void StopTrack(int i);
 void StopTheMusic(void);

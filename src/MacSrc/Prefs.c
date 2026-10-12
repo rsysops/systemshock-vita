@@ -259,7 +259,18 @@ int16_t LoadPrefs(void) {
 //--------------------------------------------------------------------
 //	  Save global settings in the preferences file.
 //--------------------------------------------------------------------
+static bool save_wanted;
+
+void SavePrefsLater(void) { save_wanted = true; }
+
+void SavePrefsIfWanted(void) {
+    if (save_wanted)
+        SavePrefs();
+}
+
 int16_t SavePrefs(void) {
+    save_wanted = false;
+
     // What was last written: the same text isn't written again. The options
     // panel saves each time it closes, a setting changed or not, and a write
     // waits for the memory card, however long it takes.

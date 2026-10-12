@@ -309,6 +309,9 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `audiolog_bark_play@address#bark` | a bark set off, and from where |
 | `EDMS_soliton_vector`, `edms_delete_go`, `obj_move_to#object`, `compare_locs` | what `physics_run()` is made of |
 | `fade_into_location#x/y`, `check_entrance_triggers#x/y`, `check_hazard_regions` | what `compare_locs` does when the player steps onto a new map square: the music's change, the square's triggers |
+| `xmi_file#bytes`, `xmi_ahead#bytes`, `xmi_parse#tracks`, `xmi_setup_mode#mode` | inside `ReadXMI`: the score's file read from the card (`xmi_file`) or taken from those read ahead (`xmi_ahead`), and taken apart, the first time it is wanted (after that it is kept); and the music device set up for it, at every change |
+| `trap#kind/object` | a trap run (`grind_trap`): its kind (hex) and the object that set it off. Inside `check_entrance_triggers` it is what stepping on a square did |
+| `musicai_shutdown#score`, `MacTuneLoadTheme#score`, `StopTheMusic`, `FreeXMI`, `ReadXMI`, `theme_tables`, `MacTuneStartCurrentTheme` | what the music's change of zone is made of: its threads stopped, the old score let go, the new one and its tables read from the card, the track started. The number is the score's (hex) |
 | `audiolog_stop`, `MacTuneUpdateVolume`, `snd_stop_music`, `Mix_HookMusic` | what `audiolog_play` does around reading and starting its log |
 | `read_email`, `audiolog_play`, `inventory_draw_new_page`, `email_skip_lines`, `email_draw_text`, `make_email_cursor`, `inventory_clear`, `mfd_notify_func`, `play_vmail` and the like | what opening a mail or turning its page is made of (`src/GameSrc/email.c`) |
 | `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |

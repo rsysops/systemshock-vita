@@ -72,6 +72,8 @@ and read its log is in [PROFILING.md](PROFILING.md).
     - [S8b: the game file's packing](#s8b-the-game-files-packing)
     - [S8c: a level's pieces written together](#s8c-a-levels-pieces-written-together)
     - [S9: stepping onto a new map square](#s9-stepping-onto-a-new-map-square)
+    - [S9b: the music's scores kept](#s9b-the-musics-scores-kept)
+    - [S9c: the first time into a zone, and the trigger](#s9c-the-first-time-into-a-zone-and-the-trigger)
     - [S10: changing level](#s10-changing-level)
     - [S11: heavy views](#s11-heavy-views)
 
@@ -3475,7 +3477,8 @@ Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
 written here. S1 to S7 are done, with S7b and S7c after it. Of what
 those left, S8 is done with S8b and S8c, and S10 with them for
-cyberspace; S9 and S11 are not started.
+both ways of changing level; S9 is done with S9b and S9c; S11 is not
+started.
 
 | step | what | for |
 |---|---|---|
@@ -3492,8 +3495,10 @@ cyberspace; S9 and S11 are not started.
 | S8 | Saving and loading a game | **done**, with S8b and S8c: a save 0.9 s from 9 to 12; a load 0.7 s; a new game 0.85 s from 3. Here: the game file copied in one read and one write (2.69 s to 0.32) |
 | S8b | The game file's packing, at a save and at a change of level | **done**: the part of the file to close up read whole, packed in memory, written back whole: 6.35 s to 0.45. A save 1.9 s; cyberspace in 1.7 s, out 1.3 s |
 | S8c | A level's pieces written one by one | **done**: a file being written collects its resources in memory and hands them to the card together: 1 s to 0.03. A save 0.88 s; cyberspace in 0.78 s, out 0.47 s |
-| S9 | Stepping onto a new map square | not started. One stutter of 28 to 70 ms, in the same place, in every capture |
-| S10 | Changing level: cyberspace and the lift | **done for cyberspace**, by S8b and S8c: in 0.78 s, out 0.47 s, from up to 7.2. The lift not measured |
+| S9 | Stepping onto a new map square | **done**, with S9b and S9c. Measured here: the music changing zone, 37 to 70 ms at every crossing of a zone's edge, its score read, taken apart and thrown away each time; and one trigger, 25 ms |
+| S9b | The music's scores kept once read | **done**: a crossing back into a zone 10 to 18 ms, from 37 to 70; no difference to the ear |
+| S9c | The first time into a zone; the trigger near the start | **done**: the scores and their tables read ahead by a thread; the help's switch-off no longer saves the preferences in its frame. A crossing 3 to 8 ms, the first into a zone 12 to 15; the trigger's stutter gone |
+| S10 | Changing level: cyberspace and the lift | **done**, by S8b and S8c: cyberspace in 0.78 s, out 0.47 s, from up to 7.2; the lift 0.37 s (S9's capture) |
 | S11 | Heavy views: the render, and clicks there | not started. 4 of the 6 stutters S7c left; a look-up under the cursor still 7 ms there |
 
 The order is by what the player gains. S4 is the smallest and could go
@@ -4576,7 +4581,7 @@ save, cyberspace in and out, a second save, the two loaded.
 
 #### S9: stepping onto a new map square
 
-Not started. `compare_locs`,
+Done: measured here, fixed in S9b and S9c. `compare_locs`,
 65.5 ms of a 66 ms `physics_run()`, in the same place in every capture.
 
 - The timers that say which part are in the build since S7c
@@ -4590,12 +4595,144 @@ Not started. `compare_locs`,
   the threads handed over without the waits; or the trigger.
 - Check: by ear, the music changes where and how it did.
 
+As built, the first half: nothing of the game changed. If it is the
+music, one timer on `fade_into_location` would only say so, and the
+fix depends on which part of it is slow. So the profile build also
+times what is inside (`src/GameSrc/musicai.c`, `MacTuneLoadTheme` in
+`src/MacSrc/SDLSound.c`): the music's threads stopped, each waited for
+a millisecond at a time (`musicai_shutdown`, `StopTheMusic`); the old
+score let go (`FreeXMI`); the new one read from the card (`ReadXMI`)
+and its tables after it (`theme_tables`); the track started
+(`MacTuneStartCurrentTheme`). With `at=` in the stutter's line, the
+capture gives the cause and the square.
+
+Results (`docs/profiles-perf/profile-step-s9.txt`): 303 s in the game.
+The walk to the lift, in and out of it some twenty times, up to level
+2, in and out again.
+
+- **The stutter is the music changing zone, every time**: 25 crossings
+  of the lift's door, 25 stutters, `fade_into_location` 37 to 70 ms of
+  each. On level 1 the door is between squares 15,36 and 15,37; on
+  level 2 between 15,39 and 15,40 (`at=`).
+
+| piece | time |
+|---|---|
+| the new score read and taken apart (`ReadXMI`) | 23 to 27 ms for the lift's, 35 to 37 for level 1's, 53 to 56 for level 2's |
+| the old score let go (`FreeXMI`) | 6 to 12 ms |
+| the music's threads stopped (`musicai_shutdown`) | 3 to 9 ms |
+| the score's tables (`theme_tables`) | 2.4 ms; 10 to 24 the first time |
+| the track started | under 2.4 ms |
+
+- **The same score is read, taken apart and thrown away again at each
+  crossing.** A score's time is the same to a millisecond or two each
+  time and grows with the score. Neither of the two readings this step
+  started from was it on its own: not the card alone, and the threads'
+  waits are a tenth of it. Whether `ReadXMI`'s time is the card or the
+  taking apart, its one timer doesn't say.
+- **One other stutter, 8 s into the game: a trigger**, 25 ms in
+  `check_entrance_triggers` on square 19,20 of level 1: the stutter
+  the earlier captures have near the start. Which trigger, the log
+  doesn't say yet.
+- **The lift is 0.37 s** (level 1 to level 2): the level saved 0.19,
+  the new one read 0.11, the rest setting it up. S10 is done for the
+  lift too.
+
+#### S9b: the music's scores kept
+
+Done; results below.
+
+- **A score read once is kept** (`src/MacSrc/Xmi.c`): `ReadXMI` takes
+  it from those kept when its file was read before, and `FreeXMI`
+  leaves a kept score where it is. Going back into a zone costs no
+  reading, no taking apart and no letting go. The first time into
+  each kind of zone costs what it did. Room for 24 scores.
+- **What plays is as it was**: the same score, started the same way,
+  the music device set up by the same call at every change. The
+  player threads read a score and never write to it.
+- **Timers** (profile build): in `ReadXMI`, the file's reading
+  (`xmi_file#bytes`), the taking apart (`xmi_parse`) and the device's
+  set-up (`xmi_setup_mode`), each on its own; and `trap#kind/object`
+  on each trap a trigger runs, for the 25 ms one.
+- No test on the PC: this is the music's player, which runs on the
+  console only. The capture and the ear check it.
+
+Results (`docs/profiles-perf/profile-step-s9b.txt`): 71 s in the game,
+the walk to the lift, in and out of it some thirty times, up to
+level 2. By ear, nothing has changed.
+
+| a crossing of the lift's door | S9 | S9b |
+|---|---|---|
+| back into a zone whose score was read before | 37 to 70 ms | 10 to 18 ms |
+| the first time into a zone | 37 to 70 ms | 44 ms (the lift), 70 ms (level 2) |
+
+- **Two of the thirty crossings back still made a stutter**, frames of
+  27 and 29 ms; the others are under its line.
+- **A score's first reading is the card**: 23.6 ms for the lift's
+  9.6 KB (`xmi_file`), 47.3 ms for level 2's 25 KB. Taking the larger
+  apart is 7.7 ms (`xmi_parse`, 50 tracks).
+- **The score's tables are read from the card at every crossing**, the
+  score kept or not: 4 to 10 ms for a file of 400 bytes
+  (`theme_tables`). With the music's threads stopped (3 to 7 ms) that
+  is what a crossing still costs. The device's set-up doesn't show.
+- **The trigger at 8 s is a preferences save**: `trap#4/713`, the trap
+  that sets a game variable, here the one that switches the on-screen
+  help off, which saves the preferences in the same breath
+  (`trap_questbit_func` in `src/GameSrc/trigger.c`): 24 ms on the
+  card, once in each new game.
+
+#### S9c: the first time into a zone, and the trigger
+
+Done; results below.
+
+- **The scores and their tables are read ahead** (`XmiReadAhead` in
+  `src/MacSrc/Xmi.c`): a thread below the game's, started once the
+  music device is there, reads `thm0` to `thm15` of the music type in
+  use, those that exist, and their tables. `ReadXMI` and the tables'
+  reading take a file from there when it is in, and from the card as
+  before when it is not: another music type chosen later, or the
+  thread not there yet. What is played is the same bytes.
+- **The help's switch-off saves the preferences later**
+  (`SavePrefsLater`): at the next moment the game waits anyway, which
+  is the wait cursor's (`begin_wait`: a save, a load, a level change),
+  or when the options panel closes, which saves in any case. Closed
+  before either, the game starts with the help on again, as a new game
+  turns it on anyway.
+- In the notes, a score taken from those read ahead is `xmi_ahead`,
+  one from the card still `xmi_file`.
+
+Results (`docs/profiles-perf/profile-step-s9c.txt`): two sessions,
+111 s in the game: a new game with the help on, the walk to the lift,
+in and out of it, up to level 2, a save and a load; then the game
+started again. Nothing different to the ear, and the help's setting
+kept.
+
+| a crossing of the lift's door | S9 | S9b | S9c |
+|---|---|---|---|
+| back into a zone | 37 to 70 ms | 10 to 18 ms | 3 to 8 ms |
+| the first time into a zone | 37 to 70 ms | 44 and 70 ms | 12 to 15 ms |
+
+- **The stutter 8 s into a new game is gone**: passing square 19,20
+  the game's part of the frame is 5.5 ms, where the trap took 24.
+- **A crossing no longer touches the card.** In the 96 seconds at the
+  lift's door the game's part of the worst frame is 3.1 ms at the
+  median, 7.7 at the ninth decile.
+- **The first time into a zone is the score taken apart, and no more**:
+  9.2 ms of `ReadXMI` for level 2's score, 8.3 of them `xmi_parse`,
+  the file coming from those read ahead.
+- **Left as it is**: that first taking apart, once per score in a
+  session. On a render of 10 ms it made a frame of 27 ms, twice in
+  the capture, once in each session: just over the profiler's line for
+  a stutter. Doing it ahead as well would mean reworking the score
+  reader for a second thread to run it, which is not worth disturbing
+  the music's code for 8 ms once per kind of zone.
+- Along the way: the lift 0.48 s, a save 1.25 s, a load 0.66 s.
+
 #### S10: changing level
 
-Done for cyberspace by S8b and S8c: in 0.78 s, out 0.47 s. Its cause
-was the game file's packing (5.9 of the 7.2 s of going in), then the
-level's pieces written one by one. The lift not measured. What follows
-is the step as first planned. Into cyberspace 1.5 to 3.1 s, out
+Done by S8b and S8c: cyberspace in 0.78 s, out 0.47 s; the lift 0.37 s
+(in S9's capture). Its cause was the game file's packing (5.9 of the
+7.2 s of going into cyberspace), then the level's pieces written one by
+one. What follows is the step as first planned. Into cyberspace 1.5 to 3.1 s, out
 2.8 to 7.2 s. Since S6 the art's side of a level change costs nothing.
 
 - Read in the code (`save_current_map` in `saveload.c`, `ResWrite` and

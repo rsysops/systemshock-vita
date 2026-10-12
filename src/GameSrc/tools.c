@@ -49,6 +49,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Shock.h"
 #include "VitaGpu.h"
 #include "hudkeep.h"
+#include "Prefs.h"
 #include "vprof.h"
 
 //------------
@@ -607,6 +608,7 @@ errtype begin_wait() {
     extern LGCursor wait_cursor;
     errtype retval;
     if (wait_count == 0) {
+        SavePrefsIfWanted(); // a save put off from the middle of the game: here the game waits anyway
         VitaSyncView(); // the cursor is drawn on the screen buffer
         uiHideMouse(NULL);
         retval = uiPushGlobalCursor(&wait_cursor);

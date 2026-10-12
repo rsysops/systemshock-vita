@@ -173,6 +173,9 @@ int snd_start_digital(void) {
     Mix_VolumeMusic(MIX_MAX_VOLUME); // use max volume for music stream
 
     InitReadXMI();
+    // the level scores and their tables, not at the first step into a zone
+    if (MusicDev != NULL)
+        XmiReadAhead(MusicDev->musicType);
 
     atexit(Mix_CloseAudio);
     atexit(SDL_CloseAudio);
@@ -282,28 +285,49 @@ int MacTuneLoadTheme(char *theme_base, int themeID) {
     extern uchar layering_table[NUM_LAYERS][MAX_KEYS];
     extern uchar key_table[NUM_LAYERABLE_SUPERCHUNKS][KEY_BAR_RESOLUTION];
 
-    StopTheMusic();
+    // (the profiler's notes: what loading a theme is made of)
+    VPROF_NOTE("StopTheMusic", NULL, themeID, 0, StopTheMusic());
 
-    FreeXMI();
+    VPROF_NOTE("FreeXMI", NULL, themeID, 0, FreeXMI());
 
     if (strncmp(theme_base, "thm", 3)) {
         sprintf(filename, "res/sound/%s/%s.xmi", MusicDev->musicType, theme_base);
-        ReadXMI(filename);
+        VPROF_NOTE("ReadXMI", NULL, themeID, 0, ReadXMI(filename));
     } else {
         sprintf(filename, "res/sound/%s/thm%i.xmi", MusicDev->musicType, themeID);
-        ReadXMI(filename);
+        VPROF_NOTE("ReadXMI", NULL, themeID, 0, ReadXMI(filename));
 
         sprintf(filename, "res/sound/thm%i.bin", themeID);
         extern FILE *fopen_caseless(const char *path, const char *mode); // see caseless.c
-        f = fopen_caseless(filename, "rb");
-        if (f != 0) {
-            fread(track_table, NUM_SCORES * SUPERCHUNKS_PER_SCORE, 1, f);
-            fread(transition_table, NUM_TRANSITIONS, 1, f);
-            fread(layering_table, NUM_LAYERS * MAX_KEYS, 1, f);
-            fread(key_table, NUM_LAYERABLE_SUPERCHUNKS * KEY_BAR_RESOLUTION, 1, f);
+        VPROF_SPAN_BEGIN(tables_began);
+        {
+            // read ahead (XmiReadAhead), or from the card as before
+            enum {
+                TRACKS = NUM_SCORES * SUPERCHUNKS_PER_SCORE,
+                LAYERS = NUM_LAYERS * MAX_KEYS,
+                KEYS = NUM_LAYERABLE_SUPERCHUNKS * KEY_BAR_RESOLUTION
+            };
+            int size = 0;
+            const unsigned char *ahead = XmiAhead(filename, &size);
 
-            fclose(f);
+            if (ahead != NULL && size >= TRACKS + NUM_TRANSITIONS + LAYERS + KEYS) {
+                memcpy(track_table, ahead, TRACKS);
+                memcpy(transition_table, ahead + TRACKS, NUM_TRANSITIONS);
+                memcpy(layering_table, ahead + TRACKS + NUM_TRANSITIONS, LAYERS);
+                memcpy(key_table, ahead + TRACKS + NUM_TRANSITIONS + LAYERS, KEYS);
+            } else {
+                f = fopen_caseless(filename, "rb");
+                if (f != 0) {
+                    fread(track_table, NUM_SCORES * SUPERCHUNKS_PER_SCORE, 1, f);
+                    fread(transition_table, NUM_TRANSITIONS, 1, f);
+                    fread(layering_table, NUM_LAYERS * MAX_KEYS, 1, f);
+                    fread(key_table, NUM_LAYERABLE_SUPERCHUNKS * KEY_BAR_RESOLUTION, 1, f);
+
+                    fclose(f);
+                }
+            }
         }
+        VPROF_SPAN_END(tables_began, "theme_tables", themeID, 0);
     }
 
     return OK;

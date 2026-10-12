@@ -79,6 +79,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "citres.h"
 #include "setploop.h"
 #include "cutsloop.h"
+#include "vprof.h"
 
 // As far as I can tell, these NEVER GET USED.  So I thought I'd move them out of the file
 // to remove a dependency problem.
@@ -1068,7 +1069,8 @@ errtype trap_questbit_func(int p1, int p2, int p3, int p4) {
         olh_active = FALSE; // KLC - this is kept in a global now.
 
         gShockPrefs.goOnScreenHelp = FALSE; // Yeah, got to update this one too and
-        SavePrefs();                        // save the prefs out to disk.
+        SavePrefsLater();                   // save the prefs out to disk: not in this frame, a
+                                            // write to the card is a long one (step S9c)
         return (OK);
     }
 
@@ -2020,7 +2022,8 @@ uchar trap_activate(ObjID id, uchar *use_message) {
     }
 
     if (comparator_check(comparator, id, &special)) {
-        grind_trap(traptype, p1, p2, p3, p4, destroy_count_ptr, id);
+        // (the profiler's note: which kind of trap, hex, and which object)
+        VPROF_NOTE("trap", NULL, traptype, id, grind_trap(traptype, p1, p2, p3, p4, destroy_count_ptr, id));
         retval = TRUE;
     }
 out:
