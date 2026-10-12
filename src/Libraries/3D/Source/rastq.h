@@ -33,6 +33,7 @@ enum {
     RASTQ_GPU_KIND_SHADED, // a polygon shaded between its corners' colours
     RASTQ_GPU_KIND_LINE,  // a line, in one colour or shaded
     RASTQ_GPU_KIND_POINT,
+    RASTQ_GPU_KIND_TLUC,  // a translucent polygon: what is under it, through a table
     RASTQ_GPU_KINDS
 };
 
@@ -186,6 +187,12 @@ typedef struct {
     // Told of each comparison of its result with the CPU's, and how many
     // pixels differed. May be NULL.
     void (*compared)(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing);
+    // A translucent polygon: each of its pixels becomes what the canvas
+    // holds there, as the calls before it in the scene left it, passed
+    // through the row of the scene's tables its vertices name (`left`, the
+    // row plus a half). 0: no room left in this scene. NULL: it can't, and
+    // the CPU draws those.
+    int (*tluc)(int n, const rastq_gpu_vertex *v);
 } rastq_gpu;
 
 // Offers a GPU to the queue (NULL: none), and says whether to use it.

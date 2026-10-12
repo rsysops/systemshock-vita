@@ -179,6 +179,7 @@ void amap_settings_copy(curAMap *from, curAMap *to) {
 }
 
 #include "fredge.h"
+#include "vprof.h"
 uchar wall_seen_p(int wallcode, int csbits, MapElem *cur) {
     // if(textprops[me_tmap_flr(cur)].force_dir)
     // return 0;
@@ -498,7 +499,14 @@ void amap_pixratio_set(fix ratio) {
     pixratio_xy = fix_div(FIX_UNIT, ratio);
 }
 
+static void amap_draw_now(curAMap *amptr, int expose);
+
 void amap_draw(curAMap *amptr, int expose) {
+    // (the profiler's time for the map's drawing, in a panel or full screen)
+    VPROF_RUN_AS(VPROF_AMAP, "amap_draw", amptr->zoom, 0, amap_draw_now(amptr, expose));
+}
+
+static void amap_draw_now(curAMap *amptr, int expose) {
     int xc, yc, xm, ym, drw, static_drw, cv; // loop control, so on
     int zeroscrx, zeroscry, init_yc;         // x and y screen coordinate for 0,0 of map
     int tsize = 1 << amptr->zoom;

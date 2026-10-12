@@ -76,6 +76,8 @@ and read its log is in [PROFILING.md](PROFILING.md).
     - [S9c: the first time into a zone, and the trigger](#s9c-the-first-time-into-a-zone-and-the-trigger)
     - [S10: changing level](#s10-changing-level)
     - [S11: heavy views](#s11-heavy-views)
+    - [S11b: translucent polygons on the GPU](#s11b-translucent-polygons-on-the-gpu)
+    - [S11c: the shader as the compiler wants it, and a cheaper fill](#s11c-the-shader-as-the-compiler-wants-it-and-a-cheaper-fill)
 
 ## Part 1: three cores
 
@@ -3364,7 +3366,10 @@ What is left, none of it started:
   split a frame into 2 to 5 scenes where they appear (cyberspace, still
   at 61 fps).
 - **Translucent surfaces and brightness-shaded polygons**: the CPU's,
-  in their place in the frame. None has come up in a capture.
+  in their place in the frame. None had come up in a capture until
+  S11's, where a force bridge took the game to 13 fps, and to 4 from
+  underneath: translucent polygons are the GPU's since S11c (Part 3),
+  and the bridge is at the screen's rate.
 - **The zoom rectangle in full screen**: not shown with the GPU
   renderer since G6.
 - **The stalls**: a sound effect decoded on the main thread for its
@@ -3477,8 +3482,10 @@ Taken one at a time: a plan, a build checked on the PC, a capture
 on the Vita (`docs/profiles-perf/profile-step-sN.txt`), its results
 written here. S1 to S7 are done, with S7b and S7c after it. Of what
 those left, S8 is done with S8b and S8c, and S10 with them for
-both ways of changing level; S9 is done with S9b and S9c; S11 is not
-started.
+both ways of changing level; S9 is done with S9b and S9c; S11 is
+measured, and its one finding, the force bridges, is done with S11b
+(whose shader did not compile) and S11c: the bridge at 60 fps from 4
+to 20. The roadmap is finished.
 
 | step | what | for |
 |---|---|---|
@@ -3499,7 +3506,7 @@ started.
 | S9b | The music's scores kept once read | **done**: a crossing back into a zone 10 to 18 ms, from 37 to 70; no difference to the ear |
 | S9c | The first time into a zone; the trigger near the start | **done**: the scores and their tables read ahead by a thread; the help's switch-off no longer saves the preferences in its frame. A crossing 3 to 8 ms, the first into a zone 12 to 15; the trigger's stutter gone |
 | S10 | Changing level: cyberspace and the lift | **done**, by S8b and S8c: cyberspace in 0.78 s, out 0.47 s, from up to 7.2; the lift 0.37 s (S9's capture) |
-| S11 | Heavy views: the render, and clicks there | not started. 4 of the 6 stutters S7c left; a look-up under the cursor still 7 ms there |
+| S11 | Heavy views: the render, and clicks there; the maps | measured: the maps cost nothing, a force bridge 13 fps, 4 from underneath, now 60 (S11b, S11c). 4 of the 6 stutters S7c left; a look-up under the cursor still 7 ms there |
 
 The order is by what the player gains. S4 is the smallest and could go
 whenever it helps. S5 to S7 came out of S3's capture, in the order of
@@ -4753,17 +4760,184 @@ one. What follows is the step as first planned. Into cyberspace 1.5 to 3.1 s, ou
 
 #### S11: heavy views
 
-Not started. `render_run()` at 16 to 24 ms in
+Measured; what it found is S11b, below. `render_run()` at 16 to 24 ms in
 some places, three frames in a row at one of them in S7c's capture,
 and a look-up under the cursor at 7 ms there, two or three for a
 double-click.
 
 - Not known: where in the render those milliseconds are. The log has
   the phases, but no capture was made standing in such a place.
-- First: a capture standing and turning in the two or three heaviest
-  places, with the checks flavour's frame dumps of them.
-- Then it depends on what that shows. Of the four this is the step
+- Not measured either, as it turned out: the maps. The map in a side
+  panel, in full screen, is only named in the log inside a stutter
+  (`mfd@mfd_map_expose`), and no capture since S5 has one; what it
+  costs each time it is redrawn while walking is nowhere. The map's
+  own screen (mode 8) is 2 seconds of all the captures together, and
+  its loop had no timer. Both draw through `amap_draw`
+  (`src/GameSrc/amap.c`).
+- First, with no change to the game: the map's drawing timed
+  (`amap=avg/max`, `amaps`, `amapmax` in a second's line, and a note
+  `amap_draw#zoom` in a stutter's), and the five draws of the map
+  screen's loop counted in `ui2d` (`src/GameSrc/amaploop.c`). Nothing
+  new for the heavy views: standing still, a second's averages give
+  each part of the frame, and `at=` says where and facing what. The
+  frame dumps first thought of are dropped: the checks flavour writes
+  them when it decides to, not where the player stands.
+- The capture (`profile-step-s11.txt`), in three parts: in each of the
+  two or three heaviest places, five seconds standing still facing the
+  heavy way, a slow full turn, a few double-clicks on something far
+  off; half a minute's walk in full screen with a side panel on the
+  map, then with both; twenty seconds on the map's own screen, moving
+  it and zooming.
+- Then it depends on what that shows. For the render this is the step
   most likely to end in "this is what the renderer costs here" and not
-  in a fix.
+  in a fix; for the maps nothing is known yet.
+
+The capture (`profile-step-s11.txt`, 12 minutes on levels 1 and 2, a
+map in a side panel for nearly all of it):
+
+- **The maps cost next to nothing.** In a side panel: 0.84 ms a
+  drawing (1.5 at most), 15 a second for one panel and 30 for two,
+  0.36 ms a frame on average. On its own screen: 0.8 to 2.8 ms a
+  drawing, one to five a second, the frame at the screen's rate
+  throughout. Nothing to fix.
+- **Level 1's heavy places are the render at its ordinary price**: 48
+  to 57 fps for a second here and there (square 18,23 facing north,
+  157 to 161 calls a frame; 14,30), the traversal and the sending both
+  long and nothing out of line. Left as it is.
+- **A force bridge is the one real problem**, as the player had seen
+  it: standing on level 2's (squares 23 to 26, 29), 13 to 20 fps,
+  frames of 50 to 80 ms and one of 100; the same on level 1's (25,42)
+  for the two seconds spent there. The log's counters name the cause:
+  `gpuwhy=tlucpoly:4.0`, `gpucpu=4.0/61.31`, `gpuscenes=3.00`. The
+  bridge is a translucent box (`_fr_draw_poly_cube` in `gameobj.c`),
+  and a translucent polygon is the one kind of call that fell to the
+  CPU in the whole capture. For each, the scene under way is ended
+  and waited for, and `gri_poly_loop` then reads every pixel under
+  the polygon from the canvas, a byte at a time, passes it through
+  the colour's table and writes it back; the canvas is in the GPU's
+  memory, which the CPU reads four times slower than its own
+  (5.1 ms for half a megabyte against 1.3, the start-up line). Four
+  polygons that fill the screen: 61 ms.
+
+#### S11b: translucent polygons on the GPU
+
+Built, and of no effect on the console: neither spelling of the shader
+compiled, so the CPU drew the bridge as before (the result and what
+followed are at the end of this section, and in S11c). Drawing the
+same in ordinary memory would still cost some 15 ms a frame on three
+cores, so the GPU draws these polygons itself.
+
+- A translucent polygon is "the pixel becomes table[the pixel already
+  there]". This GPU hands a fragment shader that asks for it the
+  target's pixel as the calls before it in the scene left it (the
+  `FRAGCOLOR` input, its "programmable blending"), and the renderer
+  already looks indices up in a texture of tables. So: a fourth pair
+  of shaders in `src/MacSrc/VitaGpu.c` (`DRAW_TLUC`, `vgpu_tluc`), the
+  flat pair's vertex shader with the table's row where the colour is,
+  and a `tluc` call in the queue's GPU interface (`rastq.h`).
+- `gpu_classify` (`rastq.c`) follows `gri_tpoly_init` and
+  `gri_clut_tpoly_init`: the table of the polygon's colour
+  (`tluc8tab`) goes into the scene's tables as a colour table does;
+  under the colour-table fill the row is the two tables one after the
+  other (`gpu_table_row_then`); a colour without a table is the
+  opaque polygon it always was. The shaded translucent kind
+  (`FIX_TLUC8_SPOLY`) is not recorded and stays the CPU's.
+- Nothing here had shown that the feature works on an 8-bit target,
+  so the console decides at each start: `tluc_check` draws a ground
+  whose column x holds x and translucent rectangles over it (one; two
+  over one another; one in a second scene; one, a flat colour, then
+  another) and counts the columns that aren't exactly the tables'
+  answer. The shader is written two ways (the pixel as a colour from
+  0 to 1, or as the target's bytes); the first that compiles and
+  draws every column right is used, and with none the CPU draws those
+  polygons as before. The session's second line says which:
+  `tluc=on/2 tluc_check under=0 twice=0 kept=0 mixed=0` (`on, second
+  way`, or `off (CPU)`; the number is how many compiled), and
+  `gpu.txt` has the compiler's words.
+- In the log `gpukinds=` gains `tluc`; `gpuwhy=tlucpoly` should stay
+  at zero.
+- On the PC (`tests/rastq`, `test_tluc`): 150 scenes of 40
+  rectangles on whole pixels, opaque and translucent over one another
+  in the three fill types, drawn by the stand-in GPU and by the
+  mappers: no pixel differs, with the translucent call (1680 polygons
+  through it) and without it.
+
+The capture (`profile-step-s11b.txt`, with `gpu.txt`):
+
+- **The shader did not compile**, either way: `tluc=off (CPU)/0`. The
+  compiler's words, in `gpu.txt`: "using 'FRAGCOLOR' requires the entry
+  function to be declared as '__nativecolor'", and of the second
+  spelling "'__nativecolor' may only be used with function
+  declarations". So the input is there; the keyword belongs on the
+  shader's function and not on the pixel it reads.
+- The fall-back did what it was for: the game ran as in S11, 13 to
+  24 fps on the bridge.
+- **Under the bridge looking up, 4 fps**: `gpucpu=2.0/262.02`, two
+  polygons a frame for 262 ms. Two polygons can cover the screen
+  twice at most, a million pixels: 250 ns a pixel, where reading the
+  GPU's memory a word at a time costs 37 ns a word (the start-up
+  line). `gri_poly_loop` reads a byte, writes it back and reads the
+  next: on this memory, written through a buffer the processor has to
+  empty before it reads again, a read after a write is the slow case.
+
+#### S11c: the shader as the compiler wants it, and a cheaper fill
+
+Done: the bridge at 60 fps, on it and under it (the capture is at the
+end of this section). Two rounds had gone by without the bridge
+improving, so this one carries two fixes: the GPU's, and the CPU's
+for whatever it still draws.
+
+- **The shader** (`src/MacSrc/VitaGpu.c`): `__nativecolor` on its
+  entry function. In that mode the target's values come and go as
+  they are, and whether that means colours from 0 to 1 or bytes from
+  0 to 255, declared as colours or as the target's bytes
+  (`__regformat unsigned char4`), nothing here says: the shader is
+  written eight ways (`tluc_ways`; two since the capture, see below), the likeliest first, and each is
+  checked as soon as it compiles, up to the first that draws every
+  column of `tluc_check` right. A way that fails leaves its first
+  wrong columns in `gpu.txt`, which show what the shader was handed.
+  The second line: `tluc=on:way/tried`, or `off (CPU):-1/tried`.
+- **The CPU's fill** (`gr_tluc8_span` in
+  `src/Libraries/2D/Source/Flat8/fl8ply.c`): a stretch of a row is
+  copied out, 256 pixels at a time, passed through the table in that
+  copy and copied back, so that no byte of the canvas is read after a
+  write. The same pixels by construction. For the bridge if no way of
+  the shader passes, and for the shaded translucent polygons, which
+  the GPU doesn't take.
+- **Timed at each start**, since the bridge won't show the fill if the
+  GPU takes the polygons: `64KB tluc_fill us: in_place= copied=` in
+  the second line, 64 KB of GPU memory through a table the old way
+  and the new.
+- On the PC: `tests/rastq`, whose first part draws 4000 frames,
+  translucent polygons among them, with these libraries and with
+  those of before the row bands: identical.
+
+The capture (`profile-step-s11c.txt`, a minute on and under level 2's
+bridge; the player: "works great now"):
+
+- **The shader works, its second way**: `tluc=on:1/1 tluc_check
+  under=0 twice=0 kept=0 mixed=0`. Way 1 is the target's bytes both
+  read and written (`__regformat unsigned char4`), from 0 to 255. It
+  is the only one that compiled of the two tried. Of the first, the
+  same as colours from 0 to 1, the compiler says (`gpu.txt`):
+  "'FRAGCOLOR' varyings must be declared with the additional
+  '__regformat' specifier" and "if __nativecolor is used, the 'COLOR'
+  output must be declared with the addtional '__regformat'
+  specifier". Six of the eight ways could therefore never compile:
+  they are taken out since, and the one that draws right is tried
+  first (`tluc=on:0/1` from now on), its shader's text unchanged.
+- **The bridge is at the screen's rate**: 60.0 fps in each of the 44
+  seconds it was drawn in, from above, on it and from underneath
+  looking up, where S11b's capture had 4 to 20. `gpukinds=tluc` 1.4 to
+  6.0 a frame, `gpuwhy` all zeros, `gpucpu=0.0/0.00`, one scene a
+  frame, the wait for the GPU 3.1 to 4.6 ms as anywhere else. No
+  stutter's line while playing.
+- **The CPU's fill, timed at start-up**: `64KB tluc_fill us:
+  in_place=36926 copied=1787`. In place 563 ns a pixel, more than the
+  250 worked out from the bridge; through the copy 27 ns, 21 times
+  less. A polygon that fills the screen would be 14 ms where it was
+  294: twice my estimate of 7, and still more than the GPU's nothing,
+  but it is what the shaded translucent polygons and the bitmaps'
+  translucent kinds now cost at worst, should a level have them.
 
 Outside the four: the options panel's 28 ms a key, which is a menu.

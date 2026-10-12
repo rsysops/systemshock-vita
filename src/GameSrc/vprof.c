@@ -647,7 +647,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f | "
                 "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu "
                 "gpuculled=%.1f gpucpu=%.1f/%.2f gputex=%.1fKB swapwait=%.2f | "
-                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f,shaded:%.1f,line:%.1f,point:%.1f gpupieces=%.1f "
+                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f,shaded:%.1f,line:%.1f,point:%.1f,tluc:%.1f gpupieces=%.1f "
                 "gpuwhy=tlucbm:%.1f,spoly:%.1f,tlucpoly:%.1f,poly:%.1f,fill:%.1f,verts:%.1f,light:%.1f,clip:%.1f,"
                 "size:%.1f,other:%.1f | "
                 "gpuprepare=%.2f gpuupload=%.2f gpudraw=%.2f gpudraws=%.1f | "
@@ -662,7 +662,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
                 "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u | "
                 "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
-                "applog=%u:%.2f applogmax=%08x:%.2f | at=%s\n",
+                "applog=%u:%.2f applogmax=%08x:%.2f | at=%s | amap=%.2f/%.2f amaps=%d amapmax=%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -720,6 +720,7 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_SHADED] / g_frame_samples,
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_LINE] / g_frame_samples,
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_POINT] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUC] / g_frame_samples,
                 (double)rastq_stats.gpu_pieces / g_frame_samples,
                 (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_BITMAP] / g_frame_samples,
                 (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_SHADED_POLY] / g_frame_samples,
@@ -785,7 +786,9 @@ static void vprof_window_flush(SceInt64 now) {
                 __atomic_exchange_n(&g_applog_lines, 0, __ATOMIC_RELAXED),
                 us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_us, 0, __ATOMIC_RELAXED)),
                 (unsigned)(uintptr_t)__atomic_load_n(&g_applog_max_from, __ATOMIC_RELAXED) & ~1u,
-                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_max_us, 0, __ATOMIC_RELAXED)), place);
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_max_us, 0, __ATOMIC_RELAXED)), place,
+                frame_avg_ms(VPROF_AMAP, g_frame_samples), frame_max_ms(VPROF_AMAP),
+                g_call_accum[VPROF_AMAP].samples, us_to_ms(g_call_accum[VPROF_AMAP].max_us));
         __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
         g_res_max_us = 0;
         g_res_max_id = 0;

@@ -115,7 +115,19 @@ the frame was, when, and where most of it went (see
 
 `profile.txt` starts each session with two lines from the start-up
 checks (`fixdiv_check ...` and `gpu: ready ...`), which also tell
-sessions apart in a file that holds several. Then one line a second:
+sessions apart in a file that holds several. The second ends with the
+translucent shaders' check: `tluc=on:way/tried` (the GPU draws
+translucent polygons, with which of its two ways of writing the
+shader, 0 being the one that is right on the console, and how many
+compiled and were tried) or
+`tluc=off (CPU):-1/tried` (none drew right: the CPU draws them), then
+`tluc_check under= twice= kept= mixed=`, the wrong columns of 256 in
+each of the check's four bands for the last way tried, -1 if it wasn't
+drawn; and with `64KB tluc_fill us: in_place= copied=`, what the CPU
+takes to pass 64 KB of GPU memory through a translucency table, pixel
+by pixel in place and the 2D library's way since S11c. `gpu.txt` has
+the compiler's words and the first wrong columns of each way. Then one
+line a second:
 
 ```
 t=412 mode=1 var=1 fps=62.1 frame_avg=16.11 frame_max=17.98 input=0.17/0.24 sim=0.53/0.71 ...
@@ -210,7 +222,7 @@ All zero in the seconds the CPU draws.
 |---|---|
 | `gpuscenes` | GPU passes; 1 is the aim, more means the frame was interrupted |
 | `gpupolys` | calls the GPU drew |
-| `gpukinds=` | of those: `flat`, `plain` texture, through a colour table (`clut`), `lit`, `shaded` between colours, `line`, `point` |
+| `gpukinds=` | of those: `flat`, `plain` texture, through a colour table (`clut`), `lit`, `shaded` between colours, `line`, `point`, and `tluc`, a translucent polygon (a force bridge) |
 | `gpupieces` | pieces the lit calls were cut into |
 | `gpuculled` | calls dropped for facing away |
 | `gpucpu=a/b` | calls of a GPU view the CPU drew, and the time it took |
@@ -239,6 +251,8 @@ All zero in the seconds the CPU draws.
 | `applog=lines:ms` | the game's own log (`log_log`, warnings and errors): lines written in this second, by any thread, and what they took together. A line goes out to the console's debug output and holds its thread up meanwhile |
 | `applogmax=address:ms` | the longest of them and the function it was written from. In a stutter's line the same is a note, `log@address` |
 | `at=level:x,y,z@heading` | where the player is when the line is written: the level's number (a `c` after it in cyberspace), the map square across and along with how far into it (`23.50` is the middle of square 23), the height and the heading in degrees, both as the game counts them. `-` outside the game. At the end of the line; a stutter's line has the same, for where the player was at the end of that frame |
+| `amap=avg/max` | the level's map drawn (`amap_draw`, `src/GameSrc/amap.c`), per frame: in a side panel it is part of `ui2d` (inside the panel's redraw), on the map's own screen part of `ui2d` as well (inside `fsmap_draw_map`). After `at=`, at the end of the line |
+| `amaps`, `amapmax` | how many times the map was drawn in this second, and the longest single drawing in ms. A map in each side panel counts twice a redraw |
 | `resmax=from#id:ms` | the slowest resource read of this second: from the card (`res`) or from memory (`resm`), its id (hex) and its time. `res#0:0.00` when nothing was read. At the end of the line |
 | `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
 | `alogcpu` | the share of one core the audio thread spends on a log while it plays: converting it, a slice at each of its calls |
@@ -314,6 +328,8 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `musicai_shutdown#score`, `MacTuneLoadTheme#score`, `StopTheMusic`, `FreeXMI`, `ReadXMI`, `theme_tables`, `MacTuneStartCurrentTheme` | what the music's change of zone is made of: its threads stopped, the old score let go, the new one and its tables read from the card, the track started. The number is the score's (hex) |
 | `audiolog_stop`, `MacTuneUpdateVolume`, `snd_stop_music`, `Mix_HookMusic` | what `audiolog_play` does around reading and starting its log |
 | `read_email`, `audiolog_play`, `inventory_draw_new_page`, `email_skip_lines`, `email_draw_text`, `make_email_cursor`, `inventory_clear`, `mfd_notify_func`, `play_vmail` and the like | what opening a mail or turning its page is made of (`src/GameSrc/email.c`) |
+| `amap_draw#zoom` | the level's map drawn, and its zoom. Inside `mfd@…` when the map is in a side panel, inside `fsmap_draw_map()` on the map's own screen |
+| `fsmap_interface_draw()`, `fsmap_draw_map()`, `fsmap_button_redraw()`, `fsmap_message_redraw()`, `fsmap_draw_screen(cf)` | the full-screen map's loop (`src/GameSrc/amaploop.c`, mode 8): the frame around the map, the map, its buttons, its message line, and the copy to the screen. All counted in `ui2d` |
 | `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |
 | `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |
 

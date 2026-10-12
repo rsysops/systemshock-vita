@@ -28,6 +28,7 @@ typedef enum {
     VPROF_RESPACK,  // of that: the file packed after a resource was replaced in it
     VPROF_RESLZW,   // and of the writing: a resource compressed
     VPROF_RESIO,    // and of the writing: the file's seeks and writes
+    VPROF_AMAP,     // the level's map drawn (amap_draw): in a side panel or on its own screen
     // of hud:
     VPROF_HUD_HAND,    // the weapon in hand
     VPROF_HUD_LABEL,   // the help label

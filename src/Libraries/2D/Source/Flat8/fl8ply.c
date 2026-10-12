@@ -45,6 +45,31 @@ void gri_clut_poly_init(grs_tmap_loop_info *ti);
 void gri_tpoly_init(grs_tmap_loop_info *ti);
 void gri_clut_tpoly_init(grs_tmap_loop_info *ti);
 
+// A stretch of a row through a translucency table: copied out, passed
+// through the tables there, and copied back, and not pixel by pixel in
+// place. The canvas may be memory that is slow to read, and slowest of all
+// to read just after a write to it: the GPU's on the Vita, where in place
+// took 250 ns a pixel (docs/PERFORMANCE.md, step S11c).
+void gr_tluc8_span(uchar *p, int count, const uchar *tluc, const uchar *clut) {
+    uchar pixels[256];
+
+    while (count > 0) {
+        int n = count < (int)sizeof(pixels) ? count : (int)sizeof(pixels), i;
+
+        memcpy(pixels, p, n);
+        if (clut == NULL) {
+            for (i = 0; i < n; i++)
+                pixels[i] = tluc[pixels[i]];
+        } else {
+            for (i = 0; i < n; i++)
+                pixels[i] = clut[tluc[pixels[i]]];
+        }
+        memcpy(p, pixels, n);
+        p += n;
+        count -= n;
+    }
+}
+
 int gri_poly_loop(grs_tmap_loop_info *ti) {
     int d;
     uchar c = (uchar)(intptr_t)(ti->bm.bits); /* actually, fill_parm */
@@ -61,19 +86,15 @@ int gri_poly_loop(grs_tmap_loop_info *ti) {
 
     do {
         if ((d = fix_cint(ti_right_x) - fix_cint(ti_left_x)) > 0 && gr_row_in_band(ti, row)) {
-            int x;
-
             switch (ti_hlog) {
             case GRL_OPAQUE:
                 LG_memset(ti_d + fix_cint(ti_left_x), c, d);
                 break;
             case GRL_TLUC8:
-                for (x = fix_cint(ti_left_x); x < fix_cint(ti_right_x); x++)
-                    ti_d[x] = bm_bits[ti_d[x]];
+                gr_tluc8_span(ti_d + fix_cint(ti_left_x), d, bm_bits, NULL);
                 break;
             case GRL_CLUT | GRL_TLUC8:
-                for (x = fix_cint(ti_left_x); x < fix_cint(ti_right_x); x++)
-                    ti_d[x] = ti_clut[bm_bits[ti_d[x]]];
+                gr_tluc8_span(ti_d + fix_cint(ti_left_x), d, bm_bits, ti_clut);
                 break;
             }
         } else if (d < 0) {

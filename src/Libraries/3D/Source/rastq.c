@@ -58,6 +58,7 @@ enum {
     GPU_TMAP, // a texture map
     GPU_CULL, // wound the way the mappers draw nothing for
     GPU_SHADED, // a polygon shaded between its corners' colours
+    GPU_TLUC,   // a translucent polygon: the pixels under it through a table row
     GPU_LINE,   // a line, in one colour or shaded
     GPU_POINT,
 };
@@ -616,6 +617,7 @@ static void test_ranges(void) {
 
 static uchar gpu_tables[RASTQ_GPU_TABLE_ROWS][256];
 static const uchar *gpu_table_from[RASTQ_GPU_TABLE_ROWS]; // what each added row is a copy of
+static const uchar *gpu_table_then[RASTQ_GPU_TABLE_ROWS]; // and the table that copy was passed through, if any
 static int gpu_rows;
 static int gpu_colours; // the list has calls shaded between colours
 static long long gpu_lap_us;
@@ -643,30 +645,39 @@ static void clear_on_cpu(void) {
         gr_set_fill_type(fill_type);
 }
 
-// The row of the scene's tables that holds a colour table, added if need be.
+// The row of the scene's tables that holds a colour table, added if need be:
+// the table itself, or with `then` what it gives passed through that one.
 // -1 if there is no room for it.
-static int gpu_table_row(const uchar *clut) {
+static int gpu_table_row_then(const uchar *clut, const uchar *then) {
     static atomic_flag adding = ATOMIC_FLAG_INIT;
     const uchar *ltab = gr_get_light_tab();
     int r, row = -1;
 
-    if (ltab != NULL && (uintptr_t)clut >= (uintptr_t)ltab &&
+    if (then == NULL && ltab != NULL && (uintptr_t)clut >= (uintptr_t)ltab &&
         (uintptr_t)clut < (uintptr_t)ltab + RASTQ_GPU_LIGHT_ROWS * 256 && ((uintptr_t)clut - (uintptr_t)ltab) % 256 == 0)
         return (int)(((uintptr_t)clut - (uintptr_t)ltab) / 256);
     // several threads may be deciding calls at once: one at a time here
     while (atomic_flag_test_and_set(&adding))
         rastq_threads_relax();
     for (r = RASTQ_GPU_PLAIN_ROW + 1; r < gpu_rows && row < 0; r++)
-        if (gpu_table_from[r] == clut)
+        if (gpu_table_from[r] == clut && gpu_table_then[r] == then)
             row = r;
     if (row < 0 && gpu_rows < RASTQ_GPU_TABLE_ROWS) {
-        memcpy(gpu_tables[gpu_rows], clut, 256);
+        if (then == NULL) {
+            memcpy(gpu_tables[gpu_rows], clut, 256);
+        } else {
+            for (r = 0; r < 256; r++)
+                gpu_tables[gpu_rows][r] = then[clut[r]];
+        }
         gpu_table_from[gpu_rows] = clut;
+        gpu_table_then[gpu_rows] = then;
         row = gpu_rows++;
     }
     atomic_flag_clear(&adding);
     return row;
 }
+
+static int gpu_table_row(const uchar *clut) { return gpu_table_row_then(clut, NULL); }
 
 // The mappers stop at the first row whose right edge is left of its left
 // edge. For a polygon wound anticlockwise on screen that is its first row:
@@ -793,10 +804,35 @@ static int gpu_classify(rastq_cmd *c) {
     if (c->kind == RQ_POLY) {
         if (c->index == FIX_USPOLY)
             return gpu_leave(c, RASTQ_GPU_WHY_SHADED_POLY);
-        if (c->index == FIX_TLUC8_UPOLY || c->index == FIX_TLUC8_SPOLY)
+        if (c->index == FIX_TLUC8_UPOLY) {
+            // as gri_tpoly_init and gri_clut_tpoly_init: the pixel under
+            // the polygon through the table of its colour, then through the
+            // fill's colour table; a colour without a table is drawn opaque,
+            // as below. The solid fill has no translucency.
+            const uchar *table;
+
+            if (c->color < 0 || c->color >= 256)
+                return gpu_leave(c, RASTQ_GPU_WHY_TLUC_POLY);
+            table = tluc8tab[c->color];
+            if (table != NULL && c->fill_type != FILL_SOLID) {
+                int row;
+
+                if (c->fill_type != FILL_NORM && c->fill_type != FILL_CLUT)
+                    return gpu_leave(c, RASTQ_GPU_WHY_FILL);
+                if (rq.gpu->tluc == NULL)
+                    return gpu_leave(c, RASTQ_GPU_WHY_TLUC_POLY);
+                row = gpu_table_row_then(table, c->fill_type == FILL_CLUT ? (const uchar *)c->fill_parm : NULL);
+                if (row < 0)
+                    return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
+                c->gpu_row = (uchar)row;
+                c->gpu_kind = RASTQ_GPU_KIND_TLUC;
+                return gpu_reversed(c) ? GPU_CULL : GPU_TLUC;
+            }
+        } else if (c->index == FIX_TLUC8_SPOLY) {
             return gpu_leave(c, RASTQ_GPU_WHY_TLUC_POLY);
-        if (c->index != FIX_UPOLY)
+        } else if (c->index != FIX_UPOLY) {
             return gpu_leave(c, RASTQ_GPU_WHY_OTHER_POLY);
+        }
         // as gri_poly_init, gri_clut_poly_init and gri_solid_poly_init
         if (c->fill_type == FILL_NORM)
             c->gpu_row = (uchar)c->color;
@@ -1044,7 +1080,7 @@ static int slab_clip(const slab_vertex *in, int n, float bound, int keep_above, 
 // a few at a time and keeping their pieces in a sink of its own; the main
 // thread then hands them to the GPU call by call, in the list's order.
 
-enum { PUT_FLAT, PUT_TMAP, PUT_SHADED };
+enum { PUT_FLAT, PUT_TMAP, PUT_SHADED, PUT_TLUC };
 
 typedef struct {
     unsigned first; // of its vertices, in the sink
@@ -1072,6 +1108,7 @@ static int gpu_put(gpu_sink *sink, const rastq_cmd *c, int put, int n, const ras
     if (sink == NULL)
         return put == PUT_TMAP     ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
                : put == PUT_SHADED ? rq.gpu->shaded(n, v)
+               : put == PUT_TLUC   ? rq.gpu->tluc(n, v)
                                    : rq.gpu->flat(n, v, c->gpu_row);
     if (sink->piece_count == SINK_PIECES || sink->vert_count + n > SINK_VERTS)
         return 0;
@@ -1531,6 +1568,11 @@ static int gpu_emit(gpu_sink *sink, const rastq_cmd *c) {
     }
     if (c->gpu == GPU_FLAT)
         return gpu_put(sink, c, PUT_FLAT, c->n, v);
+    if (c->gpu == GPU_TLUC) {
+        for (i = 0; i < c->n; i++)
+            v[i].left = c->gpu_row + 0.5f;
+        return gpu_put(sink, c, PUT_TLUC, c->n, v);
+    }
     // The mappers take a colour along the edges, then across each row: a
     // polygon of four corners or more is cut at their rows, as for the light.
     if (c->gpu == GPU_SHADED)
@@ -1566,7 +1608,7 @@ static void cut_job(int slot) {
 
             c->gpu = (uchar)gpu_classify(c);
             c->cut = 0;
-            if (c->gpu == GPU_FLAT || c->gpu == GPU_TMAP || c->gpu == GPU_SHADED) {
+            if (c->gpu == GPU_FLAT || c->gpu == GPU_TMAP || c->gpu == GPU_SHADED || c->gpu == GPU_TLUC) {
                 unsigned pieces = sink->piece_count, verts = sink->vert_count, light = sink->light_pieces;
 
                 if (gpu_emit(sink, c)) {

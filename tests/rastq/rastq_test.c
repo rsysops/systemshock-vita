@@ -920,6 +920,7 @@ static void ref_shade(uchar *dest, float part, float r, float r_span, float g, f
 }
 
 #define REF_SHADED 0x100 // with bm NULL: shaded between colours, not one colour
+#define REF_TLUC 0x200   // with bm NULL: what is there through a row of the tables
 
 // A fan of triangles, both windings drawn, as the GPU is set up.
 static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, int color) {
@@ -955,6 +956,11 @@ static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_
                 if (ea < 0 || eb < 0 || ec < 0 || (ea == 0 && !ref_owns(b, c)) || (eb == 0 && !ref_owns(c, a)) ||
                     (ec == 0 && !ref_owns(a, b)))
                     continue;
+                if (bm == NULL && (flags & REF_TLUC)) {
+                    int r = (int)floorf(a->left);
+                    *dest = ref.tables[(r < 0 ? 0 : r >= ref.rows ? ref.rows - 1 : r) * 256 + *dest];
+                    continue;
+                }
                 if (bm == NULL && !(flags & REF_SHADED)) {
                     *dest = (uchar)color;
                     continue;
@@ -1001,6 +1007,11 @@ static int ref_shaded(int n, const rastq_gpu_vertex *v) {
     return 1;
 }
 
+static int ref_tluc(int n, const rastq_gpu_vertex *v) {
+    ref_polygon(NULL, REF_TLUC, n, v, 0);
+    return 1;
+}
+
 static void ref_end(void) { ref_out = 1; }
 
 static void ref_finish(void) {
@@ -1018,7 +1029,8 @@ static void ref_compared_cb(const uchar *gpu, const uchar *cpu, int w, int h, in
     ref_gpu_matched = ref_expected_gpu != NULL && memcmp(gpu, ref_expected_gpu, (size_t)row * h) == 0;
 }
 
-static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_shaded, ref_end, ref_finish, ref_compared_cb};
+static const rastq_gpu ref_gpu = {ref_begin, ref_flat,   ref_tmap,        ref_shaded,
+                                  ref_end,   ref_finish, ref_compared_cb, ref_tluc};
 
 // The share of a frame's pixels that may differ between the stand-in and the
 // mappers, and the share over a whole run.
@@ -1269,6 +1281,74 @@ static int test_marks(void) {
     return bad;
 }
 
+// Translucent polygons handed to the GPU: rectangles with their corners on
+// whole pixels, which the stand-in and the mappers fill alike, opaque and
+// translucent ones over one another in every fill type. The stand-in's
+// picture must be the mappers', pixel for pixel; and so must it be when the
+// GPU has no translucent call and the CPU draws those. Returns the number of
+// failures.
+static int test_tluc(void) {
+    static op_t ops[MAX_OPS];
+    rastq_gpu no_tluc = ref_gpu;
+    uint64_t main_state = rng_state;
+    long diff[2] = {0, 0}, by_gpu = 0, by_cpu[2] = {0, 0}, other_cpu = 0;
+    int pass, n, k, bad = 0;
+
+    no_tluc.tluc = NULL;
+    rng_state = 0xA24BAED4963EE407ULL;
+    set_canvas(960, 544, 960);
+    rastq_set_check_interval(0);
+    for (pass = 0; pass < 2; pass++) { // with the GPU's translucent call, then without
+        for (n = 0; n < 150; n++) {
+            for (k = 0; k < 40; k++) {
+                op_t *o = &ops[k];
+                int x0 = rnd_in(0, cw - 9), y0 = rnd_in(0, ch - 9);
+                int x1 = rnd_in(x0 + 8, x0 + cw / 3 < cw ? x0 + cw / 3 : cw);
+                int y1 = rnd_in(y0 + 8, y0 + ch / 3 < ch ? y0 + ch / 3 : ch);
+                int fill = rnd_in(0, 5), tluc = rnd_in(0, 2) != 0;
+
+                memset(o, 0, sizeof(*o));
+                o->op = OP_POLY;
+                o->clip[2] = (short)cw;
+                o->clip[3] = (short)ch;
+                o->fill_type = fill == 0 ? FILL_SOLID : fill <= 2 ? FILL_CLUT : FILL_NORM;
+                if (o->fill_type == FILL_CLUT)
+                    o->fill_parm = (intptr_t)(ltab + (rnd_in(0, 15) << 8));
+                if (o->fill_type == FILL_SOLID)
+                    o->fill_parm = rnd_in(1, 255);
+                o->index = tluc ? FIX_TLUC8_UPOLY : FIX_UPOLY;
+                // an odd colour has a translucency table, an even one none
+                o->color = rnd_in(1, 255);
+                o->n = 4;
+                o->v[0].x = o->v[3].x = fix_make(x0, 0);
+                o->v[1].x = o->v[2].x = fix_make(x1, 0);
+                o->v[0].y = o->v[1].y = fix_make(y0, 0);
+                o->v[2].y = o->v[3].y = fix_make(y1, 0);
+                fix_winding(o);
+            }
+            draw_scene(ops, 40, RASTQ_OFF, result[1]);
+            rastq_set_gpu(pass == 0 ? &ref_gpu : &no_tluc);
+            rastq_use_gpu(1);
+            memset(&rastq_stats, 0, sizeof(rastq_stats));
+            draw_scene(ops, 40, RASTQ_TRUST_STABLE, result[2]);
+            rastq_use_gpu(0);
+            rastq_set_gpu(NULL);
+            by_gpu += rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUC];
+            by_cpu[pass] += rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_POLY];
+            other_cpu += rastq_stats.gpu_cpu_calls - rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_POLY] +
+                         rastq_stats.gpu_fallbacks + rastq_stats.solo[RASTQ_SOLO_DIRECT];
+            diff[pass] += differing(result[1], result[2]);
+        }
+    }
+    rng_state = main_state;
+    printf("translucent polygons: %ld drawn by the stand-in, %ld pixels differ from the 2D library's; left to the CPU "
+           "%ld, %ld pixels differ\n",
+           by_gpu, diff[0], by_cpu[1], diff[1]);
+    if (by_gpu == 0 || by_cpu[0] != 0 || by_cpu[1] == 0 || other_cpu != 0 || diff[0] != 0 || diff[1] != 0)
+        bad++;
+    return bad;
+}
+
 // The rule that shares the GPU's lists with the workers only while frames
 // are short of time (rastq_gpu_frame), fed made-up frames. Returns the
 // number of failures.
@@ -1391,6 +1471,7 @@ int main(int argc, char **argv) {
     if (!hash_only) {
         bad += test_overlays();
         bad += test_marks();
+        bad += test_tluc();
         bad += test_sharing();
     }
 #endif
