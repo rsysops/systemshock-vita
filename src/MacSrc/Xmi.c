@@ -29,9 +29,26 @@ static SDL_mutex *MyMutex;
 static MusicMode LoadedMode;
 static bool HaveLoadedMode = false;
 
+// The audio thread on cores 1 and 2, never on core 0, which is the main
+// thread's only one: at its priority the audio thread holds the game up there
+// for as long as it works, 6 to 10 ms of music at a time, and a frame that
+// should have woken for the screen's refresh starts that much late
+// (docs/PERFORMANCE.md, step S12b). It is SDL's thread, so it is placed from
+// inside, the first time it calls.
+static void audio_thread_off_main_core(void) {
+    static SceUID placed;
+    SceUID self = sceKernelGetThreadId();
+
+    if (placed != self) {
+        placed = self;
+        sceKernelChangeThreadCpuAffinityMask(self, SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
+    }
+}
+
 void MusicCallback(void *userdata, Uint8 *stream, int len) {
     MusicDevice *dev;
 
+    audio_thread_off_main_core();
     SDL_LockMutex(MyMutex);
     dev = *(MusicDevice **)userdata;
     if (!dev || !dev->isOpen) {
@@ -42,6 +59,7 @@ void MusicCallback(void *userdata, Uint8 *stream, int len) {
     SDL_memset(stream, 0, (size_t)len); // in case we don't get anything
 #ifdef VITA_PROFILE
     SceInt64 t0 = sceKernelGetProcessTimeWide();
+    vprof_audio_begin();
 #endif
     dev->generate(dev, (short *)((void *)stream), len / (int)(2 * sizeof(short)));
 #ifdef VITA_PROFILE

@@ -78,6 +78,8 @@ and read its log is in [PROFILING.md](PROFILING.md).
     - [S11: heavy views](#s11-heavy-views)
     - [S11b: translucent polygons on the GPU](#s11b-translucent-polygons-on-the-gpu)
     - [S11c: the shader as the compiler wants it, and a cheaper fill](#s11c-the-shader-as-the-compiler-wants-it-and-a-cheaper-fill)
+    - [S12: frames shown a refresh late](#s12-frames-shown-a-refresh-late)
+    - [S12b: the audio thread off the game's core](#s12b-the-audio-thread-off-the-games-core)
 
 ## Part 1: three cores
 
@@ -3485,7 +3487,11 @@ those left, S8 is done with S8b and S8c, and S10 with them for
 both ways of changing level; S9 is done with S9b and S9c; S11 is
 measured, and its one finding, the force bridges, is done with S11b
 (whose shader did not compile) and S11c: the bridge at 60 fps from 4
-to 20. The roadmap is finished.
+to 20. That roadmap is finished. S12, after it, is what S11's capture
+showed besides: frames that start late where the music is heavy. It
+is measured, and done with S12b: the audio thread, on the main thread's
+core, held the game up; kept on the two other cores, no frame starts
+late and the 20 to 23 ms frames of a quiet second are gone.
 
 | step | what | for |
 |---|---|---|
@@ -3507,6 +3513,7 @@ to 20. The roadmap is finished.
 | S9c | The first time into a zone; the trigger near the start | **done**: the scores and their tables read ahead by a thread; the help's switch-off no longer saves the preferences in its frame. A crossing 3 to 8 ms, the first into a zone 12 to 15; the trigger's stutter gone |
 | S10 | Changing level: cyberspace and the lift | **done**, by S8b and S8c: cyberspace in 0.78 s, out 0.47 s, from up to 7.2; the lift 0.37 s (S9's capture) |
 | S11 | Heavy views: the render, and clicks there; the maps | measured: the maps cost nothing, a force bridge 13 fps, 4 from underneath, now 60 (S11b, S11c). 4 of the 6 stutters S7c left; a look-up under the cursor still 7 ms there |
+| S12 | Frames shown a refresh late, where the music is heavy | measured: the audio thread at work on the main thread's core when it should wake (all 42 late frames); **done** with S12b, which keeps it on cores 1 and 2: no late frame in 18086, a frame over 20 ms in 1% of the quiet seconds from 27%. 25 of S11's 683 seconds have one; 21 of them among the 105 seconds with the music at 18% of a core or more |
 
 The order is by what the player gains. S4 is the smallest and could go
 whenever it helps. S5 to S7 came out of S3's capture, in the order of
@@ -4941,3 +4948,167 @@ bridge; the player: "works great now"):
   translucent kinds now cost at worst, should a level have them.
 
 Outside the four: the options panel's 28 ms a key, which is a menu.
+
+#### S12: frames shown a refresh late
+
+Measured: the cause is found, and is S12b's to fix (the capture is at
+the end of this section). What the roadmap left, looked at again in
+the captures since S9 before choosing:
+
+- **The options panel's 28 ms a key is gone since S7b**: it was the
+  volume sliders' line in the game's log. No capture since has it. In
+  S9c's the panel has a 14 ms read of its art when it opens, one key
+  of 76 ms with nothing named, and the saves and loads.
+- **A double-click in a heavy view**: once in S11's 12 minutes, a
+  frame of 32 ms. Its look-ups are different questions (with and
+  without what is translucent), so at most one of two or three could
+  be kept from the click before.
+- **The title screen's art**, 14 and 6 ms on a still screen.
+
+None is worth a step. But S11's capture has, away from the bridges, a
+stutter never looked at, and its most frequent one: a frame of about
+25 ms whose work is short (6 to 9 ms) and whose hand-over to the
+screen (`SDLDraw()`, `swapwait=`) takes 15 to 18 ms where it takes 6
+to 8. The frame is shown one refresh late. 25 of the 683 seconds have
+one (12 of them long enough for a stutter's line; S9's three captures,
+485 seconds, have no stutter of the kind), and they follow the music:
+
+| music's share of a core | seconds | with a late hand-over |
+|---|---|---|
+| under 12% | 160 | 0 |
+| 12 to 15% | 341 | 1 |
+| 15 to 18% | 77 | 3 |
+| 18% and more | 105 | 21 (20%) |
+
+By place: level 1 around squares 44 to 47, 27 to 40, and level 2
+around 27 to 45, 41 to 50. The log's own writing is not it: its slow
+seconds (`logio=` over 30 ms) are half of all seconds and 16 of the 25.
+
+- Known: the music is synthesized in the audio thread's callback,
+  2048 samples at a time (`Mix_OpenAudio(48000, ..., 2048)` in
+  `src/MacSrc/SDLSound.c`), so every 43 ms that thread works in one
+  go, some 8 ms of it when the music is at 20% of a core.
+- Not known: that this is the cause, and how. The guess: when that
+  stretch falls on the screen's refresh, what hands the finished
+  frame to the screen (a thread of the screen library's, prebuilt, so
+  not timed from inside) runs late and the frame waits for the next
+  refresh. And all of it is from the measuring build: whether the
+  normal one does the same is not known either.
+- First, with no change to the game (profile build only,
+  `src/GameSrc/vprof.c`):
+  - a thread that sleeps on the screen's refresh and notes the time
+    of each, at the highest priority, and how late it woke
+    (`vbllag=`): itself a probe of whether something keeps a thread
+    from a refresh;
+  - each stretch of the music's synthesis, its start, length and
+    core (`vprof_audio_begin`, `vprof_audio_add` from `MusicCallback`),
+    and the longest of the second (`mcbmax=`);
+  - when the hand-over was asked for and when it came back
+    (`vprof_swap` from `SDLDraw`);
+  - from those, for each frame whose work was short (under 14 ms):
+    was it late (over 23 ms), and was the music at work on the
+    refresh the hand-over was for (`onmcb=late/all`), in the 4 ms
+    before it (`nearmcb=`), or on the refresh before the asking
+    (`prevmcb=`), with `late=` and `light=` for the totals: the table
+    that says whether the music's stretch and the late frame go
+    together;
+  - a `late` line for each late frame (8 a second at most), and the
+    same fields in a stutter's line: `vbl=` refreshes spanned,
+    `swapat=` how long after a refresh the hand-over was asked for,
+    `mcb=start+length@core` the music's stretches about that refresh;
+  - the two threads' priorities and cores (`aprio=`, `amask=`,
+    `mprio=`, `mmask=`).
+- The capture (`profile-step-s12.txt`): five minutes of ordinary play
+  with the music on, through the parts of levels 1 and 2 where S11
+  had them.
+- Then: if the music's stretch is the cause, the candidates are the
+  music made in smaller pieces, or its thread kept off the core or
+  under the priority of what hands frames over. If it is not, the
+  same lines say where the time went.
+
+The capture (`profile-step-s12.txt`, 592 seconds in the game, on six
+levels; the music at 12.6% of a core at the median):
+
+- **Every late frame has the music at work on core 0.** 42 `late`
+  lines (40 counted in the seconds' lines, in 38 seconds): in each,
+  one stretch of the music's synthesis, on core 0, begun 0 to 1.7 ms
+  before the refresh the hand-over was for (0.4 at the median) and 6
+  to 10.7 ms long. None with the music on another core, none without.
+- **The frame is late by what was left of that stretch**: its length,
+  less one refresh, less the stretch's end after the refresh, is
+  0.09 ms at the median and 1.05 at most.
+- **The screen is not what is late** (`vbl=1`: the frame spans one
+  refresh). The main thread is: it is pinned to core 0
+  (`mmask=10000`, `rastq_threads_pin_main`, since the three cores'
+  work) at priority 160; the audio thread has priority 64, well above
+  it, and no core of its own (`amask=0`): last seen on core 0 in 71
+  of the 592 seconds, on core 1 in 290, on core 2 in 231. When it
+  works on core 0 as the hand-over ends, the main thread waits for it
+  to finish, and starts its next frame with 6 to 10 ms gone. The
+  guess of a held-up hand-over thread was wrong: the profiler's own
+  refresh thread, at the audio thread's priority, was never more than
+  4.8 ms late and mostly 0.03.
+- **Of the frames with the music across their refresh on any core,
+  1.1% are late** (40 of 3641), and none of the 27465 others: it
+  takes core 0, and a stretch that begins just before the refresh.
+  A stretch that begins earlier leaves less to wait for: the seconds
+  with the audio thread last seen on core 0 have 1.6 frames over
+  20 ms each, the others 0.8 to 1.0.
+- Not answered here: what a stretch on core 0 does to a frame at
+  work. A stutter's line had the music's stretches only when the
+  hand-over waited (`mcb=?` on 19 of the 21 stutters).
+- Besides: the build with the shader's ways cut to two runs
+  (`tluc=on:0/1`, the check exact).
+
+#### S12b: the audio thread off the game's core
+
+Done; the capture is at the end of this section.
+
+- **The audio thread is given cores 1 and 2**
+  (`audio_thread_off_main_core`, at the top of `MusicCallback` in
+  `src/MacSrc/Xmi.c`): it is SDL's thread, so it places itself, the
+  first time it calls. The audio logs play through it too. The main
+  thread stays on core 0 and the workers on 1 and 2: with the GPU
+  renderer those two are mostly asleep; with the three cores' own
+  (no shader compiler) the music was on them already in 521 of
+  S12's 592 seconds.
+- In the log (profile build): `mcb0=`, the music's stretches on the
+  main thread's core in the second, which should stay at 0; `mcbf=`
+  in a stutter's line, the music's stretches during the frame
+  whatever the frame did; and S12's `late=` is `lateswap=` from now
+  on, a second's line having had a `late=` already.
+- To check: no `late` line, `mcb0=0`, `amask=60000`; the frames over
+  20 ms; and the player's ears on the music and the effects, which
+  must be as they were.
+
+The capture (`profile-step-s12b.txt`, 377 seconds in the game, on six
+levels; the player: "music was good"):
+
+| | S12 | S12b |
+|---|---|---|
+| frames with short work that lasted over 23 ms | 40 of 31106 | 0 of 18086 |
+| the audio thread | on core 0 in 71 of 592 seconds | on cores 1 and 2 (`amask=60000`), `mcb0=0` throughout |
+| quiet seconds with a frame over 20 ms | 27% | 1% |
+| frames over 20 ms in a quiet second | 0.35 | 0.01 |
+| the longest frame of a quiet second, median | 17.2 ms | 16.7 ms |
+
+- A quiet second is one with no render over 13 ms and nothing over
+  5 ms in the input or in the game's logic: 179 of S12's seconds, 120
+  of S12b's. The two captures are not the same play, and all their
+  seconds together don't compare: S12b's has more of the heavy places
+  and of the lifts.
+- **The 20 to 23 ms frames that every capture has had in its light
+  seconds were this**: the music's stretch on core 0 across the moment
+  the main thread should wake, with less of it left than the 6 ms that
+  make a late frame.
+- **The stutters are not fewer here, and none is a late start**: 28
+  in 377 seconds. Six are lift rides (0.4 to 0.7 s) and four the frame
+  after one (the new level's music first read: the score taken apart
+  in 11 ms, the old one shut down in 5). Twelve are in one place on
+  level 3 (squares 27 to 29, 32 to 36): frames of 25 to 36 ms, with
+  translucent bitmaps drawn by the CPU (`gpuwhy=tlucbm`, 1 to 2 a
+  frame for 2 to 4 ms, up to three scenes a frame) and once 27 ms in
+  the hand-over to the GPU with nothing in the log to say why. Three
+  are a heavy render elsewhere, one a click, one 23 ms outside every
+  timer (level 11), one the leaving of the game. `mcbf=` shows the
+  music's stretches during each, on cores 1 and 2.

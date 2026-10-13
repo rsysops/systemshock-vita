@@ -63,8 +63,13 @@ extern int vprof_variant;
 // Leaves the current frame out of the window's statistics.
 void vprof_frame_discard(void);
 
-// Called from the audio thread with the time spent synthesizing one buffer.
+// Called from the audio thread with the time spent synthesizing one buffer,
+// and before it as that begins.
+void vprof_audio_begin(void);
 void vprof_audio_add(unsigned micros, int cpu);
+// Called with the process clock's time when a frame's hand-over to the screen
+// was asked for and when it came back.
+void vprof_swap(long long asked, long long done);
 // And with the time one of its calls spent on an audio log: reading it and
 // converting it as it plays.
 void vprof_alog_add(unsigned micros);

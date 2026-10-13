@@ -596,6 +596,7 @@ void SDLDraw() {
         // handing a frame over waits when two are already waiting for the
         // screen: time that isn't work
         vgpu_counters.swap_wait_us += handed_over - before;
+        vprof_swap(before, handed_over);
 #endif
     }
 }

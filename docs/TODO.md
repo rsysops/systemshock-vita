@@ -23,5 +23,7 @@ User interface:
 * Add a message alert if the resource are absent
 * Delete MIDI player and switch to DosBox only
 * How audio log autoplay works?
+* Name field focus
 * Native resolution for the movies?
 * On help HUD is disable automatically
+

@@ -252,6 +252,12 @@ All zero in the seconds the CPU draws.
 | `applogmax=address:ms` | the longest of them and the function it was written from. In a stutter's line the same is a note, `log@address` |
 | `at=level:x,y,z@heading` | where the player is when the line is written: the level's number (a `c` after it in cyberspace), the map square across and along with how far into it (`23.50` is the middle of square 23), the height and the heading in degrees, both as the game counts them. `-` outside the game. At the end of the line; a stutter's line has the same, for where the player was at the end of that frame |
 | `amap=avg/max` | the level's map drawn (`amap_draw`, `src/GameSrc/amap.c`), per frame: in a side panel it is part of `ui2d` (inside the panel's redraw), on the map's own screen part of `ui2d` as well (inside `fsmap_draw_map`). After `at=`, at the end of the line |
+| `lateswap=`, `light=` | frames of this second whose work was short (under 14 ms, `light`) and whose hand-over's refresh was seen, and those of them that lasted over 23 ms all the same (`lateswap`; `late=` in S12's capture, where it is the second `late=` of the line): the main thread woke late from the hand-over. With the next six, at the end of the line (step S12) |
+| `onmcb=a/b` | of the `light` frames, those with the music's synthesis at work on the refresh their hand-over was for (b), and the late ones among them (a). `nearmcb=` the same with the music at work in the 4 ms before that refresh, `prevmcb=` on the refresh before the hand-over was asked for |
+| `mcb0` | the music's stretches of this second that ran on the core the main thread was last seen on. 0 since S12b, which keeps the audio thread on cores 1 and 2 |
+| `mcbmax` | the longest stretch of the music's synthesis in this second, in ms: one call of the audio thread, 2048 samples |
+| `vbllag` | the most that the profiler's own thread, which sleeps on the screen's refresh at the highest priority, woke after one, in ms |
+| `aprio`, `amask`, `mprio`, `mmask` | the priority and the cores (a mask) of the audio thread and of the main thread; -1 until known |
 | `amaps`, `amapmax` | how many times the map was drawn in this second, and the longest single drawing in ms. A map in each side panel counts twice a redraw |
 | `resmax=from#id:ms` | the slowest resource read of this second: from the card (`res`) or from memory (`resm`), its id (hex) and its time. `res#0:0.00` when nothing was read. At the end of the line |
 | `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
@@ -358,6 +364,25 @@ session's own line, and look the addresses up in the file of the
 flavour that session ran. A
 stutter in a second that isn't logged (the screen changed) still gets
 its line, with the next second's.
+
+A stutter's line also carries the frame's hand-over to the screen
+(step S12), after `at=`: `vbl=` the refreshes the frame spanned,
+`swapat=` how many ms after a refresh the hand-over was asked for,
+`vbllag=` how late the refresh's thread woke for the refresh the
+hand-over was for, and `mcb=` the music's stretches of synthesis about
+that refresh, each as `start+length@core` in ms counted from it
+(negative: before it; `+going`: not finished at the frame's end; `-`:
+none; `?`: the hand-over didn't wait, its refresh was still to come).
+Then `mcbf=`, the music's stretches during the frame whatever the
+frame did, the same way but counted from the frame's start.
+
+A frame shown a refresh late for all its short work has a line of its
+own, whether or not it is long enough for a stutter's, up to 8 a
+second:
+
+```
+late t=341.30 frame=25.23 work=8.75 swapwait=16.48 vbl=2 swapat=8.41 vbllag=0.05 mcb=-3.10+8.42@1
+```
 
 ### The self-checks' results
 
