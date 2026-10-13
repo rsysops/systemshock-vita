@@ -94,8 +94,6 @@ void (*enter_modes[])(void) = {screen_start, fullscreen_start, NULL, NULL, setup
 void (*exit_modes[])(void) = {screen_exit, fullscreen_exit, NULL, NULL, setup_exit, NULL, cutscene_exit, fullscreen_exit, amap_exit};
 
 void loopmode_switch(short *cmode) {
-    extern uchar wrapper_screenmode_hack;
-
     // Actually switch mode
     VitaSyncView(); // the screens from here on are drawn on the screen buffer
     _last_mode = *cmode;
@@ -104,10 +102,6 @@ void loopmode_switch(short *cmode) {
     _static_change = 0;
     if (*cmode >= 0)
         (*enter_modes[*cmode])();
-
-    if (wrapper_screenmode_hack) {
-        wrapper_start(screenmode_screen_init);
-    }
 }
 
 void loopmode_enter(short loopmode) { (*enter_modes[loopmode])(); }

@@ -76,7 +76,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define RETURN_BUTTON        6
 #define QUIT_BUTTON          7
 #define AUDIO_OPT_BUTTON     8
-#define SCREENMODE_BUTTON    9
 #define HEAD_RECENTER_BUTTON 10
 #define HEADSET_BUTTON       11
 
@@ -375,11 +374,6 @@ static struct {
     {REF_STR_GyroOff, {"Disabled", "D\x82sactiv\x82" "e", "Aus"}},
     {REF_STR_ControllerLookSpeed, {"Look Speed", "Vitesse vue", "Blicktempo"}},
     {REF_STR_GyroLookSpeed, {"Gyro Speed", "Vitesse gyro", "Gyro-Tempo"}},
-    {REF_STR_VitaRes1, {"320 x 200", "320 x 200", "320 x 200"}},
-    {REF_STR_VitaRes2, {"480 x 272", "480 x 272", "480 x 272"}},
-    {REF_STR_VitaRes3, {"640 x 400", "640 x 400", "640 x 400"}},
-    {REF_STR_VitaRes4, {"640 x 480", "640 x 480", "640 x 480"}},
-    {REF_STR_VitaRes5, {"960 x 544", "960 x 544", "960 x 544"}},
     {REF_STR_Cursor, {"Cursor", "Curseur", "Mauszeiger"}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
@@ -1095,8 +1089,8 @@ static void opanel_focus_initial(void) {
 
     opanel_queued_focus = -1;
     if (b < 0 || b >= MAX_OPTION_BUTTONS || !opanel_focusable(b)) {
-        // top-left control on screen: button ids don't follow the layout (e.g. Video mode is
-        // SCREENMODE_BUTTON). Rows are compared by bottom edge, which bars share with buttons.
+        // top-left control on screen: button ids don't follow the layout. Rows are compared by
+        // bottom edge, which bars share with buttons.
         int i;
 
         b = -1;
@@ -1697,9 +1691,6 @@ void wrapper_pushbutton_func(uchar butid) {
     case VIDEO_BUTTON: // Input
         video_screen_init();
         break;
-    case SCREENMODE_BUTTON: // Input
-        screenmode_screen_init();
-        break;
     case HEAD_RECENTER_BUTTON: // Input
     {
         // extern uchar recenter_headset(ushort keycode, uint32_t context, intptr_t data);
@@ -2013,18 +2004,6 @@ void sound_screen_init(void) {
        gr_set_gamma_pal(0,256,gamma);
     }*/
 
-uchar wrapper_screenmode_hack = FALSE;
-void screenmode_change(uchar new_mode) {
-    extern short mode_id;
-    mode_id = new_mode;
-    QUESTVAR_SET(SCREENMODE_QVAR, new_mode);
-    change_mode_func(0, 0, _current_loop);
-    wrapper_screenmode_hack = TRUE;
-
-    INFO("Changed screen mode to %i\n", mode_id);
-    wrapper_panel_close(TRUE);
-}
-
 void language_change(uchar lang) {
     extern int string_res_file, mfdart_res_file;
     extern char *mfdart_files[];
@@ -2293,10 +2272,7 @@ void video_screen_init(void) {
     opanel_screen_begin(video_screen_init, wrapper_init, PAGE_VIDEO, VIDEO_BUTTON);
     i = 0;
 
-    // video mode
-    standard_button_rect(&r, i);
-    pushbutton_init(SCREENMODE_BUTTON, keys[0], REF_STR_VideoText, wrapper_pushbutton_func, &r);
-    i++;
+    // (no video mode: the game runs in the Vita's own, 960x544)
 
     // detail level
     standard_button_rect(&r, i);
@@ -2314,49 +2290,6 @@ void video_screen_init(void) {
     // return (fixed at position 5)
     standard_button_rect(&r, 5);
     pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
-
-    // FIXME: Cannot pass a keycode with modifier flags as uchar
-    keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
-
-    opanel_redraw(TRUE);
-}
-
-void screenmode_screen_init(void) {
-    LGRect r;
-    int i;
-    char *keys;
-
-    if (wrapper_screenmode_hack) {
-        uiHideMouse(NULL);
-        render_run();
-        uiShowMouse(NULL);
-        wrapper_screenmode_hack = FALSE;
-    }
-
-    keys = get_temp_string(REF_STR_KeyEquivs4);
-
-    clear_obuttons();
-    opanel_screen_begin(screenmode_screen_init, video_screen_init, PAGE_VIDEO, SCREENMODE_BUTTON);
-
-    for (i = 0; i < 5; i++) {
-        extern short svga_mode_data[];
-        uchar mode_ok = FALSE;
-        char j = 0;
-        standard_button_rect(&r, i);
-        pushbutton_init(i, keys[i], REF_STR_VitaRes1 + i, screenmode_change, &r);
-        while ((grd_info.modes[j] != -1) && !mode_ok) {
-            if (grd_info.modes[j] == svga_mode_data[i])
-                mode_ok = TRUE;
-            j++;
-        }
-        if (!mode_ok)
-            dim_pushbutton(i);
-        else if (i == convert_use_mode)
-            bright_pushbutton(i);
-    }
-
-    standard_button_rect(&r, 5);
-    pushbutton_init(RETURN_BUTTON, keys[2], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);

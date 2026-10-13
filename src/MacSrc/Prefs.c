@@ -114,7 +114,10 @@ void SetDefaultPrefs(void) {
     gShockPrefs.soMusicVolume = 75;
     gShockPrefs.soSfxVolume = 100;
     gShockPrefs.soAudioLogVolume = 100;
-    gShockPrefs.doVideoMode = 0;
+    // 960x544, the Vita's own (svga_mode_data). A hidden setting: no menu has
+    // it, the prefs file's "video-mode" does (0 = 320x200, 1 = 480x272,
+    // 2 = 640x400, 3 = 640x480, 4 = 960x544)
+    gShockPrefs.doVideoMode = 4;
     gShockPrefs.gyroAiming = 1;
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;

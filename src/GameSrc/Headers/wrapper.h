@@ -72,8 +72,6 @@ void digichan_dealfunc(short val);
 
 void language_change(uchar lang);
 
-void screenmode_screen_init(void);
-
 void wrapper_start(void (*init)(void));
 
 // Replaces the inventory panel with a wrapper input paneloid thing,
@@ -108,12 +106,6 @@ enum TEMP_STR_ {
     REF_STR_GyroOn,
     REF_STR_GyroLookSpeed,
     REF_STR_ControllerLookSpeed,
-
-    REF_STR_VitaRes1,
-    REF_STR_VitaRes2,
-    REF_STR_VitaRes3,
-    REF_STR_VitaRes4,
-    REF_STR_VitaRes5,
 
     REF_STR_Cursor,
 
