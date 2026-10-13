@@ -44,3 +44,23 @@ int32_t AfilePrepareRes(Id id, Afile *afile) {
 
     return error;
 }
+
+// The same for a movie held in memory by the caller, who keeps it there for
+// as long as the Afile is open.
+int32_t AfilePrepareMem(uint8_t *p, int32_t size, Afile *afile) {
+    MFILE *mf;
+    int32_t error;
+
+    mf = (MFILE *)malloc(sizeof(MFILE));
+    mf->p = p;
+    mf->size = size;
+    mf->pos = 0;
+    mf->resId = ID_NULL;
+
+    error = AfileOpen(afile, mf, AFILE_MOV);
+
+    if (error < 0)
+        free(mf);
+
+    return error;
+}

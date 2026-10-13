@@ -32,6 +32,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include "criterr.h"
 #include "cybmem.h"
+#include "resimage.h"
+#include "audiolog.h"
 #include "cybrnd.h"
 #include "drugs.h"
 #include "frprotox.h"
@@ -173,6 +175,7 @@ MemStack temp_memstack;
 
 extern char which_lang;
 int mfdart_res_file;
+int digifx_res_file;
 //#ifdef DEMO
 // uchar *mfdart_files[] = { "mfdart.rsrc", "mfdart.rsrc", "mfdart.rsrc" };
 //#else
@@ -683,6 +686,9 @@ errtype init_3d_objects() {
 }
 
 errtype init_load_resources() {
+    // The art files are read into memory in the background from here on
+    resimage_start();
+
     // Open the screen resource stuff
     if (ResOpenFile("res/data/gamescr.res") < 0)
         critical_error(CRITERR_RES | 1);
@@ -690,6 +696,7 @@ errtype init_load_resources() {
     // Open the appropriate mfd art file
     if ((mfdart_res_file = ResOpenFile("res/data/mfdart.res")) < 0)
         critical_error(CRITERR_RES | 2);
+    resimage_hold_all(mfdart_res_file); // its pictures are unpacked here, not when first shown
 
     // Open the 3d objects
     if (ResOpenFile("res/data/obj3d.res") < 0)
@@ -700,8 +707,11 @@ errtype init_load_resources() {
         critical_error(CRITERR_RES | 9);
 
     // Open the Digital sound FX file
-    if (ResOpenFile("res/data/digifx.res") < 0)
+    if ((digifx_res_file = ResOpenFile("res/data/digifx.res")) < 0)
         critical_error(CRITERR_RES | 9);
+
+    // The audio logs' files, not at the first log
+    audiolog_open_files();
 
     // Go load the additional mod files
     LoadModFiles();

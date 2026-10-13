@@ -22,6 +22,13 @@ typedef enum {
     VPROF_VIEWOUT,  // of sendview: the cursor and the view's way to the screen
     VPROF_SNDLOAD,  // a sound effect decoded for its first use
     VPROF_RESLOAD,  // a resource read from the card
+    VPROF_ALOGLOAD, // an audio log read and converted, before it plays
+    VPROF_OUTLINED, // text drawn with an outline: copied from its picture, made into one, or drawn nine times
+    VPROF_RESWRITE, // a resource written to its file (a level saved), the packing below included
+    VPROF_RESPACK,  // of that: the file packed after a resource was replaced in it
+    VPROF_RESLZW,   // and of the writing: a resource compressed
+    VPROF_RESIO,    // and of the writing: the file's seeks and writes
+    VPROF_AMAP,     // the level's map drawn (amap_draw): in a side panel or on its own screen
     // of hud:
     VPROF_HUD_HAND,    // the weapon in hand
     VPROF_HUD_LABEL,   // the help label
@@ -39,35 +46,72 @@ typedef enum {
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 
-// Variants of the code under test. Currently the rasterizer queue (rastq.h):
-// 0 = record and replay on three cores, 1 = record and have the GPU draw
-// what it can (see docs/PERFORMANCE-GPU.md).
-// With VPROF_ALTERNATE set they are alternated every few 1 s windows, so
-// that they can be compared within one session. Without it the build stays
-// on variant 1, which is what the game does.
+// Variants of the code under test. Currently the priority of a worker
+// thread while it cuts the GPU's list (worker_boost in rastqthr.c): 0 = its
+// own, as it was, 1 = the audio thread's (docs/PERFORMANCE.md, step S13b).
+// With VPROF_ALTERNATE set they are alternated every VPROF_WINDOWS_PER_VARIANT
+// 1 s windows, so that they can be compared within one session. Without it
+// the build stays on variant 1, which is what the game does.
 #define VPROF_VARIANT_COUNT 2
 #define VPROF_ALTERNATE 0
+// Frame times need only a few seconds: step S13b took 20. (Ten minutes, 600,
+// for when the battery's drain is what is compared: its gauge moves a few
+// mAh every 35 s.)
+#define VPROF_WINDOWS_PER_VARIANT 20
 extern int vprof_variant;
 
 // Leaves the current frame out of the window's statistics.
 void vprof_frame_discard(void);
 
-// Called from the audio thread with the time spent synthesizing one buffer.
+// Called from the audio thread with the time spent synthesizing one buffer,
+// and before it as that begins.
+void vprof_audio_begin(void);
 void vprof_audio_add(unsigned micros, int cpu);
+// Called with the process clock's time when a frame's hand-over to the screen
+// was asked for and when it came back.
+void vprof_swap(long long asked, long long done);
+// And with the time one of its calls spent on an audio log: reading it and
+// converting it as it plays.
+void vprof_alog_add(unsigned micros);
+// And of a call that had no sound to give: the log wasn't read yet.
+void vprof_alog_dry(void);
+// Called from any thread with the time a line of the game's own log
+// (log_log) took to write, and where it was written from.
+void vprof_applog_add(unsigned micros, const void *caller);
 
-void vprof_record(vprof_phase_t phase, long long micros);
+// `what`, if not NULL, names this piece of the phase among the frame's notes
+// (see vprof_note), with two numbers of its own.
+void vprof_record(vprof_phase_t phase, long long micros, const char *what, int a, int b);
+// One of a frame's pieces, timed: the longest few of each frame are kept, and
+// a stutter's line gives its frame's (notes=). `who`, if not NULL, is an
+// address that says more than the name: the function called, or the caller.
+void vprof_note(const char *what, const void *who, int a, int b, long long micros);
 void vprof_mark_begin(vprof_phase_t phase);
 void vprof_mark_end(vprof_phase_t phase);
 void vprof_frame_begin(void);
 void vprof_frame_end(void);
 void vprof_overlay_draw(void);
 
-#define VPROF_RUN(phase, code)                                               \
-    do {                                                                     \
-        SceInt64 _vprof_t0 = sceKernelGetProcessTimeWide();                  \
-        code;                                                                \
-        vprof_record((phase), sceKernelGetProcessTimeWide() - _vprof_t0);    \
+// A phase's timer: the statement's own text is its name among the notes.
+#define VPROF_RUN(phase, code) VPROF_RUN_AS(phase, #code, 0, 0, code)
+// The same under a chosen name, with two numbers that say which one it was.
+#define VPROF_RUN_AS(phase, what, a, b, code)                                          \
+    do {                                                                               \
+        SceInt64 _vprof_t0 = sceKernelGetProcessTimeWide();                            \
+        code;                                                                          \
+        vprof_record((phase), sceKernelGetProcessTimeWide() - _vprof_t0, (what), (a), (b)); \
     } while (0)
+// A piece that belongs to no phase: only a note.
+#define VPROF_NOTE(what, who, a, b, code)                                                       \
+    do {                                                                                        \
+        SceInt64 _vprof_n0 = sceKernelGetProcessTimeWide();                                     \
+        code;                                                                                   \
+        vprof_note((what), (const void *)(who), (a), (b), sceKernelGetProcessTimeWide() - _vprof_n0); \
+    } while (0)
+// A note for a stretch of several statements: BEGIN declares `var`, END
+// notes the time since.
+#define VPROF_SPAN_BEGIN(var) SceInt64 var = sceKernelGetProcessTimeWide()
+#define VPROF_SPAN_END(var, what, a, b) vprof_note((what), NULL, (a), (b), sceKernelGetProcessTimeWide() - (var))
 #define VPROF_MARK_BEGIN(phase) vprof_mark_begin(phase)
 #define VPROF_MARK_END(phase) vprof_mark_end(phase)
 #define VPROF_FRAME_BEGIN() vprof_frame_begin()
@@ -76,6 +120,10 @@ void vprof_overlay_draw(void);
 #else
 
 #define VPROF_RUN(phase, code) code
+#define VPROF_RUN_AS(phase, what, a, b, code) code
+#define VPROF_NOTE(what, who, a, b, code) code
+#define VPROF_SPAN_BEGIN(var)
+#define VPROF_SPAN_END(var, what, a, b)
 #define VPROF_MARK_BEGIN(phase)
 #define VPROF_MARK_END(phase)
 #define VPROF_FRAME_BEGIN()

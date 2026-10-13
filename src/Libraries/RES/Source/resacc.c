@@ -399,6 +399,35 @@ void ResDelete(Id id) {
     }
 }
 
+//	----------------------------------------------------------
+//
+//	ResFilePlace() says where a resource's bytes are in its file, for
+//	a reader that doesn't go through the resource system: another
+//	thread, which this system isn't made for.
+//
+//		id      = resource id
+//		filenum = filled in with the number of its file
+//		offset  = filled in with the offset of its bytes there
+//		size    = filled in with their size
+//
+//	Returns: false if the id isn't in use, or if its bytes in the file
+//	         aren't the resource as it is in memory (compressed, compound)
+//	----------------------------------------------------------
+bool ResFilePlace(Id id, int32_t *filenum, uint32_t *offset, uint32_t *size) {
+    ResDesc *prd;
+
+    if (id < ID_MIN || id > resDescMax || !ResInUse(id))
+        return false;
+    if (ResCompressed(id) || ResIsCompound(id))
+        return false;
+
+    prd = RESDESC(id);
+    *filenum = prd->filenum;
+    *offset = RES_OFFSET_DESC2REAL(prd->offset);
+    *size = prd->fsize;
+    return true;
+}
+
 //	--------------------------------------------------------
 //		INTERNAL ROUTINES
 //	--------------------------------------------------------

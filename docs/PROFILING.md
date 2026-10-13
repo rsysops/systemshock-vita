@@ -4,8 +4,7 @@ How to measure what the game does on a real console: build the profile
 package, take a capture, read it, and add a measurement of your own.
 
 This is the how-to. What was measured with it, and what was done about
-it, is in [PERFORMANCE-CPU.md](PERFORMANCE-CPU.md) and
-[PERFORMANCE-GPU.md](PERFORMANCE-GPU.md).
+it, is in [PERFORMANCE.md](PERFORMANCE.md).
 
 ## The profile build
 
@@ -15,8 +14,15 @@ the normal build in three ways:
 - it draws six lines of figures over the picture;
 - it appends one line a second to a log on the memory card, and one
   for each stutter;
-- it checks its own drawing now and then (see
+- in its second flavour, it checks its own drawing now and then (see
   [What it changes](#what-it-changes-in-the-game)).
+
+It comes in two flavours:
+
+| command | folder | for |
+|---|---|---|
+| `./build.sh profile` | `build-profile/` | measuring: the game with its timers and nothing else |
+| `./build.sh profile checks` | `build-profile-checks/` | work on the drawing code: the same with the self-checks and the frame dumps, which hitch three times a second and so are kept out of the first |
 
 In the normal build every timer compiles to nothing: `VPROF_RUN(phase,
 code)` is just `code`. Nothing of the profiler ships in it.
@@ -24,8 +30,9 @@ code)` is just `code`. Nothing of the profiler ships in it.
 ## Quick start
 
 1. **Build.** `./build.sh profile` gives
-   `build-profile/systemshock.vpk`. The normal build goes to `build/`,
-   so the two don't share anything.
+   `build-profile/systemshock.vpk` (`./build.sh profile checks`:
+   `build-profile-checks/systemshock.vpk`). The normal build goes to
+   `build/`, so none of them share anything.
 2. **Install.** The package has the normal build's title
    (`SHOK00001`), so it replaces it. Saves and settings are in
    `ux0:data/systemshock/` and are kept.
@@ -47,28 +54,34 @@ code)` is just `code`. Nothing of the profiler ships in it.
    | `gpudumps/` | pairs of frames the two renderers drew differently, if any |
 
 Captures are kept in the repository next to the doc that uses them:
-`docs/profiles-cpu/` and `docs/profiles-gpu/`, as `profile-step-N.txt`,
+`docs/profiles-cpu/`, `docs/profiles-gpu/` and, for the steps after the
+GPU renderer's (S1 and on), `docs/profiles-perf/`, as `profile-step-N.txt`,
 `gpudumps-step-N/` and the latest `gpu.txt`.
 
 ## What it changes in the game
 
 - **It draws as the game does**: on the GPU, or on three cores when
-  the GPU can't be used. It can instead switch every 5 seconds between
-  the code paths under test (at present three CPU cores, then the GPU)
-  when `VPROF_ALTERNATE` is set to 1 in `src/Libraries/H/vprof.h`. The
-  log says which was on (`var=`). That is what makes two paths
-  comparable: same place, same moment, same capture.
-- **It checks pictures.** One 3D view in 63 is drawn twice, by two
-  paths, and compared (see [Self-checks](#self-checks-and-frame-dumps)).
-  Such a frame is slow, so it is left out of the timings.
-- **It stops for about four seconds** when it writes a frame dump to
-  the card (3.8 to 4.0 s measured): at most five times in a session,
-  30 seconds apart.
-- **It writes its log once a second**, between two frames. That holds
-  the screen up: 25 to 135 ms measured (`logwrite=`).
-- **So it stutters on its own**, several times a second with the
-  self-checks. To find the game's stutters, go by the `spike` lines
-  and not by the feel (see [Stutters](#stutters)).
+  the GPU can't be used. It can also switch between two ways of doing
+  something under test, when `VPROF_ALTERNATE` is set to 1 in
+  `src/Libraries/H/vprof.h` (it is 0): at present a worker thread
+  keeping its own priority while it cuts the GPU's list (`var=0`, as
+  it was before step S13b) against taking the audio thread's (`var=1`,
+  what the game does), twenty seconds each. The log says which was on
+  (`var=`). That is what makes
+  two ways comparable: same place, same moment, same capture.
+- **It writes its log from a thread of its own**, a few times a second.
+  The main thread only builds the lines (`logwrite=`); the card is the
+  writer's business (`logio=`). A read of the game's that falls on a
+  write can still wait for it.
+- **With the checks flavour only, it checks pictures.** One 3D view in
+  63 is drawn twice, by two paths, and compared (see
+  [Self-checks](#self-checks-and-frame-dumps)). Such a frame is slow,
+  about 68 ms, so it is left out of the timings (`skipped=`); with the
+  HUD's checks that is about three a second. And it stops for about
+  four seconds when it writes a frame dump to the card: at most five
+  times in a session, 30 seconds apart. To find the game's stutters,
+  use the first flavour, or go by the `spike` lines and not by the
+  feel (see [Stutters](#stutters)).
 - **It costs a little.** A timer is two clock reads; the overlay is
   six lines of text.
 
@@ -103,7 +116,22 @@ the frame was, when, and where most of it went (see
 
 `profile.txt` starts each session with two lines from the start-up
 checks (`fixdiv_check ...` and `gpu: ready ...`), which also tell
-sessions apart in a file that holds several. Then one line a second:
+sessions apart in a file that holds several. The second ends with the
+translucent shaders' check: `tluc=on:way/tried` (the GPU draws
+translucent polygons, with which of its two ways of writing the
+shader, 0 being the one that is right on the console, and how many
+compiled and were tried) or
+`tluc=off (CPU):-1/tried` (none drew right: the CPU draws them), then
+`tluc_check under= twice= kept= mixed=`, the wrong columns of 256 in
+each of the check's four bands for the last way tried, -1 if it wasn't
+drawn; and with `64KB tluc_fill us: in_place= copied=`, what the CPU
+takes to pass 64 KB of GPU memory through a translucency table, pixel
+by pixel in place and the 2D library's way since S11c. Last,
+`tlucbm=on` or `off (CPU)`: whether the GPU draws translucent bitmaps
+(step S13), with `tlucbm_check opaque= trans= table= twice=`, the wrong
+columns of each band of its check. `gpu.txt` has
+the compiler's words and the first wrong columns of each way. Then one
+line a second:
 
 ```
 t=412 mode=1 var=1 fps=62.1 frame_avg=16.11 frame_max=17.98 input=0.17/0.24 sim=0.53/0.71 ...
@@ -198,14 +226,14 @@ All zero in the seconds the CPU draws.
 |---|---|
 | `gpuscenes` | GPU passes; 1 is the aim, more means the frame was interrupted |
 | `gpupolys` | calls the GPU drew |
-| `gpukinds=` | of those: `flat`, `plain` texture, through a colour table (`clut`), `lit`, `shaded` between colours, `line`, `point` |
+| `gpukinds=` | of those: `flat`, `plain` texture, through a colour table (`clut`), `lit`, `shaded` between colours, `line`, `point`, `tluc`, a translucent polygon (a force bridge), and `tlucbm`, a translucent bitmap's texture map |
 | `gpupieces` | pieces the lit calls were cut into |
 | `gpuculled` | calls dropped for facing away |
 | `gpucpu=a/b` | calls of a GPU view the CPU drew, and the time it took |
 | `gpuwhy=` | why: `tlucbm` translucent bitmap, `spoly` brightness-shaded polygon, `tlucpoly` translucent polygon, `poly` another kind of polygon, `fill` a fill type it doesn't do, `verts` too many vertices, `light` a light level outside the table, `clip` a clip rectangle, `size` a bitmap size, `other` |
 | `gpuprepare` | deciding what each call is, and for a long list cutting it, on all the threads |
 | `gpucut=a/b/c` | calls each thread decided and cut, when the list was shared |
-| `cutlists=shared:a,solo:b,solocalls:c` | lists decided and cut by all the threads (64 calls or more: a job for the workers) / by the main thread alone, and the calls in the latter |
+| `cutlists=shared:a,solo:b,solocalls:c,rested:d` | lists decided and cut by all the threads (a job for the workers) / by the main thread alone, the calls in the latter, and how many of the latter had 64 calls or more: long enough to share, but frames had time to spare (`rastq_gpu_frame`) |
 | `gpusubmit` | handing the pieces to the GPU |
 | `gpuupload`, `gputex` | of `gpusubmit`: copying bitmaps into GPU memory, and how many KB |
 | `gpuwait` | the main thread blocked until the GPU has drawn |
@@ -218,12 +246,43 @@ All zero in the seconds the CPU draws.
 | field | what |
 |---|---|
 | `hudparts=` | of `hud`: weapon `hand`, help `label`, `text` (compass, messages), and in full screen `buttons`, `mfd` side panels, `inv`entory, `vitals`, `icons` |
-| `hudkept=text:a/b,scaled:c/d` | texts and stretched bitmaps copied from a kept picture / drawn again (`src/GameSrc/hudkeep.c`) |
-| `sndload` | decoding a sound effect for its first use |
-| `resload` | reading a resource from the card |
+| `hudkept=text:a/b,scaled:c/d` | texts and stretched bitmaps copied from a kept picture / drawn again (`src/GameSrc/hudkeep.c`). For a text, drawn again is a picture made of it, or the nine draws where it can't be kept |
+| `outlined=a/b` | all the outlined text of a frame: copied from its picture, made into one, or drawn nine times (`draw_shadowed_string`). The HUD's messages and, in full screen, the side panels' text. At the end of the line |
+| `sndload` | decoding a sound effect on the main thread: one played before the background thread got to it, or waited for while the thread was on it |
+| `resload` | reading a resource: from the card, or from its file's copy in memory once that is there |
+| `resimg=a/b` | total: art files read whole into memory, of those wanted (`src/GameSrc/resimage.c`). At the end of the line |
+| `resimgmb`, `resimgms` | total: what those copies take up, in MB, and how long their thread has taken to read them, in ms |
+| `applog=lines:ms` | the game's own log (`log_log`, warnings and errors): lines written in this second, by any thread, and what they took together. A line goes out to the console's debug output and holds its thread up meanwhile |
+| `applogmax=address:ms` | the longest of them and the function it was written from. In a stutter's line the same is a note, `log@address` |
+| `at=level:x,y,z@heading` | where the player is when the line is written: the level's number (a `c` after it in cyberspace), the map square across and along with how far into it (`23.50` is the middle of square 23), the height and the heading in degrees, both as the game counts them. `-` outside the game. At the end of the line; a stutter's line has the same, for where the player was at the end of that frame |
+| `amap=avg/max` | the level's map drawn (`amap_draw`, `src/GameSrc/amap.c`), per frame: in a side panel it is part of `ui2d` (inside the panel's redraw), on the map's own screen part of `ui2d` as well (inside `fsmap_draw_map`). After `at=`, at the end of the line |
+| `lateswap=`, `light=` | frames of this second whose work was short (under 14 ms, `light`) and whose hand-over's refresh was seen, and those of them that lasted over 23 ms all the same (`lateswap`; `late=` in S12's capture, where it is the second `late=` of the line): the main thread woke late from the hand-over. With the next six, at the end of the line (step S12) |
+| `onmcb=a/b` | of the `light` frames, those with the music's synthesis at work on the refresh their hand-over was for (b), and the late ones among them (a). `nearmcb=` the same with the music at work in the 4 ms before that refresh, `prevmcb=` on the refresh before the hand-over was asked for |
+| `mcb0` | the music's stretches of this second that ran on the core the main thread was last seen on. 0 since S12b, which keeps the audio thread on cores 1 and 2 |
+| `cutwait=avg/max` | what the main thread waited, a frame, for the worker threads' share of the GPU's list once its own was done (`gpu_cut_list`), and the longest wait of the second. A stutter's line has its frame's, after `gpucpu=`. Last in the line (step S13b) |
+| `mcbmax` | the longest stretch of the music's synthesis in this second, in ms: one call of the audio thread, 2048 samples |
+| `vbllag` | the most that the profiler's own thread, which sleeps on the screen's refresh at the highest priority, woke after one, in ms |
+| `aprio`, `amask`, `mprio`, `mmask` | the priority and the cores (a mask) of the audio thread and of the main thread; -1 until known |
+| `amaps`, `amapmax` | how many times the map was drawn in this second, and the longest single drawing in ms. A map in each side panel counts twice a redraw |
+| `resmax=from#id:ms` | the slowest resource read of this second: from the card (`res`) or from memory (`resm`), its id (hex) and its time. `res#0:0.00` when nothing was read. At the end of the line |
+| `alogload` | what `audiolog_play` does on the main thread to start an audio log: finding it, and starting the thread that reads it |
+| `alogcpu` | the share of one core the audio thread spends on a log while it plays: converting it, a slice at each of its calls |
+| `alogcbmax` | the longest of those calls in this second, in ms. A call has 43 ms before the sound runs dry |
+| `alogdry` | calls of the audio thread in this second that gave silence because the log wasn't read from the card yet (not per frame). Expected at a log's start only |
 
-A second with a large `frame_max` and a large `sndload` or `resload`
-maximum is a stall from loading, not from drawing.
+### The battery
+
+| field | what |
+|---|---|
+| `batt` | the battery's remaining capacity, mAh. There is no reading of the current: the drain is the slope of this over minutes. The gauge moves 3 to 5 mAh every 35 s, so two drains can only be told apart over stretches of 10 minutes or so (`VPROF_WINDOWS_PER_VARIANT`), unplugged for a few minutes beforehand |
+| `battmv`, `batttemp` | its voltage in mV and its temperature in °C |
+| `charging` | 1 while it is charging: such seconds say nothing about the drain |
+| `sndready=a/b` | total: sound effects decoded, of those to decode ahead (`snd_preload` in `src/MacSrc/SDLSound.c`) |
+| `snddecode` | total: what the background thread has spent reading and decoding them, in ms |
+| `sndmem` | total: what its decoded effects take up, in MB |
+
+A second with a large `frame_max` and a large `sndload`, `resload` or
+`alogload` maximum is a stall from loading, not from drawing.
 
 ### Stutters
 
@@ -231,7 +290,9 @@ maximum is a stall from loading, not from drawing.
 |---|---|
 | `slow=20:a,34:b,50:c,100:d` | frames of this second longer than 20, 34, 50 and 100 ms: one, two, three and six screen refreshes (not per frame) |
 | `skipped=a/b` | frames left out of the timings in this second, and the longest in ms. A self-check draws its frame twice: a hitch you can see, but the profiler's own |
-| `logwrite` | how long writing the previous second's lines took, in ms. Between two frames, so in no frame's time, but the screen waits for it |
+| `logwrite` | how long the main thread took to build the previous second's lines and queue them, in ms. Between two frames, so in no frame's time, but the screen waits for it |
+| `logio` | the longest write of the log's own thread since the line before, in ms. Nothing waits for it, unless a read or a write of the game's falls on it. 0.00 for seconds on end, then a large figure: the card held a write that long (30.8 s once, in S7c's capture), and anything of the game's that touched the card in that time waited with it |
+| `logdrop` | total: times the lines found the queue full and were dropped. Must be 0 |
 
 A frame is a stutter when it takes at least 25 ms and half again as
 long as the average frame of the second before, so that a place that
@@ -240,15 +301,96 @@ the log was last written each get a line of their own, after that
 second's line:
 
 ```
-spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1
+spike t=412.38 mode=1 frame=212.40 input=0.20 sim=0.61 render3d=209.10 ui2d=0.00 present=2.10 other=0.39 | traverse=3.10 sendview=205.80 raster=0.00 record=0.40 helpscan=1.20 hud=0.90 viewout=0.20 sndload=205.10 resload=0.00 alogload=0.00 outlined=0.30 reswrite=0.00 respack=0.00 reslzw=0.00 resio=0.00 | gpuwait=0.40 gpusubmit=0.30 gpuupload=0.20 gputex=12.0KB swapwait=0.00 cmds=140 views=1 at=1:23.50,41.25,96@180
 ```
 
 `t` is when the frame ended, in seconds. The times are that one
 frame's, in ms, under the names of the second's line; `other` is what
 the five parts of a frame leave. `cmds` and `views` are the frame's
-counts. `grep '^spike' profile.txt` lists a capture's stutters. A
+counts. `grep '^spike' profile.txt` lists a capture's stutters.
+
+The line ends with `notes=`: the frame's ten longest pieces of 1 ms and
+more, longest first, as `ms:name`, with `@address` and `#number/number`
+where the piece has them:
+
+```
+notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.66:render_run()
+```
+
+| name | what |
+|---|---|
+| a statement, such as `ai_run()` or `inventory_draw()` | what a timer wraps: `VPROF_RUN` gives its statement's own text as the name, spaces taken out |
+| `ui@address#type` | a handler of the interface library called for an input event of that type (hex): the function at that address |
+| `hotkey@address#key` | a hotkey's function, and the key (hex) |
+| `res#id/bytes` | a resource read from the card: its id (hex) and its size |
+| `resm#id/bytes` | the same read from its file's copy in memory |
+| `view@address` | a 3D view drawn (`fr_rend`), and where it was asked for from |
+| `inv_select@address#row`, `inv_use@…`, `inv_drop@…` | a click in the inventory handed to the page's own function at that address, for that row (hex) |
+| `mfd_handler@address#function/panel`, `mfd_simp@…` | a click on a side panel handed to the panel function's handler at that address |
+| `copy_file#0/bytes` | a whole file copied: a save to its slot, a slot back for a load, the archive for a new game |
+| `save_head`, `write_level_to_disk#level`, `level_save_open`, `level_save_pieces#count`, `level_save_close` | what a save is made of: the player and the schedules written, then the level, piece by piece |
+| `empty_slate`, `closedown_game`, `load_head`, `load_level_from_file#level`, `free_dynamic_memory`, `level_load_open`, `level_load_pieces`, `level_load_close`, `load_dynamic_memory`, `load_level_data`, `obj_load_art` | what a load, a new game or a change of level is made of |
+| `wait_cursor@address` | the frame `begin_wait()` presents to show the wait cursor, and who asked for it. A present waits for the screen: up to 16.7 ms |
+| `audiolog_bark_play@address#bark` | a bark set off, and from where |
+| `EDMS_soliton_vector`, `edms_delete_go`, `obj_move_to#object`, `compare_locs` | what `physics_run()` is made of |
+| `fade_into_location#x/y`, `check_entrance_triggers#x/y`, `check_hazard_regions` | what `compare_locs` does when the player steps onto a new map square: the music's change, the square's triggers |
+| `xmi_file#bytes`, `xmi_ahead#bytes`, `xmi_parse#tracks`, `xmi_setup_mode#mode` | inside `ReadXMI`: the score's file read from the card (`xmi_file`) or taken from those read ahead (`xmi_ahead`), and taken apart, the first time it is wanted (after that it is kept); and the music device set up for it, at every change |
+| `trap#kind/object` | a trap run (`grind_trap`): its kind (hex) and the object that set it off. Inside `check_entrance_triggers` it is what stepping on a square did |
+| `musicai_shutdown#score`, `MacTuneLoadTheme#score`, `StopTheMusic`, `FreeXMI`, `ReadXMI`, `theme_tables`, `MacTuneStartCurrentTheme` | what the music's change of zone is made of: its threads stopped, the old score let go, the new one and its tables read from the card, the track started. The number is the score's (hex) |
+| `audiolog_stop`, `MacTuneUpdateVolume`, `snd_stop_music`, `Mix_HookMusic` | what `audiolog_play` does around reading and starting its log |
+| `read_email`, `audiolog_play`, `inventory_draw_new_page`, `email_skip_lines`, `email_draw_text`, `make_email_cursor`, `inventory_clear`, `mfd_notify_func`, `play_vmail` and the like | what opening a mail or turning its page is made of (`src/GameSrc/email.c`) |
+| `amap_draw#zoom` | the level's map drawn, and its zoom. Inside `mfd@…` when the map is in a side panel, inside `fsmap_draw_map()` on the map's own screen |
+| `fsmap_interface_draw()`, `fsmap_draw_map()`, `fsmap_button_redraw()`, `fsmap_message_redraw()`, `fsmap_draw_screen(cf)` | the full-screen map's loop (`src/GameSrc/amaploop.c`, mode 8): the frame around the map, the map, its buttons, its message line, and the copy to the screen. All counted in `ui2d` |
+| `resimage_poll`, `loopmode_switch`, `MousePollProc`, `status_bio_update`, `ZoomDrawProc#0` and `#1`, `message_clear_check`, `olh_scan_render_begin`, `olh_scan_render_end`, `AnimRecur`, `olh_overlay` | the parts of the main loop and of the game's loop that belong to no phase, each by its function's name: what a frame's `other=` is made of, if it is the game's code at all (step S13b) |
+| `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |
+| `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |
+
+In a stutter's line, `reswrite=` is the frame's time in `ResWrite`,
+resources written to a file (a level saved), `reslzw=` the part of it
+spent compressing them and `resio=` the part spent in the file's seeks
+and writes. `respack=` is the time spent packing a file
+whose resources were replaced: at its next opening for writing, not
+when they are written (`src/Libraries/RES/Source/resbuild.c`).
+
+The pieces sit inside one another: a handler that has a resource read
+shows both, and that is how to read them. An address is looked up in
+the build that made the capture:
+
+```
+arm-vita-eabi-nm -n build-profile/systemshock | awk '$1 <= "810a1234"' | tail -1
+```
+
+(in the build's Docker image; the last symbol at or under the address
+is the function). The session's first lines have
+`sym vprof_frame_end=`, that function's address on the console: if it
+isn't the one `nm` gives, the game was loaded elsewhere and every
+address is off by the difference. It is not the same from one capture
+to the next (0, 0x3a000 and 0x79000 so far): take it from each
+session's own line, and look the addresses up in the file of the
+flavour that session ran. A
 stutter in a second that isn't logged (the screen changed) still gets
 its line, with the next second's.
+
+A stutter's line has, after `at=`, `gpucpu=calls/ms`: the calls of
+that frame's GPU views that the CPU drew, and their time (step S13; a
+second's `gpucpu=` is the average of its frames). It also carries the
+frame's hand-over to the screen (step S12): `vbl=` the refreshes the frame spanned,
+`swapat=` how many ms after a refresh the hand-over was asked for,
+`vbllag=` how late the refresh's thread woke for the refresh the
+hand-over was for, and `mcb=` the music's stretches of synthesis about
+that refresh, each as `start+length@core` in ms counted from it
+(negative: before it; `+going`: not finished at the frame's end; `-`:
+none; `?`: the hand-over didn't wait, its refresh was still to come).
+Then `mcbf=`, the music's stretches during the frame whatever the
+frame did, the same way but counted from the frame's start.
+
+A frame shown a refresh late for all its short work has a line of its
+own, whether or not it is long enough for a stutter's, up to 8 a
+second:
+
+```
+late t=341.30 frame=25.23 work=8.75 swapwait=16.48 vbl=2 swapat=8.41 vbllag=0.05 mcb=-3.10+8.42@1
+```
 
 ### The self-checks' results
 
@@ -261,9 +403,11 @@ its line, with the next second's.
 
 ### Traps
 
-- **`fps` above 60.** It is 1000 / `frame_avg`, and the first second
-  after a switch to a faster path can have frames the screen didn't hold
-  back.
+- **`fps` above 60.** It is 1000 / `frame_avg`, over the frames that
+  count. With the checks flavour it reads 61 to 63 at the screen's
+  60: a check's long frame is left out of the average, and the short
+  frames that catch up after it are not. The measuring flavour reads
+  60.0. The same happens for a second after a switch to a faster path.
 - **Fields that contain others.** `render3d` contains `traverse` and
   `sendview`; `traverse` contains `raster`; with the GPU renderer
   `render3d` and `sendview` also contain `helpscan`, which runs while
@@ -317,6 +461,11 @@ for first, last, name in parts:
 ```
 
 ## Self-checks and frame dumps
+
+The first two are in every profile build. The others are only in the
+checks flavour (`./build.sh profile checks`): without it `check=`,
+`leaks=`, `gpudiff=` and `hudcheck=` stay at zero and no dump is
+written.
 
 | check | when | what it compares | where the result is |
 |---|---|---|---|
@@ -382,6 +531,12 @@ for side in ('gpu', 'cpu'):
    go last so that scripts written for older captures still read the
    line.
 
+A piece that should only be named when a frame stutters needs no
+phase: `VPROF_NOTE("name", address_or_NULL, number, number, statement);`
+puts it among the frame's notes (see [Stutters](#stutters)).
+`VPROF_RUN_AS(phase, "name", number, number, statement)` is a phase's
+timer under a name and numbers of its choosing.
+
 Things to know:
 
 - A phase run several times in a frame is summed over the frame.
@@ -407,8 +562,9 @@ a discarded frame's counts are rolled back.
 
 With `VPROF_ALTERNATE` set to 1 (`src/Libraries/H/vprof.h`; it is 0
 unless a comparison is under way), `vprof_variant` goes round
-`VPROF_VARIANT_COUNT` values, one every five logged seconds, and only
-changes between two seconds. Read it where the two ways part:
+`VPROF_VARIANT_COUNT` values, one every `VPROF_WINDOWS_PER_VARIANT`
+logged seconds, and only changes between two seconds. Read it where
+the two ways part:
 
 ```c
 #ifdef VITA_PROFILE
@@ -420,9 +576,11 @@ changes between two seconds. Read it where the two ways part:
 `defined(__vita__) && defined(VITA_PROFILE)` instead)
 
 and every log line says which was on. At present it is read in
-`profile_settings` in `src/Libraries/3D/Source/rastq.c`: 0 is three CPU
-cores, 1 is the GPU. Each piece of work redefines what the values
-mean; raise `VPROF_VARIANT_COUNT` to compare three.
+`rastq_gpu_sharing` in `src/Libraries/3D/Source/rastq.c`: 0 shares the
+GPU's lists with the workers always, 1 only while frames are short of
+time. Each piece of work redefines what the values mean; raise
+`VPROF_VARIANT_COUNT` to compare three. Without `VPROF_ALTERNATE` the
+build stays on 1, so 1 should be what the game does.
 
 ### Leaving a frame out
 
@@ -439,8 +597,9 @@ dropped as if it hadn't happened.
 - **Stand still for a first figure.** Start a new game and don't touch
   the controls for a minute: the same view every time, in every
   capture. Then go and measure the places that matter.
-- **A minute a place.** When the paths alternate, they do every 5
-  seconds, so a minute gives six seconds-long stretches of each.
+- **A minute a place**, or, when two ways alternate, long enough for
+  each to have had its stretches there (`VPROF_WINDOWS_PER_VARIANT`
+  seconds each).
 - **Note what you did, with the `check` number**, as you go. A capture
   without notes is hard to cut up afterwards.
 - **Say what was not measured.** A capture only shows where you went.

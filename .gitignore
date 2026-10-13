@@ -1,6 +1,7 @@
 /RES/
 build
 build-profile
+build-profile-checks
 CMakeLists.txt.user
 # Prerequisites
 *.d

@@ -49,6 +49,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Shock.h"
 #include "VitaGpu.h"
 #include "hudkeep.h"
+#include "Prefs.h"
+#include "vprof.h"
 
 //------------
 //  PROTOTYPES
@@ -84,12 +86,15 @@ void draw_shadowed_string(char *s, short x, short y, uchar shadow) {
     if (shadow && FONT_IS_MONO(gr_get_font())) // draw a black box
     {
         extern char convert_use_mode;
+        VPROF_MARK_BEGIN(VPROF_OUTLINED);
         if ((convert_use_mode > 0) && (perform_svga_conversion(OVERRIDE_FONT))) {
             if (shadow_scale)
                 ss_point_convert(&(npt.x), &(npt.y), FALSE);
             // the same nine draws, kept as a picture from one frame to the next
-            if (hudkeep_outlined(s, npt.x, npt.y, shadow))
+            if (hudkeep_outlined(s, npt.x, npt.y, shadow)) {
+                VPROF_MARK_END(VPROF_OUTLINED);
                 return;
+            }
             gr_set_fcolor(shadow);
             ss_scale_string(s, npt.x - 1, npt.y - 1);
             ss_scale_string(s, npt.x, npt.y - 1);
@@ -115,6 +120,7 @@ void draw_shadowed_string(char *s, short x, short y, uchar shadow) {
             gr_set_fcolor(color);
             gr_string(s, npt.x, npt.y);
         }
+        VPROF_MARK_END(VPROF_OUTLINED);
     } else {
         gr_set_fcolor(color);
         //      gr_string(s,npt.x,npt.y);
@@ -602,12 +608,15 @@ errtype begin_wait() {
     extern LGCursor wait_cursor;
     errtype retval;
     if (wait_count == 0) {
+        SavePrefsIfWanted(); // a save put off from the middle of the game: here the game waits anyway
         VitaSyncView(); // the cursor is drawn on the screen buffer
         uiHideMouse(NULL);
         retval = uiPushGlobalCursor(&wait_cursor);
         uiShowMouse(NULL);
 
-        SDLDraw();
+        // a whole frame presented, and waited for: the profiler's note
+        // says who asked for the wait cursor
+        VPROF_NOTE("wait_cursor", __builtin_return_address(0), 0, 0, SDLDraw());
     }
     wait_count++;
 

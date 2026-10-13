@@ -36,6 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Shock.h"
 #include "sideicon.h"
 #include "criterr.h"
+#include "resimage.h"
 
 uint32_t loadcount = 0;
 
@@ -87,6 +88,9 @@ errtype free_dynamic_memory(int mask) {
 
 errtype load_dynamic_memory(int mask) {
     extern short _new_mode;
+
+    // the files below are opened on their copies in memory, where read
+    resimage_poll();
 
     if (_new_mode != -1) {
         if ((~loadcount) & mask & DYNMEM_TEXTURES) {

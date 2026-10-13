@@ -21,7 +21,7 @@ static unsigned long keep_clock; // counts uses, to find the one unused the long
 
 static int fill_is_normal(void) { return gr_get_fill_type() == FILL_NORM; }
 
-#ifdef VITA_PROFILE
+#ifdef VITA_PROFILE_CHECKS
 #define CHECK_MARGIN 8
 #define CHECK_BYTES (1100 * 160)
 static uchar check_before[CHECK_BYTES], check_copied[CHECK_BYTES];
@@ -89,16 +89,29 @@ static void check_end(const check_area *a) {
 
 // ---- outlined text ----------------------------------------------------------
 
-// A text is drawn into this, then the part it covers is kept.
+// A text is drawn into this, then the part it covers is kept. It is all 0
+// between two texts.
 #define TEXT_W 1024
 #define TEXT_H 128
-#define TEXT_AT 2 // where in it: the outline needs a pixel on every side
-#define TEXT_KEPT 8
+#define TEXT_AT 2 // where in it
 #define TEXT_CHARS 256
+// Room for the texts of the side panels, the inventory and the HUD together:
+// a page isn't redrawn every frame, and its texts must still be here when
+// it is.
+#define TEXT_KEPT 256
+// A text that changes all the time (a counter) leaves a picture for each of
+// its values, never asked for again. Beyond this many, those are the ones a
+// new text replaces, so that they don't push out the texts asked for again
+// and again. It must stay well above what a page shows at once (35 to 55
+// texts in the capture of step S5): a page's texts have all been asked for
+// once when it is first drawn, and with fewer allowed they replace one
+// another at every redraw.
+#define TEXT_ONCE 128
 
 typedef struct {
     int used;
     unsigned long last;
+    unsigned hash; // of s
     char s[TEXT_CHARS];
     grs_font *font;
     ushort font_id;
@@ -106,7 +119,7 @@ typedef struct {
     long color;
     uchar shadow;
     char mode, type; // the screen conversion in force
-    int seen_once;   // not made yet: a text is kept from its second time on
+    int again;       // asked for more than once
     int direct;      // too large to keep: drawn the old way
     grs_bitmap bm;   // the part covered, transparent elsewhere
     short dx, dy;    // where it goes from the string's x, y
@@ -116,6 +129,8 @@ static kept_text texts[TEXT_KEPT];
 static uchar *text_bits;
 static grs_canvas text_canvas;
 
+#ifdef VITA_PROFILE_CHECKS
+// The nine draws a picture stands for, to hold it against.
 static void outline(char *s, short x, short y, uchar shadow, long color) {
     gr_set_fcolor(shadow);
     ss_scale_string(s, x - 1, y - 1);
@@ -129,72 +144,132 @@ static void outline(char *s, short x, short y, uchar shadow, long color) {
     gr_set_fcolor(color);
     ss_scale_string(s, x, y);
 }
+#endif
 
-// Draws the text into the scratch canvas and keeps what it covers.
+// What is drawn of the scratch canvas between (xa, ya) and (xb, yb), the
+// latter excluded. Returns 0 if nothing is.
+static int text_bounds(int xa, int ya, int xb, int yb, int *x0, int *y0, int *x1, int *y1) {
+    int x, y;
+
+    *x0 = xb;
+    *y0 = yb;
+    *x1 = *y1 = -1;
+    for (y = ya; y < yb; y++) {
+        const uchar *row = text_bits + y * TEXT_W;
+        for (x = xa; x < xb; x++) {
+            if (row[x] == 0)
+                continue;
+            if (x < *x0)
+                *x0 = x;
+            if (x > *x1)
+                *x1 = x;
+            if (y < *y0)
+                *y0 = y;
+            *y1 = y;
+        }
+    }
+    return *x1 >= 0;
+}
+
+// The nine draws' pixels from one draw: `from` is the text drawn once, w x h
+// with `row` bytes to a line and 0 where there is nothing. `to`, (w + 2) x
+// (h + 2), gets it with one pixel more on every side: the text, and the
+// outline's colour on every empty pixel that touches it, which is where one
+// of the eight draws around would have put it.
+static void text_grow(const uchar *from, int row, int w, int h, uchar *to, uchar shadow) {
+    int to_w = w + 2, x, y;
+
+    memset(to, 0, (size_t)to_w * (h + 2));
+    for (y = 0; y < h; y++) {
+        const uchar *f = from + (size_t)y * row;
+        uchar *above = to + (size_t)y * to_w, *level = above + to_w, *below = level + to_w;
+        for (x = 0; x < w; x++) {
+            if (f[x] == 0)
+                continue;
+            above[x] = above[x + 1] = above[x + 2] = shadow;
+            level[x] = level[x + 1] = level[x + 2] = shadow;
+            below[x] = below[x + 1] = below[x + 2] = shadow;
+        }
+    }
+    for (y = 0; y < h; y++) {
+        const uchar *f = from + (size_t)y * row;
+        uchar *level = to + (size_t)(y + 1) * to_w + 1;
+        for (x = 0; x < w; x++)
+            if (f[x] != 0)
+                level[x] = f[x];
+    }
+}
+
+// Makes the text's picture: draws it once into the scratch canvas and keeps
+// what it covers, with its outline grown around it. Each of the nine draws
+// is that one moved by a pixel, so they need not be made.
 static void text_make(kept_text *t, char *s) {
-    int x0 = TEXT_W, y0 = TEXT_H, x1 = -1, y1 = -1, x, y;
+    short sw, sh; // how much the text covers from where its drawing starts
+    int x0, y0, x1, y1, w, h, y, same_font;
+    uchar *bits;
+
+    t->direct = 0;
+    gr_init_bitmap(&t->bm, NULL, BMT_FLAT8, BMF_TRANS, 0, 0);
 
     gr_push_canvas(&text_canvas);
     gr_set_fill_type(FILL_NORM);
     gr_set_cliprect(0, 0, TEXT_W, TEXT_H);
     gr_set_font(t->font);
-    memset(text_bits, 0, TEXT_W * TEXT_H);
-    outline(s, TEXT_AT, TEXT_AT, t->shadow, t->color);
+    gr_set_fcolor(t->color);
+    ss_scale_string_sized(s, TEXT_AT, TEXT_AT, &sw, &sh);
+    same_font = gr_get_font() == t->font;
     gr_pop_canvas();
 
-    for (y = 0; y < TEXT_H; y++) {
-        const uchar *row = text_bits + y * TEXT_W;
-        for (x = 0; x < TEXT_W; x++) {
-            if (row[x] == 0)
-                continue;
-            if (x < x0)
-                x0 = x;
-            if (x > x1)
-                x1 = x;
-            if (y < y0)
-                y0 = y;
-            y1 = y;
-        }
-    }
-    t->direct = 0;
-    t->bm.bits = NULL;
-    if (x1 < 0) { // nothing drawn: nothing to copy
-        gr_init_bitmap(&t->bm, NULL, BMT_FLAT8, BMF_TRANS, 0, 0);
-        return;
-    }
-    // A text that reaches the scratch canvas's far edges may go on past
-    // them.
-    if (x1 >= TEXT_W - 1 || y1 >= TEXT_H - 1) {
+    // Left to be drawn the old way:
+    // - a text of which it can't be said how far it goes;
+    // - one that hasn't all its room here, the outline's pixel around it
+    //   too: what goes past an edge is cut, or not drawn;
+    // - one whose draw leaves another font set for the next (ss_scale_string
+    //   would with the medium LED font, were it not a font of colours): its
+    //   nine draws aren't one draw moved.
+    if (sw < 0 || TEXT_AT + sw + 1 > TEXT_W || TEXT_AT + sh + 1 > TEXT_H || !same_font) {
+        memset(text_bits, 0, TEXT_W * TEXT_H);
         t->direct = 1;
         return;
     }
-    {
-        int w = x1 - x0 + 1, h = y1 - y0 + 1;
-        uchar *bits = malloc((size_t)w * h);
-        if (bits == NULL) {
+
+    if (text_bounds(TEXT_AT, TEXT_AT, TEXT_AT + sw, TEXT_AT + sh, &x0, &y0, &x1, &y1)) {
+        // the picture has the outline's pixel more on every side
+        w = x1 - x0 + 1;
+        h = y1 - y0 + 1;
+        bits = malloc((size_t)(w + 2) * (h + 2));
+        if (bits == NULL)
             t->direct = 1;
-            return;
+        else {
+            text_grow(text_bits + (size_t)y0 * TEXT_W + x0, TEXT_W, w, h, bits, t->shadow);
+            gr_init_bitmap(&t->bm, bits, BMT_FLAT8, BMF_TRANS, (short)(w + 2), (short)(h + 2));
+            t->dx = (short)(x0 - 1 - TEXT_AT);
+            t->dy = (short)(y0 - 1 - TEXT_AT);
         }
-        for (y = 0; y < h; y++)
-            memcpy(bits + (size_t)y * w, text_bits + (size_t)(y0 + y) * TEXT_W + x0, (size_t)w);
-        gr_init_bitmap(&t->bm, bits, BMT_FLAT8, BMF_TRANS, (short)w, (short)h);
-        t->dx = (short)(x0 - TEXT_AT);
-        t->dy = (short)(y0 - TEXT_AT);
-    }
+    } // else nothing drawn, nothing to copy
+
+    for (y = TEXT_AT; y < TEXT_AT + sh; y++)
+        memset(text_bits + (size_t)y * TEXT_W + TEXT_AT, 0, (size_t)sw);
 }
 
 int hudkeep_outlined(char *s, short x, short y, uchar shadow) {
     grs_font *font = gr_get_font();
     long color = gr_get_fcolor();
-    size_t length = strlen(s);
-    kept_text *t = NULL, *oldest = &texts[0];
-    int i;
+    kept_text *t = NULL, *spare = NULL, *oldest = NULL, *oldest_once = NULL;
+    unsigned hash = 5381;
+    size_t length;
+    int i, once = 0;
 
-    // Colour 0 is the picture's "nothing here".
-    if (length >= TEXT_CHARS || shadow == 0 || (color & 0xff) == 0 || font == NULL || !fill_is_normal())
+    // Colour 0 is the picture's "nothing here", and a font with colours of
+    // its own isn't drawn in the outline's.
+    if (shadow == 0 || (color & 0xff) == 0 || font == NULL || font->id == 0xcccc || !fill_is_normal())
+        return 0;
+    for (length = 0; s[length] != '\0'; length++)
+        hash = hash * 33 + (uchar)s[length];
+    if (length >= TEXT_CHARS)
         return 0;
     if (text_bits == NULL) {
-        text_bits = malloc(TEXT_W * TEXT_H);
+        text_bits = calloc(TEXT_W, TEXT_H);
         if (text_bits == NULL)
             return 0;
         gr_init_canvas(&text_canvas, text_bits, BMT_FLAT8, TEXT_W, TEXT_H);
@@ -203,24 +278,30 @@ int hudkeep_outlined(char *s, short x, short y, uchar shadow) {
     for (i = 0; i < TEXT_KEPT; i++) {
         kept_text *k = &texts[i];
         if (!k->used) {
-            oldest = k;
-            oldest->last = 0;
+            if (spare == NULL)
+                spare = k;
             continue;
         }
-        if (k->font == font && k->font_id == font->id && k->font_w == font->w && k->font_h == font->h &&
-            k->font_min == font->min && k->font_max == font->max && k->color == color && k->shadow == shadow &&
-            k->mode == convert_use_mode && k->type == convert_type && strcmp(k->s, s) == 0) {
+        if (k->hash == hash && k->font == font && k->font_id == font->id && k->font_w == font->w &&
+            k->font_h == font->h && k->font_min == font->min && k->font_max == font->max && k->color == color &&
+            k->shadow == shadow && k->mode == convert_use_mode && k->type == convert_type && strcmp(k->s, s) == 0) {
             t = k;
             break;
         }
-        if (oldest->used && k->last < oldest->last)
+        if (oldest == NULL || k->last < oldest->last)
             oldest = k;
+        if (!k->again) {
+            once++;
+            if (oldest_once == NULL || k->last < oldest_once->last)
+                oldest_once = k;
+        }
     }
     if (t == NULL) {
-        t = oldest;
+        t = spare != NULL ? spare : once > TEXT_ONCE ? oldest_once : oldest;
         if (t->used)
             free(t->bm.bits);
         t->used = 1;
+        t->hash = hash;
         memcpy(t->s, s, length + 1);
         t->font = font;
         t->font_id = font->id;
@@ -232,28 +313,25 @@ int hudkeep_outlined(char *s, short x, short y, uchar shadow) {
         t->shadow = shadow;
         t->mode = convert_use_mode;
         t->type = convert_type;
-        // A text that changes every frame (a counter) is cheaper drawn than
-        // made into a picture each time: only its second showing makes one.
-        t->seen_once = 1;
-        t->direct = 0;
-        t->bm.bits = NULL;
-        t->last = ++keep_clock;
-        hudkeep_stats.text_misses++;
-        return 0;
-    }
-    t->last = ++keep_clock;
-    if (t->seen_once) {
-        t->seen_once = 0;
+        t->again = 0;
+        // Made at its first asking: a picture costs less than the nine draws
+        // it replaces, even for a text never seen again.
         text_make(t, s);
         hudkeep_stats.text_misses++;
-    } else
-        hudkeep_stats.text_hits++;
+    } else {
+        t->again = 1;
+        if (t->direct)
+            hudkeep_stats.text_misses++;
+        else
+            hudkeep_stats.text_hits++;
+    }
+    t->last = ++keep_clock;
     if (t->direct)
         return 0;
     if (t->bm.bits == NULL)
         return 1;
 
-#ifdef VITA_PROFILE
+#ifdef VITA_PROFILE_CHECKS
     {
         static unsigned count;
         check_area a;
@@ -368,7 +446,7 @@ int hudkeep_scaled(grs_bitmap *bm, short x, short y, short w, short h) {
         hudkeep_stats.scaled_hits++;
     k->last = ++keep_clock;
 
-#ifdef VITA_PROFILE
+#ifdef VITA_PROFILE_CHECKS
     {
         static unsigned count;
         check_area a;

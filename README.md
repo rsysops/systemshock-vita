@@ -56,7 +56,7 @@ System Shock is an old-school game. It can be hard, confusing and even obtuse. I
 
 ### Known issues
 
-Audiologs can freeze the game for a few seconds before starting the playback. Cinematics can take some time to load too.
+Cinematics can take some time to load.
 
 ### Special thanks
 

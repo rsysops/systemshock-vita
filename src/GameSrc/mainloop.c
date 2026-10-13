@@ -54,6 +54,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "sdl_events.h"
 #include "setup.h"
 #include "status.h"
+#include "resimage.h"
 #include "tickcount.h"
 #include "tools.h"
 #include "vprof.h"
@@ -116,6 +117,9 @@ void mainloop(int argc, char *argv[]) {
     while (_current_loop >= 0 && gPlayingGame) {
         VPROF_FRAME_BEGIN();
         gShockTicks = TickCount();
+        // (noted for the profiler, as the other untimed parts of this loop:
+        // some frames have 23 ms outside every timer)
+        VPROF_NOTE("resimage_poll", NULL, 0, 0, resimage_poll()); // the art files read into memory since the last frame
 
         if (!(_change_flag & (ML_CHG_BASE << 1)))
             loopLine(ML | 1, VPROF_RUN(VPROF_INPUT, input_chk())); // go get the UI stuff going
@@ -130,21 +134,21 @@ void mainloop(int argc, char *argv[]) {
         {                  // will be in the game
             // if (_change_flag&(ML_CHG_BASE<<0)) { loopLine(ML|0x10,loop_debug()); }
             if (_change_flag & (ML_CHG_BASE << 3)) {
-                loopLine(ML | 0x13, loopmode_switch(&_current_loop));
+                loopLine(ML | 0x13, VPROF_NOTE("loopmode_switch", NULL, 0, 0, loopmode_switch(&_current_loop)));
             }
             chg_unset_flg(ML_CHG_BASE << 3);
         }
         // OR in the static change flags...
         chg_set_flg(_static_change);
 
-        MousePollProc(); // update the cursor, was 35 times/sec originally
+        VPROF_NOTE("MousePollProc", NULL, 0, 0, MousePollProc()); // update the cursor, was 35 times/sec originally
 
-        status_bio_update();
-        ZoomDrawProc(FALSE); //draw zoom rectangle if enabled; if not, returns immediately
+        VPROF_NOTE("status_bio_update", NULL, 0, 0, status_bio_update());
+        VPROF_NOTE("ZoomDrawProc", NULL, 0, 0, ZoomDrawProc(FALSE)); //draw zoom rectangle if enabled; if not, returns immediately
 
         VPROF_RUN(VPROF_PRESENT, SDLDraw());
 
-        ZoomDrawProc(TRUE); //erase zoom rectangle if enabled; if not, returns immediately
+        VPROF_NOTE("ZoomDrawProc", NULL, 1, 0, ZoomDrawProc(TRUE)); //erase zoom rectangle if enabled; if not, returns immediately
         VPROF_FRAME_END();
     }
 

@@ -14,6 +14,7 @@
 #include "Shock.h"
 #include "VitaGpu.h"
 #include "rastq.h"
+#include "tlucdat.h"
 
 #define SHACCCG_PATH "ur0:data/libshacccg.suprx"
 #define GPU_BLOCK_ALIGN (256 * 1024) // CDRAM blocks come in multiples of this
@@ -73,6 +74,9 @@ enum {
     DRAW_TRANS,  // the same, texel 0 leaving the pixel alone
     DRAW_FLAT,   // one palette index
     DRAW_SHADED, // between colours, through the colours' table
+    DRAW_TLUC,   // what the canvas holds, through a row of the tables
+    DRAW_TLUCBM, // a translucent bitmap: its texel and what the canvas holds, through the matrix and the tables
+    DRAW_TLUCBM_TRANS, // the same, texel 0 leaving the pixel alone
 };
 
 // Consecutive polygons with the same bitmap and shaders
@@ -91,6 +95,22 @@ static unsigned bitmap_unit, tables_unit, trans_bitmap_unit, trans_tables_unit;
 static SceGxmVertexProgram *shaded_vertex_program;
 static SceGxmFragmentProgram *shaded_fragment_program;
 static unsigned colours_unit;
+// The translucent shaders: a fragment shader for each way the pixel under
+// the one being drawn may come and go (see tluc_ways). The start-up check
+// picks the first that draws right.
+#define TLUC_WAYS 2
+static SceGxmVertexProgram *tluc_vertex_program;
+static SceGxmFragmentProgram *tluc_fragment_programs[TLUC_WAYS];
+static int tluc_units[TLUC_WAYS];
+static int tluc_way = -1; // the one in use; -1: none, the CPU draws those
+// A translucent bitmap's shaders, with the textured ones' vertex program, and
+// the matrix they look up (see rastq.h, tluc_tmap)
+static SceGxmFragmentProgram *tlucbm_fragment_program, *tlucbm_trans_fragment_program;
+static int tlucbm_units[2][3]; // opaque and transparent: bitmap, tables, matrix
+static uchar *matrix_pixels;   // 256 rows of 256
+static SceGxmTexture matrix_texture;
+static unsigned matrix_version; // of the content copied there; 0: none yet
+static int tlucbm_on;
 static int textured; // the textured shaders are there: without them, flat colours
 static int shades;   // and the shaded ones
 
@@ -134,7 +154,7 @@ vgpu_counters_t vgpu_counters;
 static int ready;
 static int no_compiler; // the shader compiler module didn't load
 static int begin_errors_logged, refusals_logged;
-static char report[640] = "gpu: not initialized";
+static char report[800] = "gpu: not initialized";
 
 extern vita2d_texture *texBuffer;
 
@@ -233,6 +253,69 @@ static const char shaded_fragment_source[] =
     "    float2 spot = float2((fifth.x + fifth.y * 32.0f + 0.5f) / 1024.0f, (fifth.z + 0.5f) / 32.0f);\n"
     "    float shade = tex2D(uColours, spot).x + 0.25f / 255.0f;\n"
     "    return float4(shade, shade, shade, 1.0f);\n"
+    "}\n";
+
+// A translucent polygon: the pixel becomes what the canvas holds there
+// passed through a row of the tables. The canvas's pixel is the one the calls
+// before this one in the scene left, which this GPU hands a fragment shader
+// that asks for it (its "programmable blending"). The vertex shader is the
+// flat one's, the row where the index is: its share of the tables' height.
+//
+// The compiler wants the shader that reads the target declared __nativecolor:
+// the target's values then come and go as they are, and both must be
+// declared as the target's bytes (__regformat). Whether those count from 0 to
+// 255 or from 0 to 1 the compiler doesn't say: the console's check does, and
+// the shader is written both ways, the one that draws right there first.
+static const char tluc_fragment_source[] =
+    "__nativecolor %s main(\n"
+    "    float vIndex : TEXCOORD0,\n"
+    "    %s under : FRAGCOLOR,\n"
+    "    uniform sampler2D uTables : TEXUNIT0)\n"
+    "{\n"
+    "    float index = under.x;\n"
+    "    float2 lut = float2(%s, vIndex);\n"
+    "    float shade = tex2D(uTables, lut).x;\n"
+    "    shade = %s;\n"
+    "    return float4(shade, shade, shade, %s);\n"
+    "}\n";
+#define TLUC_BYTES "__regformat unsigned char4"
+// the index read from 0 to 1, or from 0 to 255: the middle of its table entry
+#define TLUC_IN_1 "index * (255.0f / 256.0f) + 0.5f / 256.0f"
+#define TLUC_IN_255 "(index + 0.5f) / 256.0f"
+// and written, a quarter above itself as the other shaders write it
+#define TLUC_OUT_1 "shade + 0.25f / 255.0f", "1.0f"
+#define TLUC_OUT_255 "shade * 255.0f + 0.25f", "255.0f"
+static const char *const tluc_ways[TLUC_WAYS][5] = {
+    // what the shader gives, what it reads, the two lookups
+    {TLUC_BYTES, TLUC_BYTES, TLUC_IN_255, TLUC_OUT_255}, // the one that draws right on the console
+    {TLUC_BYTES, TLUC_BYTES, TLUC_IN_1, TLUC_OUT_1},
+};
+
+// A translucent bitmap: the textured shader, with one more lookup between
+// the texel and the tables: the matrix, in the texel's row at the pixel the
+// canvas holds, read as the translucent polygons' shader reads it (the way
+// the console's check picked: the target's bytes, in and out). The first %s
+// is what a transparent bitmap adds.
+static const char tlucbm_fragment_source[] =
+    "__nativecolor __regformat unsigned char4 main(\n"
+    "    float2 vTex : TEXCOORD0,\n"
+    "    float4 vLight : TEXCOORD1,\n"
+    "    float vDepth : TEXCOORD2,\n"
+    "    __regformat unsigned char4 under : FRAGCOLOR,\n"
+    "    uniform sampler2D uBitmap : TEXUNIT0,\n"
+    "    uniform sampler2D uTables : TEXUNIT1,\n"
+    "    uniform sampler2D uMatrix : TEXUNIT2)\n"
+    "{\n"
+    "    float pal = tex2D(uBitmap, vTex).x;\n"
+    "%s"
+    "    float index = under.x;\n"
+    "    float2 cell = float2((index + 0.5f) / 256.0f, pal * (255.0f / 256.0f) + 0.5f / 256.0f);\n"
+    "    float mixed = tex2D(uMatrix, cell).x;\n"
+    "    float part = vLight.z / max(vLight.w, 0.0001f);\n"
+    "    float tab = (vLight.x + vLight.y * part) / vDepth;\n"
+    "    float2 lut = float2(mixed * (255.0f / 256.0f) + 0.5f / 256.0f, tab / %d.0f);\n"
+    "    float shade = tex2D(uTables, lut).x * 255.0f + 0.25f;\n"
+    "    return float4(shade, shade, shade, 255.0f);\n"
     "}\n";
 
 static int log_started;
@@ -623,6 +706,41 @@ static int vgpu_shaded(int n, const rastq_gpu_vertex *v) {
     return add_polygon(&colours_texture, DRAW_SHADED, n, out);
 }
 
+static int vgpu_tluc(int n, const rastq_gpu_vertex *v) {
+    vgpu_vertex out[RASTQ_GPU_VERTS];
+    int i;
+
+    if (n > RASTQ_GPU_VERTS || tluc_way < 0)
+        return 1;
+    for (i = 0; i < n; i++) {
+        place(&out[i], &v[i]);
+        out[i].u = v[i].left / (float)RASTQ_GPU_TABLE_ROWS;
+    }
+    return add_polygon(&tables_texture, DRAW_TLUC, n, out);
+}
+
+static int vgpu_tluc_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, const uchar *matrix,
+                          unsigned version) {
+    const SceGxmTexture *texture;
+    vgpu_vertex out[RASTQ_GPU_VERTS];
+    int i;
+
+    if (n > RASTQ_GPU_VERTS || !tlucbm_on)
+        return 1;
+    if (matrix_version != version) {
+        // the last scene has finished, and this one's calls so far were
+        // given the same matrix or none
+        memcpy(matrix_pixels, matrix, 256 * 256);
+        matrix_version = version;
+    }
+    texture = texture_for(bm, (flags & RASTQ_GPU_WRAP) != 0);
+    if (texture == NULL)
+        return 0;
+    for (i = 0; i < n; i++)
+        fill(&out[i], &v[i], v[i].u, v[i].v, bm->w, bm->h);
+    return add_polygon(texture, (flags & RASTQ_GPU_TRANS) ? DRAW_TLUCBM_TRANS : DRAW_TLUCBM, n, out);
+}
+
 static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v) {
     const SceGxmTexture *texture;
     vgpu_vertex out[RASTQ_GPU_VERTS];
@@ -664,6 +782,21 @@ static void vgpu_end(void) {
                     sceGxmSetFragmentProgram(context, shaded_fragment_program);
                     sceGxmSetFragmentTexture(context, colours_unit, &colours_texture);
                 }
+            } else if (d->kind == DRAW_TLUCBM || d->kind == DRAW_TLUCBM_TRANS) {
+                const int *units = tlucbm_units[d->kind == DRAW_TLUCBM_TRANS];
+
+                sceGxmSetVertexProgram(context, tmap_vertex_program);
+                sceGxmSetFragmentProgram(context, d->kind == DRAW_TLUCBM_TRANS ? tlucbm_trans_fragment_program
+                                                                               : tlucbm_fragment_program);
+                sceGxmSetFragmentTexture(context, (unsigned)units[0], d->texture);
+                sceGxmSetFragmentTexture(context, (unsigned)units[1], &tables_texture);
+                sceGxmSetFragmentTexture(context, (unsigned)units[2], &matrix_texture);
+            } else if (d->kind == DRAW_TLUC) {
+                if (last != DRAW_TLUC) {
+                    sceGxmSetVertexProgram(context, tluc_vertex_program);
+                    sceGxmSetFragmentProgram(context, tluc_fragment_programs[tluc_way]);
+                    sceGxmSetFragmentTexture(context, (unsigned)tluc_units[tluc_way], &tables_texture);
+                }
             } else {
                 int trans = d->kind == DRAW_TRANS;
                 if (last != DRAW_TMAP && last != DRAW_TRANS)
@@ -685,7 +818,7 @@ static void vgpu_end(void) {
     in_scene = 0;
 }
 
-#ifdef VITA_PROFILE
+#ifdef VITA_PROFILE_CHECKS
 // ---- frame pairs for looking at on a PC -------------------------------------
 
 static void write_rows(const char *path, const uchar *pixels, int w, int h, int row) {
@@ -744,11 +877,10 @@ static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int 
 #define vgpu_compared NULL
 #endif
 
-static const rastq_gpu queue_hooks = {vgpu_begin, vgpu_flat,   vgpu_tmap,    vgpu_shaded,
-                                      vgpu_end,   vgpu_finish, vgpu_compared};
-// without the shaded shaders
-static const rastq_gpu plain_hooks = {vgpu_begin, vgpu_flat,   vgpu_tmap,    NULL,
-                                      vgpu_end,   vgpu_finish, vgpu_compared};
+// What the queue is given: without `shaded` or `tluc` if their shaders
+// aren't there (vgpu_init).
+static rastq_gpu queue_hooks = {vgpu_begin, vgpu_flat,   vgpu_tmap,     vgpu_shaded,   vgpu_end,
+                                vgpu_finish, vgpu_compared, vgpu_tluc, vgpu_tluc_tmap};
 
 // ---- set-up ----------------------------------------------------------------
 
@@ -893,6 +1025,36 @@ static int make_tmap_programs(void) {
     return 1;
 }
 
+// The translucent bitmaps' two shaders, right after the textured ones, whose
+// vertex program they share. 0 if either doesn't compile.
+static int make_tlucbm_programs(void) {
+    static const char *const names[] = {"aPosition", "aTex", "aLight", "aDepth"};
+    static const size_t offsets[] = {offsetof(vgpu_vertex, x), offsetof(vgpu_vertex, u), offsetof(vgpu_vertex, left),
+                                     offsetof(vgpu_vertex, depth)};
+    static const int sizes[] = {2, 3, 4, 1};
+    static const char *const samplers[3] = {"uBitmap", "uTables", "uMatrix"};
+    static char source[2048];
+    int trans, k;
+
+    for (trans = 0; trans < 2; trans++) {
+        const SceGxmProgram *fragment = NULL;
+
+        snprintf(source, sizeof(source), tlucbm_fragment_source, trans ? trans_fragment_lines : "",
+                 RASTQ_GPU_TABLE_ROWS);
+        if (!make_programs(trans ? "translucent transparent bitmap" : "translucent bitmap", tmap_vertex_source, source,
+                           names, offsets, sizes, 4, &tmap_vertex_program,
+                           trans ? &tlucbm_trans_fragment_program : &tlucbm_fragment_program, &fragment))
+            return 0;
+        for (k = 0; k < 3; k++)
+            tlucbm_units[trans][k] = sampler_unit(fragment, samplers[k]);
+        gpu_log("texture units: translucent bitmap%s: bitmap %d, tables %d, matrix %d", trans ? ", transparent" : "",
+                tlucbm_units[trans][0], tlucbm_units[trans][1], tlucbm_units[trans][2]);
+        if (tlucbm_units[trans][0] < 0 || tlucbm_units[trans][1] < 0 || tlucbm_units[trans][2] < 0)
+            return 0;
+    }
+    return 1;
+}
+
 static int make_shaded_programs(void) {
     static const char *const names[] = {"aPosition", "aTex", "aLight", "aDepth"};
     static const size_t offsets[] = {offsetof(vgpu_vertex, x), offsetof(vgpu_vertex, u), offsetof(vgpu_vertex, left),
@@ -912,13 +1074,41 @@ static int make_shaded_programs(void) {
     return 1;
 }
 
+// One way's translucent shader. 0 if it doesn't compile; the check says
+// whether it draws right. No other shaders may be made between two of these:
+// they share their vertex program.
+static int make_tluc_program(int way) {
+    static const char *const names[] = {"aPosition", "aIndex"};
+    static const size_t offsets[] = {offsetof(vgpu_vertex, x), offsetof(vgpu_vertex, u)};
+    static const int sizes[] = {2, 1};
+    static char source[1024];
+    const SceGxmProgram *fragment = NULL;
+    char what[32];
+
+    snprintf(what, sizeof(what), "translucent %d", way);
+    snprintf(source, sizeof(source), tluc_fragment_source, tluc_ways[way][0], tluc_ways[way][1], tluc_ways[way][2],
+             tluc_ways[way][3], tluc_ways[way][4]);
+    tluc_units[way] = -1;
+    if (!make_programs(what, flat_vertex_source, source, names, offsets, sizes, 2, &tluc_vertex_program,
+                       &tluc_fragment_programs[way], &fragment)) {
+        tluc_fragment_programs[way] = NULL;
+        return 0;
+    }
+    tluc_units[way] = sampler_unit(fragment, "uTables");
+    gpu_log("texture unit: translucent %d, tables %d", way, tluc_units[way]);
+    if (tluc_units[way] < 0)
+        tluc_fragment_programs[way] = NULL;
+    return tluc_units[way] >= 0;
+}
+
 // The memory the textured and shaded shaders draw from: the tables, the
 // colours' table and the bitmaps.
 static int make_textures(void) {
     tables_pixels = vgpu_alloc(RASTQ_GPU_TABLE_ROWS * 256);
     colours_pixels = vgpu_alloc(COLOURS_W * COLOURS_H);
+    matrix_pixels = vgpu_alloc(256 * 256);
     texture_heap = vgpu_alloc(TEXTURE_HEAP_BYTES);
-    if (tables_pixels == NULL || colours_pixels == NULL || texture_heap == NULL) {
+    if (tables_pixels == NULL || colours_pixels == NULL || matrix_pixels == NULL || texture_heap == NULL) {
         gpu_log("no memory for the tables and the bitmaps");
         return 0;
     }
@@ -930,6 +1120,13 @@ static int make_textures(void) {
     sceGxmTextureSetMagFilter(&colours_texture, SCE_GXM_TEXTURE_FILTER_POINT);
     sceGxmTextureSetUAddrMode(&colours_texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
     sceGxmTextureSetVAddrMode(&colours_texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
+    memset(matrix_pixels, 0, 256 * 256);
+    if (sceGxmTextureInitLinear(&matrix_texture, matrix_pixels, SCE_GXM_TEXTURE_FORMAT_U8_RRRR, 256, 256, 0) < 0)
+        return 0;
+    sceGxmTextureSetMinFilter(&matrix_texture, SCE_GXM_TEXTURE_FILTER_POINT);
+    sceGxmTextureSetMagFilter(&matrix_texture, SCE_GXM_TEXTURE_FILTER_POINT);
+    sceGxmTextureSetUAddrMode(&matrix_texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
+    sceGxmTextureSetVAddrMode(&matrix_texture, SCE_GXM_TEXTURE_ADDR_CLAMP);
     memset(tables_pixels, 0, RASTQ_GPU_TABLE_ROWS * 256);
     if (sceGxmTextureInitLinear(&tables_texture, tables_pixels, SCE_GXM_TEXTURE_FORMAT_U8_RRRR, 256,
                                 RASTQ_GPU_TABLE_ROWS, 0) < 0)
@@ -1163,6 +1360,202 @@ static int colour_check(int bad[COLOUR_BANDS]) {
     return 1;
 }
 
+// The translucent shaders, the way of tluc_way, on four bands of the check
+// canvas over a ground whose column x holds x, drawn in the same scene but
+// for one band:
+//   under: one polygon through table A: A[x]
+//   twice: two of them, one over the other: A[A[x]]
+//   kept:  one through table B in a scene of its own, over what the first
+//          scene left: B[x]
+//   mixed: one through A, a flat colour over its left quarter, then one
+//          through B over the lot: B[A[x]], and B[the colour] on the left
+// Sets the number of wrong columns of each band. Returns 0 if nothing could
+// be drawn.
+#define TLUC_BANDS 4
+static int tluc_check(int bad[TLUC_BANDS]) {
+    enum {
+        ROW_A = RASTQ_GPU_PLAIN_ROW + 1,
+        ROW_B,
+        ROWS,
+        BAND_H = CHECK_H / TLUC_BANDS,
+        OVER = 7,
+        OVER_W = CHECK_W / 4
+    };
+    static uchar ramp[8 * 256], tables[ROWS * 256];
+    uchar *canvas = vgpu_alloc(CHECK_W * CHECK_H);
+    const uchar *a = &tables[ROW_A * 256], *b = &tables[ROW_B * 256];
+    rastq_gpu_vertex v[4];
+    grs_bitmap ramp_bm;
+    int band, scene, x, i, k;
+
+    for (band = 0; band < TLUC_BANDS; band++)
+        bad[band] = -1;
+    if (canvas == NULL)
+        return 0;
+    for (i = 0; i < 256; i++) {
+        for (k = 0; k < 8; k++)
+            ramp[k * 256 + i] = (uchar)i;
+        tables[RASTQ_GPU_PLAIN_ROW * 256 + i] = (uchar)i;
+        tables[ROW_A * 256 + i] = (uchar)(i * 7 + 3);
+        tables[ROW_B * 256 + i] = (uchar)(i * 13 + 101);
+    }
+    memset(&ramp_bm, 0, sizeof(ramp_bm));
+    ramp_bm.bits = ramp;
+    ramp_bm.w = ramp_bm.row = 256;
+    ramp_bm.h = 8;
+
+    memset(canvas, 0xEE, CHECK_W * CHECK_H);
+    for (scene = 0; scene < 2; scene++) {
+        if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS, NULL)) {
+            vgpu_free(canvas);
+            return 0;
+        }
+        if (scene == 0) {
+            // the ground: texel x in column x
+            corners(v, 0, CHECK_W, 0, CHECK_H);
+            for (i = 0; i < 4; i++) {
+                v[i].u = v[i].x + 0.5f;
+                v[i].v = 0.5f;
+            }
+            vgpu_tmap(&ramp_bm, 0, 4, v);
+        }
+        for (band = 0; band < TLUC_BANDS; band++) {
+            int y0 = band * BAND_H, y1 = y0 + BAND_H;
+
+            if ((band == 2) != (scene == 1))
+                continue;
+            corners(v, 0, CHECK_W, y0, y1);
+            for (i = 0; i < 4; i++)
+                v[i].left = (band == 2 ? ROW_B : ROW_A) + 0.5f;
+            vgpu_tluc(4, v);
+            if (band == 1)
+                vgpu_tluc(4, v);
+            if (band == 3) {
+                corners(v, 0, OVER_W, y0, y1);
+                vgpu_flat(4, v, OVER);
+                corners(v, 0, CHECK_W, y0, y1);
+                for (i = 0; i < 4; i++)
+                    v[i].left = ROW_B + 0.5f;
+                vgpu_tluc(4, v);
+            }
+        }
+        vgpu_end();
+        vgpu_finish();
+    }
+
+    for (band = 0; band < TLUC_BANDS; band++) {
+        const uchar *row = canvas + (band * BAND_H + BAND_H / 2) * CHECK_W;
+
+        bad[band] = 0;
+        for (x = 0; x < 256; x++) {
+            int want = band == 0 ? a[x] : band == 1 ? a[a[x]] : band == 2 ? b[x] : x < OVER_W ? b[OVER] : b[a[x]];
+            if (row[x] != want) {
+                // a few of them: they tell how the pixel reached the shader
+                if (bad[band]++ < 4)
+                    gpu_log("translucency check, way %d, band %d: column %d holds %d, not %d", tluc_way, band, x,
+                            row[x], want);
+            }
+        }
+    }
+    vgpu_free(canvas);
+    return 1;
+}
+
+// The translucent bitmaps' shaders, on four bands of the check canvas over a
+// ground whose column x holds x. The bitmap's texel in column x is known,
+// some with a row of their own in the matrix, some without, some 0:
+//   opaque: every texel: matrix[texel][x]
+//   trans:  texel 0 leaves the ground: x
+//   table:  the opaque one through table A: A[matrix[texel][x]]
+//   twice:  the transparent one drawn two times over
+// Sets the number of wrong columns of each band. Returns 0 if nothing could
+// be drawn.
+#define TLUCBM_BANDS 4
+#define TLUCBM_CHECK_VERSION 0xC0DEu // not a version the queue will have
+static int tlucbm_check(int bad[TLUCBM_BANDS]) {
+    enum { ROW_A = RASTQ_GPU_PLAIN_ROW + 1, ROWS, BAND_H = CHECK_H / TLUCBM_BANDS };
+    static uchar ramp[8 * 256], stripe[8 * 256], tables[ROWS * 256], matrix[256 * 256];
+    uchar *canvas = vgpu_alloc(CHECK_W * CHECK_H);
+    const uchar *a = &tables[ROW_A * 256];
+    rastq_gpu_vertex v[4];
+    grs_bitmap ramp_bm, stripe_bm;
+    int band, x, i, k;
+
+    for (band = 0; band < TLUCBM_BANDS; band++)
+        bad[band] = -1;
+    if (canvas == NULL)
+        return 0;
+    for (i = 0; i < 256; i++) {
+        uchar texel = (i % 16) == 7 ? 0 : (uchar)(i * 3);
+
+        for (k = 0; k < 8; k++) {
+            ramp[k * 256 + i] = (uchar)i;
+            stripe[k * 256 + i] = texel;
+        }
+        tables[RASTQ_GPU_PLAIN_ROW * 256 + i] = (uchar)i;
+        tables[ROW_A * 256 + i] = (uchar)(i * 7 + 3);
+        // texel i: one in three has a table
+        for (k = 0; k < 256; k++)
+            matrix[i * 256 + k] = (i % 3) == 1 ? (uchar)(k * 5 + i) : (uchar)i;
+    }
+    memset(&ramp_bm, 0, sizeof(ramp_bm));
+    ramp_bm.bits = ramp;
+    ramp_bm.w = ramp_bm.row = 256;
+    ramp_bm.h = 8;
+    stripe_bm = ramp_bm;
+    stripe_bm.bits = stripe;
+
+    memset(canvas, 0xEE, CHECK_W * CHECK_H);
+    if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS, NULL)) {
+        vgpu_free(canvas);
+        return 0;
+    }
+    for (band = -1; band < TLUCBM_BANDS; band++) {
+        // first the ground, all over
+        corners(v, 0, CHECK_W, band < 0 ? 0 : band * BAND_H, band < 0 ? CHECK_H : (band + 1) * BAND_H);
+        for (i = 0; i < 4; i++) {
+            v[i].u = v[i].x + 0.5f;
+            v[i].v = 0.5f;
+            if (band == 2)
+                v[i].left = ROW_A + 0.5f;
+        }
+        if (band < 0) {
+            vgpu_tmap(&ramp_bm, 0, 4, v);
+            continue;
+        }
+        vgpu_tluc_tmap(&stripe_bm, band == 1 || band == 3 ? RASTQ_GPU_TRANS : 0, 4, v, matrix, TLUCBM_CHECK_VERSION);
+        if (band == 3)
+            vgpu_tluc_tmap(&stripe_bm, RASTQ_GPU_TRANS, 4, v, matrix, TLUCBM_CHECK_VERSION);
+    }
+    vgpu_end();
+    vgpu_finish();
+
+    for (band = 0; band < TLUCBM_BANDS; band++) {
+        const uchar *row = canvas + (band * BAND_H + BAND_H / 2) * CHECK_W;
+
+        bad[band] = 0;
+        for (x = 0; x < 256; x++) {
+            int texel = stripe[x], once = matrix[texel * 256 + x], want;
+
+            if (band == 0)
+                want = once;
+            else if (band == 1)
+                want = texel == 0 ? x : once;
+            else if (band == 2)
+                want = a[once];
+            else
+                want = texel == 0 ? x : matrix[texel * 256 + once];
+            if (row[x] != want) {
+                if (bad[band]++ < 4)
+                    gpu_log("translucent bitmap check, band %d: column %d holds %d, not %d (texel %d)", band, x,
+                            row[x], want, texel);
+            }
+        }
+    }
+    vgpu_free(canvas);
+    return 1;
+}
+
 // How long the CPU takes to write and to read half a megabyte, in
 // microseconds: a view's canvas is about that size.
 static void time_memory(uchar *p, size_t size, int *write_us, int *read_us) {
@@ -1182,10 +1575,35 @@ static void time_memory(uchar *p, size_t size, int *write_us, int *read_us) {
     *read_us = (int)(t2 - t1);
 }
 
+// How long the CPU takes to pass `size` bytes of a canvas through a
+// translucency table, in microseconds: pixel by pixel in place, as the 2D
+// library did, and its way now (gr_tluc8_span), a canvas row at a time.
+static void time_tluc_fill(uchar *p, size_t size, int *in_place_us, int *copied_us) {
+    static uchar table[256];
+    long long t0, t1, t2;
+    size_t at;
+
+    for (at = 0; at < 256; at++)
+        table[at] = (uchar)(at * 7 + 3);
+    memset(p, 0x5a, size);
+    t0 = sceKernelGetProcessTimeWide();
+    for (at = 0; at < size; at++)
+        p[at] = table[p[at]];
+    t1 = sceKernelGetProcessTimeWide();
+    for (at = 0; at < size; at += 960)
+        gr_tluc8_span(p + at, (int)(size - at < 960 ? size - at : 960), table, NULL);
+    t2 = sceKernelGetProcessTimeWide();
+    *in_place_us = (int)(t1 - t0);
+    *copied_us = (int)(t2 - t1);
+}
+
 void vgpu_init(void) {
     size_t test_bytes = 2 * GPU_BLOCK_ALIGN;
     int bad, first_bad, got, kept, tex_bad[CHECK_BANDS] = {-1, -1, -1, -1};
     int colour_bad[COLOUR_BANDS] = {-1, -1, -1};
+    int tluc_bad[TLUC_BANDS] = {-1, -1, -1, -1}, tluc_made = 0, way;
+    int fill_in_place = -1, fill_copied = -1;
+    int tlucbm_bad[TLUCBM_BANDS] = {-1, -1, -1, -1};
     int gpu_write = -1, gpu_read = -1, ram_write = -1, ram_read = -1;
     uchar *gpu_mem, *ram_mem;
     int err;
@@ -1230,9 +1648,40 @@ void vgpu_init(void) {
     textured = bad >= 0 && make_textures() && make_tmap_programs();
     // Without the shaded shaders the GPU still draws the station; what is
     // shaded between colours is then the CPU's, and so is cyberspace.
+    // Without the translucent bitmaps' shaders those are the CPU's. Made here:
+    // they take the textured ones' vertex program, the last one compiled.
+    if (textured) {
+        gpu_log("compiling the translucent bitmaps' shaders");
+        if (make_tlucbm_programs()) {
+            tlucbm_on = 1;
+            gpu_log("drawing the translucent bitmap check");
+            if (!tlucbm_check(tlucbm_bad) || tlucbm_bad[0] || tlucbm_bad[1] || tlucbm_bad[2] || tlucbm_bad[3])
+                tlucbm_on = 0;
+            gpu_log("translucent bitmap check drawn: %d %d %d %d wrong", tlucbm_bad[0], tlucbm_bad[1], tlucbm_bad[2],
+                    tlucbm_bad[3]);
+        }
+    }
     if (textured) {
         gpu_log("compiling the shaded shaders");
         shades = make_shaded_programs();
+        // Without the translucent ones either: those polygons are the CPU's.
+        // One way at a time, each checked as soon as it compiles, up to the
+        // first that draws right.
+        gpu_log("compiling the translucent shaders");
+        for (way = 0; way < TLUC_WAYS && tluc_way < 0; way++) {
+            if (!make_tluc_program(way)) {
+                if (tluc_vertex_program == NULL)
+                    break; // their vertex shader: no way without it
+                continue;
+            }
+            tluc_made++;
+            tluc_way = way;
+            gpu_log("drawing the translucency check, way %d", way);
+            if (!tluc_check(tluc_bad) || tluc_bad[0] || tluc_bad[1] || tluc_bad[2] || tluc_bad[3])
+                tluc_way = -1;
+            gpu_log("translucency check drawn: %d %d %d %d wrong", tluc_bad[0], tluc_bad[1], tluc_bad[2],
+                    tluc_bad[3]);
+        }
     }
     shark_end();
     if (textured) {
@@ -1256,16 +1705,23 @@ void vgpu_init(void) {
     if (ram_mem != NULL)
         time_memory(ram_mem, test_bytes, &ram_write, &ram_read);
     if (gpu_mem != NULL)
+        time_tluc_fill(gpu_mem, 64 * 1024, &fill_in_place, &fill_copied);
+    if (gpu_mem != NULL)
         vgpu_free(gpu_mem);
     free(ram_mem);
 
     snprintf(report, sizeof(report),
              "gpu: ready index_check mismatches=%d/256 first_bad=%d got=%d undrawn_kept=%d | textures=%s "
              "texture_check plain=%d table=%d light=%d wrap=%d colour_check red=%d green=%d blue=%d (wrong columns "
-             "of 256) | 512KB us: gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d",
+             "of 256) | 512KB us: gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d | tluc=%s:%d/%d "
+             "tluc_check under=%d twice=%d kept=%d mixed=%d | 64KB tluc_fill us: in_place=%d copied=%d | "
+             "tlucbm=%s tlucbm_check opaque=%d trans=%d table=%d twice=%d",
              bad, first_bad, got, kept, !textured ? "off (GPU not used)" : shades ? "on" : "on, not the shaded ones",
              tex_bad[0], tex_bad[1], tex_bad[2],
-             tex_bad[3], colour_bad[0], colour_bad[1], colour_bad[2], gpu_write, gpu_read, ram_write, ram_read);
+             tex_bad[3], colour_bad[0], colour_bad[1], colour_bad[2], gpu_write, gpu_read, ram_write, ram_read,
+             tluc_way >= 0 ? "on" : "off (CPU)", tluc_way, tluc_made, tluc_bad[0], tluc_bad[1], tluc_bad[2],
+             tluc_bad[3], fill_in_place, fill_copied, tlucbm_on ? "on" : "off (CPU)", tlucbm_bad[0], tlucbm_bad[1],
+             tlucbm_bad[2], tlucbm_bad[3]);
     gpu_log("%s", report);
     // Flat colours were for finding out whether the GPU path could work at
     // all: as a renderer it is the textured shaders or nothing.
@@ -1273,7 +1729,13 @@ void vgpu_init(void) {
         ready = 0;
         return;
     }
-    rastq_set_gpu(shades ? &queue_hooks : &plain_hooks);
+    if (!shades)
+        queue_hooks.shaded = NULL;
+    if (tluc_way < 0)
+        queue_hooks.tluc = NULL;
+    if (!tlucbm_on)
+        queue_hooks.tluc_tmap = NULL;
+    rastq_set_gpu(&queue_hooks);
 }
 
 const char *vgpu_report(void) { return report; }

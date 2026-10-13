@@ -2,7 +2,7 @@
 #define __VITAGPU_H
 
 // The Vita's GPU as a filler for the rasterizer queue's draw list
-// (src/Libraries/3D/Source/rastq.h): see docs/PERFORMANCE-GPU.md.
+// (src/Libraries/3D/Source/rastq.h): see docs/PERFORMANCE.md.
 //
 // It draws flat polygons, the texture maps on ordinary 8-bit bitmaps and the
 // polygons shaded between colours; the queue has the CPU draw the rest. Its shaders are compiled when the game

@@ -38,6 +38,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "lzw.h"
 #include "res.h"
 #include "res_.h"
+#include "vprof.h"
 
 #include <stdlib.h>
 
@@ -85,7 +86,28 @@ void ResSetComment(int32_t filenum, char *comment) {
 //  -------------------------------------------------------
 #define EXTRA 250
 
+// A file being written to stands, between two resources, where the next
+// one goes. Seeking there all the same makes the C library hand what it
+// holds to the disk: one write on the card for each resource of a level
+// saved. So the seek is left out when the last thing done to the file was
+// the write before, and made after anything else (ResTailLost).
+static bool resAtTail[MAX_RESFILENUM + 1];
+
+void ResTailLost(int32_t filenum) { resAtTail[filenum] = false; }
+
+static int32_t ResWriteNow(Id id);
+
 int32_t ResWrite(Id id) {
+    int32_t written;
+
+    // (the profiler's sum of the frame's writes)
+    VPROF_MARK_BEGIN(VPROF_RESWRITE);
+    written = ResWriteNow(id);
+    VPROF_MARK_END(VPROF_RESWRITE);
+    return written;
+}
+
+static int32_t ResWriteNow(Id id) {
     static uint8_t pad[] = {0, 0, 0, 0, 0, 0, 0, 0};
     ResDesc *prd;
     ResDesc2 *prd2;
@@ -146,7 +168,9 @@ int32_t ResWrite(Id id) {
     TRACE("%s: writing $%x\n", __FUNCTION__, id);
 
     // If compound, write out reftable without compression
-    fseek(prf->fd, prf->pedit->currDataOffset, SEEK_SET);
+    // (the profiler's sum of the frame's seeks and writes is resio)
+    if (!resAtTail[prd->filenum])
+        VPROF_RUN_AS(VPROF_RESIO, NULL, 0, 0, fseek(prf->fd, prf->pedit->currDataOffset, SEEK_SET));
     sizeTable = 0;
 
     // Body (post compound res header) if compound, else main pointer.
@@ -155,7 +179,7 @@ int32_t ResWrite(Id id) {
     // to integrate a resource/level editor.
     if (prd2->flags & RDF_COMPOUND) {
         sizeTable = REFTABLESIZE(((RefTable *)p)->numRefs);
-        fwrite(p, sizeTable, 1, prf->fd);
+        VPROF_RUN_AS(VPROF_RESIO, NULL, 0, 0, fwrite(p, sizeTable, 1, prf->fd));
         body = p + sizeTable;
         size -= sizeTable;
     }
@@ -163,12 +187,13 @@ int32_t ResWrite(Id id) {
     // If compression, try it (may not work out)
     if (pDirEntry->flags & RDF_LZW) {
         pcompbuff = malloc(size + EXTRA);
-        compsize = LzwCompressBuff2Buff(p, size, pcompbuff, size);
+        // (the profiler's sum of the frame's compressing)
+        VPROF_RUN_AS(VPROF_RESLZW, NULL, 0, 0, compsize = LzwCompressBuff2Buff(p, size, pcompbuff, size));
         if (compsize < 0) {
             pDirEntry->flags &= ~RDF_LZW;
         } else {
             pDirEntry->csize = sizeTable + compsize;
-            fwrite(pcompbuff, compsize, 1, prf->fd);
+            VPROF_RUN_AS(VPROF_RESIO, NULL, 0, 0, fwrite(pcompbuff, compsize, 1, prf->fd));
         }
         free(pcompbuff);
     }
@@ -176,13 +201,13 @@ int32_t ResWrite(Id id) {
     // If no compress (or failed to compress well), just write out
     if (!(pDirEntry->flags & RDF_LZW)) {
         pDirEntry->csize = size;
-        fwrite(body, size, 1, prf->fd);
+        VPROF_RUN_AS(VPROF_RESIO, NULL, 0, 0, fwrite(body, size, 1, prf->fd));
     }
 
     // Pad to align on data boundary
     padBytes = RES_OFFSET_PADBYTES(pDirEntry->csize);
     if (padBytes)
-        fwrite(pad, padBytes, 1, prf->fd);
+        VPROF_RUN_AS(VPROF_RESIO, NULL, 0, 0, fwrite(pad, padBytes, 1, prf->fd));
 
     // FIXME Error handling
     //  if (ftell(prf->fd) & 3)
@@ -195,6 +220,9 @@ int32_t ResWrite(Id id) {
     // Advance dir num entries, current data offset
     prf->pedit->pdir->numEntries++;
     prf->pedit->currDataOffset = RES_OFFSET_ALIGN(prf->pedit->currDataOffset + pDirEntry->csize);
+    // (asked of the file, not taken for granted: no seek is spared unless
+    // the file is where the next resource goes)
+    resAtTail[prd->filenum] = ftell(prf->fd) == (long)prf->pedit->currDataOffset;
 
     return 0;
 }
@@ -208,19 +236,57 @@ int32_t ResWrite(Id id) {
 //
 //  Returns: # bytes reclaimed
 
+static int32_t ResPackNow(int32_t filenum);
+
 int32_t ResPack(int32_t filenum) {
+    int32_t reclaimed;
+
+    VPROF_MARK_BEGIN(VPROF_RESPACK);
+    reclaimed = ResPackNow(filenum);
+    VPROF_MARK_END(VPROF_RESPACK);
+    return reclaimed;
+}
+
+static int32_t ResPackNow(int32_t filenum) {
     ResFile *prf;
     ResDirEntry *pDirEntry;
     int32_t numReclaimed, sizeReclaimed;
     int32_t dataRead, dataWrite;
     int32_t i;
     ResDirEntry *peWrite;
+    int32_t firstHole = -1, dataEnd;
+    uint8_t *image = NULL; // the file from the first empty entry on, where there is one
 
     // Check for errors
     prf = &resFile[filenum];
     if (prf->pedit == NULL) {
         ERROR("%s: filenum %d not open for editing", __FUNCTION__, filenum);
         return (0);
+    }
+
+    ResTailLost(filenum);
+
+    // Everything after the first empty entry moves down. Moved in the file
+    // itself, a resource at a time, that is a seek, a read, a seek and a
+    // write for each: thousands, for a saved game. So that part of the
+    // file is read whole, closed up in memory, and written back whole. The
+    // bytes it ends up with are those the moving in the file gives.
+    dataEnd = prf->pedit->pdir->dataOffset;
+    pDirEntry = (ResDirEntry *)(prf->pedit->pdir + 1);
+    for (i = 0; i < prf->pedit->pdir->numEntries; i++) {
+        if (pDirEntry->id == 0 && firstHole < 0)
+            firstHole = dataEnd;
+        dataEnd = RES_OFFSET_ALIGN(dataEnd + pDirEntry->csize);
+        pDirEntry++;
+    }
+    if (firstHole >= 0 && dataEnd > firstHole) {
+        image = malloc(dataEnd - firstHole);
+        if (image != NULL && (fseek(prf->fd, firstHole, SEEK_SET) != 0 ||
+                              fread(image, 1, dataEnd - firstHole, prf->fd) != (size_t)(dataEnd - firstHole))) {
+            // (then in the file, as before)
+            free(image);
+            image = NULL;
+        }
     }
 
     // Set up
@@ -236,12 +302,24 @@ int32_t ResPack(int32_t filenum) {
         } else {
             if (gResDesc[pDirEntry->id].offset > RES_OFFSET_PENDING)
                 gResDesc[pDirEntry->id].offset = RES_OFFSET_REAL2DESC(dataWrite);
-            if (dataRead != dataWrite)
-                ResCopyBytes(prf->fd, dataWrite, dataRead, pDirEntry->csize);
+            if (dataRead != dataWrite) {
+                if (image != NULL)
+                    memmove(image + (dataWrite - firstHole), image + (dataRead - firstHole), pDirEntry->csize);
+                else
+                    ResCopyBytes(prf->fd, dataWrite, dataRead, pDirEntry->csize);
+            }
             dataWrite = RES_OFFSET_ALIGN(dataWrite + pDirEntry->csize);
         }
         dataRead = RES_OFFSET_ALIGN(dataRead + pDirEntry->csize);
         pDirEntry++;
+    }
+    if (image != NULL) {
+        // what is past the new end is cut off below
+        if (dataWrite > firstHole) {
+            fseek(prf->fd, firstHole, SEEK_SET);
+            fwrite(image, 1, dataWrite - firstHole, prf->fd);
+        }
+        free(image);
     }
 
     // Now pack directory itself

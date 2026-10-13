@@ -48,6 +48,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "player.h"
 #include "rcolors.h"
 #include "wares.h"
+#include "vprof.h"
 
 // octant-wise, that is...
 #define NORTH 0
@@ -409,17 +410,18 @@ void automap_loop(void) {
     if (music_on)
         loopLine(GL | 0x1C, mlimbs_do_ai());
     if (localChanges) {
+        // (the profiler's timers: this screen's draws are its ui2d)
         if (_change_flag & AMAP_FULLEXPOSE) {
-            loopLine(AL | 0x1, fsmap_interface_draw());
+            loopLine(AL | 0x1, VPROF_RUN(VPROF_UI2D, fsmap_interface_draw()));
         }
         if (_change_flag & AMAP_MAP_EV) {
-            loopLine(AL | 0x2, fsmap_draw_map());
+            loopLine(AL | 0x2, VPROF_RUN(VPROF_UI2D, fsmap_draw_map()));
         }
         if (_change_flag & AMAP_BUTTON_EV) {
-            loopLine(AL | 0x3, fsmap_button_redraw());
+            loopLine(AL | 0x3, VPROF_RUN(VPROF_UI2D, fsmap_button_redraw()));
         }
         if (_change_flag & AMAP_MESSAGE_EV) {
-            loopLine(AL | 0x4, fsmap_message_redraw());
+            loopLine(AL | 0x4, VPROF_RUN(VPROF_UI2D, fsmap_message_redraw()));
         }
     }
     //   if (pal_fx_on) {
@@ -427,7 +429,7 @@ void automap_loop(void) {
     //   }
     audiolog_loop_callback();
     if (cf & (AMAP_FULLEXPOSE | AMAP_MAP_EV | AMAP_BUTTON_EV | AMAP_MESSAGE_EV)) {
-        fsmap_draw_screen(cf);
+        VPROF_RUN(VPROF_UI2D, fsmap_draw_screen(cf));
     }
 }
 

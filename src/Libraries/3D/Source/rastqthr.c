@@ -10,6 +10,7 @@
 #include "lg.h"
 #include "memall.h"
 #include "tmpalloc.h"
+#include "vprof.h"
 
 #ifdef __vita__
 
@@ -146,6 +147,24 @@ void rastq_threads_times(int slot, rastq_worker_times *out) {
 
 #endif
 
+// A worker on a job that isn't waited for (the cutting of the GPU's list,
+// gpu_cut_list in rastq.c) takes the audio thread's priority while the job
+// lasts, a couple of milliseconds. The audio thread shares the workers' two
+// cores and is far above them: when it began its 6 ms of music with a worker
+// in the middle of its share of the list, the main thread, which can't go on
+// without that share, waited as long (docs/PERFORMANCE.md, step S13b). At
+// the same priority the audio thread waits for the worker to finish instead,
+// or takes the other core.
+static void worker_boost(int on);
+
+static int boost_wanted(void) {
+#if defined(__vita__) && defined(VITA_PROFILE)
+    return vprof_variant != 0; // variant 0: the worker's own priority throughout, as it was
+#else
+    return 1;
+#endif
+}
+
 static void worker_loop(worker_t *w) {
     unsigned seen = atomic_load(&generation);
     unsigned spins = 0;
@@ -164,9 +183,14 @@ static void worker_loop(worker_t *w) {
         if (g != seen) {
             seen = g;
             if (w->slot < current_threads) {
+                int boost = atomic_load(&kicked) && boost_wanted();
                 long long began = job_begin();
 
+                if (boost)
+                    worker_boost(1);
                 current_job(w->slot);
+                if (boost)
+                    worker_boost(0);
                 job_end(w, began);
             }
             idle_limit = atomic_load(&kicked) ? IDLE_AFTER_KICK_US : IDLE_BEFORE_SLEEP_US;
@@ -210,6 +234,17 @@ static int main_priority(void) {
     return info.currentPriority;
 }
 
+// The audio thread's priority, as SDL sets it (aprio= in the profiler's log),
+// which is also the highest a program's thread may have: a worker can be put
+// level with it, not above. Level is enough: a thread isn't interrupted by
+// another of its own priority.
+#define AUDIO_PRIORITY 64
+static int worker_priority = 161;
+
+static void worker_boost(int on) {
+    sceKernelChangeThreadPriority(sceKernelGetThreadId(), on ? AUDIO_PRIORITY : worker_priority);
+}
+
 static int worker_entry(SceSize args, void *argp) {
     (void)args;
     worker_loop(*(worker_t **)argp);
@@ -225,7 +260,8 @@ static int worker_create(worker_t *w) {
     w->wake = sceKernelCreateSema("rastq_wake", 0, 0, 1, NULL);
     if (w->wake < 0)
         return 0;
-    id = sceKernelCreateThread("rastq_worker", worker_entry, main_priority() + 1, WORKER_STACK_BYTES, 0,
+    worker_priority = main_priority() + 1;
+    id = sceKernelCreateThread("rastq_worker", worker_entry, worker_priority, WORKER_STACK_BYTES, 0,
                                masks[w->slot - 1], NULL);
     if (id < 0)
         return 0;
@@ -238,6 +274,8 @@ void rastq_threads_pin_main(int pin) {
 }
 
 #else
+
+static void worker_boost(int on) { (void)on; }
 
 static void *worker_entry(void *arg) {
     worker_loop(arg);

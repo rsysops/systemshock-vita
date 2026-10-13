@@ -61,6 +61,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 
 #include "audiolog.h"
+#include "resimage.h"
 
 #include "mfdart.h" // for the slider bar
 
@@ -2030,11 +2031,13 @@ void language_change(uchar lang) {
     extern char *language_files[];
 
     ResCloseFile(string_res_file);
+    resimage_release_all(mfdart_res_file);
     ResCloseFile(mfdart_res_file);
 
     mfdart_res_file = ResOpenFile(mfdart_files[lang]);
     if (mfdart_res_file < 0)
         critical_error(CRITERR_RES | 2);
+    resimage_hold_all(mfdart_res_file);
 
     string_res_file = ResOpenFile(language_files[lang]);
     if (string_res_file < 0)
@@ -2045,6 +2048,7 @@ void language_change(uchar lang) {
     // in case we got here from interpret_qvars, and thus
     // haven't set this yet
     which_lang = lang;
+    audiolog_open_files(); // this language's, not at the first log
 
     invent_language_change();
     mfd_language_change();

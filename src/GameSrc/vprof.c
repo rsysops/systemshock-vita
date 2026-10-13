@@ -1,9 +1,15 @@
-// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE-CPU.md,
+// On-device profiler for the VITA_PROFILE build: see docs/PERFORMANCE.md,
 // "How to measure", for the spec this implements.
 
 #ifdef VITA_PROFILE
 
+#include <psp2/display.h>
 #include <psp2/kernel/processmgr.h>
+#include <psp2/kernel/threadmgr.h>
+#include <psp2/power.h>
+#include <SDL.h>
+#include <stdarg.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <string.h>
 #include <vita2d.h>
@@ -16,8 +22,11 @@
 #include "vprof.h"
 #include "VitaGpu.h"
 #include "hudkeep.h"
+#include "resimage.h"
+#include "map.h"
+#include "objects.h"
+#include "player.h"
 
-#define VPROF_WINDOWS_PER_VARIANT 5
 #define VPROF_FIXDIV_CHECK_CASES 1000000
 // A stutter: a frame of at least this long that is also half again as long
 // as the average frame of the window before. The worst few are logged, each
@@ -25,6 +34,10 @@
 #define VPROF_SPIKE_MIN_US 25000
 #define VPROF_SPIKES_KEPT 4
 #define VPROF_WORKERS (RASTQ_THREADS - 1)
+// A frame's longest pieces, of those it was told about (vprof_note), from
+// this long up
+#define VPROF_NOTES_KEPT 10
+#define VPROF_NOTE_MIN_US 1000
 
 // Per-call stats (one sample per VPROF_RUN/VPROF_MARK_END invocation).
 // Phases other than VPROF_RASTER fire exactly once per mainloop iteration,
@@ -74,11 +87,9 @@ static SceInt64 g_window_start_us;
 static short g_window_loop_mode = -1;
 static int g_window_open = 0;
 
-#if VPROF_ALTERNATE
-int vprof_variant = 0;
-static int g_windows_in_variant = 0;
-#else
 int vprof_variant = 1;
+#if VPROF_ALTERNATE
+static int g_windows_in_variant = 0;
 #endif
 
 // What the workers had done when the window began, and their share of the
@@ -106,12 +117,57 @@ static int g_skipped;
 static SceInt64 g_skipped_max_us;
 
 typedef struct {
+    const char *what;
+    const void *who;
+    int a, b;
+    SceInt64 us;
+} vprof_note_t;
+// The slowest resource read since the second's line: which, from where
+// ("res" the card, "resm" memory), and how long
+static long long g_res_max_us;
+static int g_res_max_id;
+static const char *g_res_max_from = "res";
+
+// The frame under way's, longest first
+static vprof_note_t g_frame_notes[VPROF_NOTES_KEPT];
+static int g_frame_note_count;
+
+// A frame's hand-over to the screen, against the screen's refreshes and the
+// music's stretches of work (docs/PERFORMANCE.md, step S12)
+#define VPROF_SWAP_MCBS 3
+typedef struct {
+    short vbl;         // refreshes the frame spanned; -1: not known
+    char late;         // two or more, with work short enough for one
+    char known;        // the refresh the hand-over was for has been seen
+    int work_us, wait_us;
+    int swapat_us;     // the hand-over was asked for this long after a refresh; -1: not known
+    int lag_us;        // how late the refresh's thread woke for the one after
+    int mcb_n;         // the music's stretches about that refresh:
+    struct {
+        int rel_us;    // when it began, from the refresh
+        int length_us; // -1: still going at the frame's end
+        int cpu;
+    } mcb[VPROF_SWAP_MCBS];
+    int frame_mcb_n;   // and those during the frame, counted from its start
+    struct {
+        int rel_us, length_us, cpu;
+    } frame_mcb[VPROF_SWAP_MCBS];
+} vprof_swap_t;
+
+typedef struct {
     SceInt64 at_us; // when the frame ended
     SceInt64 frame_us;
     short mode;
+    vprof_swap_t swap;
+    vprof_note_t notes[VPROF_NOTES_KEPT];
+    int note_count;
     SceInt64 phase_us[VPROF_PHASE_COUNT];
     unsigned long long gpu_wait_us, gpu_submit_us, upload_us, texture_bytes, swap_wait_us;
+    unsigned long long gpu_cut_wait_us; // the frame's wait for the workers' share of the GPU's list
+    unsigned long long gpu_cpu_us; // the frame's calls of a GPU view that the CPU drew
+    unsigned gpu_cpu_calls;
     unsigned cmds, views;
+    char place[40]; // where the player was (vprof_place)
 } vprof_spike_t;
 // The worst stutters since the log was last written, in the order they came
 static vprof_spike_t g_spikes[VPROF_SPIKES_KEPT];
@@ -120,15 +176,224 @@ static unsigned g_spikes_total;
 static vprof_spike_t g_last_spike;
 static SceInt64 g_prev_frame_avg_us;
 
-// How long the last write to the log took: between two frames, so in no
-// frame's time, but the screen waits for it all the same.
+// How long the main thread last took to build the log's lines and queue them:
+// between two frames, so in no frame's time, but the screen waits for it.
 static SceInt64 g_logwrite_us;
 
 // Music synthesis time, added by the audio thread and taken by the main
 // thread once per window, so only these two touch it, atomically.
 static unsigned g_audio_us = 0;
+// The same for an audio log's callback, and its longest call
+static unsigned g_alog_us = 0;
+static unsigned g_alog_max_us = 0;
+static unsigned g_alog_dry = 0; // its calls that had nothing to give
 static int g_audio_cpu = -1;
 static int g_main_cpu = -1;
+
+// ---- the hand-over to the screen (step S12) ------------------------------
+//
+// A frame whose work was short is sometimes shown a refresh late, and more
+// often the more the music costs. To see whether the music's thread is at
+// work when that happens: the time of each refresh, noted by a thread that
+// sleeps on them; each stretch of the music's synthesis, noted by the audio
+// thread; and when the frame's hand-over was asked for and came back.
+//
+// Times are the process clock's low 32 bits, in microseconds: right for
+// differences of under half an hour.
+#define VBL_KEPT 32
+#define MCB_KEPT 16
+// A little over a refresh. The refresh's thread wakes at a refresh or after
+// it, never before, so a refresh is taken to be at the wake-up or this long
+// after the one before, whichever is sooner: a late wake-up doesn't move it.
+#define VBL_PERIOD_US 16700
+// A refresh, at the screen's 59.94 a second
+#define VBL_REFRESH_US 16683
+// work that leaves a frame time to make the next refresh, and a frame that
+// missed it all the same
+#define SWAP_LIGHT_US 14000
+#define SWAP_LATE_US 23000
+// the music counts as near a refresh when it worked in this long before it
+#define MCB_NEAR_US 4000
+
+static uint32_t g_vbl_at[VBL_KEPT];
+static uint32_t g_vbl_lag[VBL_KEPT]; // how late the thread woke for each
+static unsigned g_vbl_count;         // the refresh's thread writes these three
+static unsigned g_vbl_lag_max;
+static SDL_Thread *g_vbl_thread;
+
+static struct {
+    uint32_t start, length;
+    int cpu;
+} g_mcb[MCB_KEPT];
+static unsigned g_mcb_count;   // the audio thread writes these
+static uint32_t g_mcb_running; // the start of the stretch under way, its low bit set; 0: none
+static unsigned g_mcb_max_us;
+static unsigned g_mcb_on_main; // stretches on the core the main thread was last seen on
+static int g_audio_prio = -1, g_audio_mask = -1;
+static int g_main_prio = -1, g_main_mask = -1;
+
+static uint32_t g_swap_asked, g_swap_done;
+static int g_swap_seen;
+static vprof_swap_t g_swap; // the frame's
+// in this window: frames with short work whose refresh was seen, those of
+// them shown late, and the same of those with the music at work on that
+// refresh, or near it
+static int g_swap_light, g_swap_late, g_swap_on, g_swap_on_late, g_swap_near, g_swap_near_late;
+static int g_swap_prev, g_swap_prev_late; // and with the music at work on the refresh before the asking
+// the late ones of this window, for a line each
+#define VPROF_LATE_KEPT 8
+static struct {
+    SceInt64 at_us, frame_us;
+    vprof_swap_t swap;
+} g_lates[VPROF_LATE_KEPT];
+static int g_lates_kept;
+
+static int vbl_thread(void *unused) {
+    uint32_t at = 0;
+    int first = 1;
+
+    (void)unused;
+    // above everything else of the game's: it does next to nothing, and its
+    // wake-ups are the measure
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
+    sceKernelChangeThreadPriority(sceKernelGetThreadId(), 64); // the highest a program may ask for
+    for (;;) {
+        unsigned n = g_vbl_count;
+        uint32_t now, lag;
+
+        sceDisplayWaitVblankStart();
+        now = (uint32_t)sceKernelGetProcessTimeWide();
+        // (a wake-up most of a refresh late is taken for a refresh missed)
+        if (first || (int32_t)(now - (at + VBL_PERIOD_US)) < 0 || now - (at + VBL_PERIOD_US) > 12000)
+            at = now;
+        else
+            at += VBL_PERIOD_US;
+        first = 0;
+        lag = now - at;
+        g_vbl_at[n % VBL_KEPT] = at;
+        g_vbl_lag[n % VBL_KEPT] = lag;
+        __atomic_store_n(&g_vbl_count, n + 1, __ATOMIC_RELEASE);
+        if (lag > __atomic_load_n(&g_vbl_lag_max, __ATOMIC_RELAXED))
+            __atomic_store_n(&g_vbl_lag_max, lag, __ATOMIC_RELAXED);
+    }
+    return 0;
+}
+
+void vprof_swap(long long asked, long long done) {
+    g_swap_asked = (uint32_t)asked;
+    g_swap_done = (uint32_t)done;
+    g_swap_seen = 1;
+}
+
+// Works out g_swap for the frame that ends now, and counts it.
+//
+// The hand-over comes back just after a refresh, when the refresh's thread
+// may not have noted it yet: so the refresh the hand-over was for is taken
+// to be a period after the last one noted before the asking, with the
+// thread's own note of it if that is there; and a frame is late by its
+// length, not by a count of the notes.
+static void vprof_swap_look(SceInt64 frame_t0, SceInt64 frame_end, SceInt64 elapsed) {
+    vprof_swap_t *w = &g_swap;
+    unsigned count = __atomic_load_n(&g_vbl_count, __ATOMIC_ACQUIRE), k;
+    unsigned mcbs = __atomic_load_n(&g_mcb_count, __ATOMIC_ACQUIRE);
+    uint32_t t0 = (uint32_t)frame_t0, end = (uint32_t)frame_end, before = 0, after, running;
+    int have_before = 0, on = 0, near = 0, prev = 0;
+
+    memset(w, 0, sizeof(*w));
+    w->vbl = -1;
+    w->swapat_us = -1;
+    w->lag_us = -1;
+    // the music's stretches during the frame, whatever the frame did
+    for (k = mcbs > MCB_KEPT ? mcbs - MCB_KEPT : 0; k < mcbs && w->frame_mcb_n < VPROF_SWAP_MCBS; k++) {
+        uint32_t start = g_mcb[k % MCB_KEPT].start, stop = start + g_mcb[k % MCB_KEPT].length;
+
+        if ((int32_t)(stop - t0) <= 0 || (int32_t)(start - end) >= 0)
+            continue;
+        w->frame_mcb[w->frame_mcb_n].rel_us = (int32_t)(start - t0);
+        w->frame_mcb[w->frame_mcb_n].length_us = (int)g_mcb[k % MCB_KEPT].length;
+        w->frame_mcb[w->frame_mcb_n].cpu = g_mcb[k % MCB_KEPT].cpu;
+        w->frame_mcb_n++;
+    }
+    if (!g_swap_seen || count < 2)
+        return;
+    g_swap_seen = 0;
+    w->wait_us = (int32_t)(g_swap_done - g_swap_asked);
+    w->work_us = (int)elapsed - w->wait_us;
+    for (k = count > VBL_KEPT ? count - VBL_KEPT : 0; k < count; k++) {
+        uint32_t at = g_vbl_at[k % VBL_KEPT];
+
+        if ((int32_t)(at - g_swap_asked) <= 0) {
+            before = at;
+            have_before = 1;
+        }
+    }
+    if (!have_before)
+        return;
+    w->swapat_us = (int32_t)(g_swap_asked - before);
+    after = before + VBL_REFRESH_US;
+    for (k = count > VBL_KEPT ? count - VBL_KEPT : 0; k < count; k++) {
+        uint32_t at = g_vbl_at[k % VBL_KEPT];
+
+        if ((int32_t)(at - after) > -3000 && (int32_t)(at - after) < 3000) {
+            after = at;
+            w->lag_us = (int)g_vbl_lag[k % VBL_KEPT];
+        }
+    }
+    // refreshes from the frame's start to its end, by their period
+    w->vbl = (short)(((int32_t)(end - before) + VBL_REFRESH_US) / VBL_REFRESH_US -
+                     ((int32_t)(t0 - before) + VBL_REFRESH_US) / VBL_REFRESH_US);
+    w->late = elapsed > SWAP_LATE_US && w->work_us < SWAP_LIGHT_US;
+    w->known = (int32_t)(after - end) < 500;
+    if (!w->known)
+        return; // the hand-over didn't wait: its refresh is still to come
+
+    for (k = mcbs > MCB_KEPT ? mcbs - MCB_KEPT : 0; k < mcbs; k++) {
+        uint32_t start = g_mcb[k % MCB_KEPT].start, stop = start + g_mcb[k % MCB_KEPT].length;
+
+        // (from the refresh before the asking: the frame handed over then
+        // may be the one that was held up)
+        if ((int32_t)(stop - (before - MCB_NEAR_US)) < 0 || (int32_t)(start - end) > 0)
+            continue;
+        if (w->mcb_n < VPROF_SWAP_MCBS) {
+            w->mcb[w->mcb_n].rel_us = (int32_t)(start - after);
+            w->mcb[w->mcb_n].length_us = (int)g_mcb[k % MCB_KEPT].length;
+            w->mcb[w->mcb_n].cpu = g_mcb[k % MCB_KEPT].cpu;
+            w->mcb_n++;
+        }
+        if ((int32_t)(start - after) <= 0 && (int32_t)(stop - after) >= 0)
+            on = 1;
+        if ((int32_t)(start - after) <= 0 && (int32_t)(stop - (after - MCB_NEAR_US)) >= 0)
+            near = 1;
+        if ((int32_t)(start - before) <= 0 && (int32_t)(stop - before) >= 0)
+            prev = 1;
+    }
+    running = __atomic_load_n(&g_mcb_running, __ATOMIC_RELAXED);
+    if (running != 0 && (int32_t)((running & ~1u) - after) <= 0) {
+        on = near = 1;
+        if (w->mcb_n < VPROF_SWAP_MCBS) {
+            w->mcb[w->mcb_n].rel_us = (int32_t)((running & ~1u) - after);
+            w->mcb[w->mcb_n].length_us = -1;
+            w->mcb[w->mcb_n].cpu = -1;
+            w->mcb_n++;
+        }
+    }
+    if (w->work_us < SWAP_LIGHT_US) {
+        g_swap_light++;
+        g_swap_late += w->late;
+        g_swap_on += on;
+        g_swap_on_late += on && w->late;
+        g_swap_near += near;
+        g_swap_near_late += near && w->late;
+        g_swap_prev += prev;
+        g_swap_prev_late += prev && w->late;
+    }
+    if (w->late && g_lates_kept < VPROF_LATE_KEPT) {
+        g_lates[g_lates_kept].at_us = frame_end;
+        g_lates[g_lates_kept].frame_us = elapsed;
+        g_lates[g_lates_kept].swap = *w;
+        g_lates_kept++;
+    }
+}
 
 static int g_startup_done = 0;
 static int g_fixdiv_mismatches = -1;
@@ -144,18 +409,131 @@ static FILE *vprof_open_log(void) {
     return fopen(path, "a");
 }
 
+// ---- the log ----------------------------------------------------------------
+// The main thread builds its lines in memory and queues them; a thread of
+// their own writes them to the card, which takes tens of milliseconds and
+// used to hold the screen up once a second.
+
+#define LOG_TEXT_BYTES 12288
+#define LOG_QUEUE_BYTES 65536 // a power of two
+#define LOG_WRITER_NAP_MS 250
+// the file is closed and opened again after this many writes, so that what
+// was written is safely in it
+#define LOG_WRITES_PER_OPEN 30
+
+static char g_log_text[LOG_TEXT_BYTES]; // the lines being built
+static int g_log_len;
+static char g_log_queue[LOG_QUEUE_BYTES];
+static SDL_atomic_t g_log_head; // where the main thread puts
+static SDL_atomic_t g_log_tail; // where the writer takes
+static SDL_Thread *g_log_thread;
+static SDL_atomic_t g_log_stop;
+static unsigned g_log_drops;   // lines' worth of text the queue had no room for
+static unsigned g_log_io_us;   // the writer's longest write since it was last read
+
+static void log_printf(const char *fmt, ...) {
+    va_list args;
+    int room = (int)sizeof(g_log_text) - g_log_len, n;
+
+    if (room <= 1)
+        return;
+    va_start(args, fmt);
+    n = vsnprintf(g_log_text + g_log_len, room, fmt, args);
+    va_end(args);
+    if (n > 0)
+        g_log_len += n < room ? n : room - 1;
+}
+
+static void log_putc(char c) {
+    if (g_log_len < (int)sizeof(g_log_text) - 1)
+        g_log_text[g_log_len++] = c;
+}
+
+static int log_writer(void *unused) {
+    FILE *fp = NULL;
+    int writes = 0;
+
+    (void)unused;
+    // on any core, when nothing of the game's wants it
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
+    SDL_SetThreadPriority(SDL_THREAD_PRIORITY_LOW);
+    for (;;) {
+        int stop = SDL_AtomicGet(&g_log_stop);
+        int head = SDL_AtomicGet(&g_log_head), tail = SDL_AtomicGet(&g_log_tail);
+
+        if (head != tail) {
+            SceInt64 t0 = sceKernelGetProcessTimeWide();
+            unsigned took;
+
+            if (fp == NULL)
+                fp = vprof_open_log();
+            if (fp != NULL) {
+                if (head > tail) {
+                    fwrite(g_log_queue + tail, 1, head - tail, fp);
+                } else {
+                    fwrite(g_log_queue + tail, 1, LOG_QUEUE_BYTES - tail, fp);
+                    fwrite(g_log_queue, 1, head, fp);
+                }
+                fflush(fp);
+                if (++writes % LOG_WRITES_PER_OPEN == 0) {
+                    fclose(fp);
+                    fp = NULL;
+                }
+            }
+            SDL_AtomicSet(&g_log_tail, head);
+            took = (unsigned)(sceKernelGetProcessTimeWide() - t0);
+            if (took > __atomic_load_n(&g_log_io_us, __ATOMIC_RELAXED))
+                __atomic_store_n(&g_log_io_us, took, __ATOMIC_RELAXED);
+        }
+        if (stop)
+            break;
+        SDL_Delay(LOG_WRITER_NAP_MS);
+    }
+    if (fp != NULL)
+        fclose(fp);
+    return 0;
+}
+
+// The last lines, when the game ends.
+static void log_finish(void) {
+    SDL_AtomicSet(&g_log_stop, 1);
+    SDL_WaitThread(g_log_thread, NULL);
+    g_log_thread = NULL;
+}
+
+// Queues what was built, all of it or none: the game doesn't wait for room.
+static void log_submit(void) {
+    int head = SDL_AtomicGet(&g_log_head), tail = SDL_AtomicGet(&g_log_tail);
+    int room = LOG_QUEUE_BYTES - 1 - ((head - tail) & (LOG_QUEUE_BYTES - 1));
+    int first = LOG_QUEUE_BYTES - head;
+
+    if (g_log_thread == NULL && !SDL_AtomicGet(&g_log_stop)) {
+        g_log_thread = SDL_CreateThread(log_writer, "vprof_log", NULL);
+        if (g_log_thread != NULL)
+            atexit(log_finish);
+    }
+    if (g_log_thread == NULL || g_log_len > room) {
+        g_log_drops++;
+    } else {
+        if (first > g_log_len)
+            first = g_log_len;
+        memcpy(g_log_queue + head, g_log_text, first);
+        memcpy(g_log_queue, g_log_text + first, g_log_len - first);
+        SDL_AtomicSet(&g_log_head, (head + g_log_len) & (LOG_QUEUE_BYTES - 1));
+    }
+    g_log_len = 0;
+}
+
 // One-off checks run before the first frame, logged once at the top of the
 // session.
 static void vprof_startup_checks(void) {
-    FILE *fp;
-
     g_fixdiv_mismatches = fix_div_selfcheck(VPROF_FIXDIV_CHECK_CASES, &g_fixdiv_checked);
-    fp = vprof_open_log();
-    if (fp != NULL) {
-        fprintf(fp, "fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
-        fprintf(fp, "%s\n", vgpu_report());
-        fclose(fp);
-    }
+    log_printf("fixdiv_check mismatches=%d/%u\n", g_fixdiv_mismatches, g_fixdiv_checked);
+    log_printf("%s\n", vgpu_report());
+    // where a function of the game's file is on this console, for the
+    // addresses in the stutters' notes
+    log_printf("sym vprof_frame_end=%08x\n", (unsigned)(uintptr_t)&vprof_frame_end & ~1u);
+    log_submit();
 }
 
 static void vprof_window_reset(SceInt64 now, short loop_mode) {
@@ -172,7 +550,12 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     g_frame_total_us = 0;
     g_frame_max_us = 0;
     g_frame_samples = 0;
+    g_swap_light = g_swap_late = g_swap_on = g_swap_on_late = g_swap_near = g_swap_near_late = 0;
+    g_swap_prev = g_swap_prev_late = 0;
     __atomic_store_n(&g_audio_us, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_alog_us, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_alog_max_us, 0, __ATOMIC_RELAXED);
+    __atomic_store_n(&g_alog_dry, 0, __ATOMIC_RELAXED);
     rastq_stats.cmds = 0;
     rastq_stats.flushes = 0;
     rastq_stats.copied = 0;
@@ -197,6 +580,8 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     hudkeep_stats.text_hits = hudkeep_stats.text_misses = 0;
     hudkeep_stats.scaled_hits = hudkeep_stats.scaled_misses = 0;
     rastq_stats.gpu_prepare_us = 0;
+    rastq_stats.gpu_cut_wait_us = 0;
+    rastq_stats.gpu_cut_wait_max_us = 0;
     for (i = 0; i < RASTQ_THREADS; i++)
         rastq_stats.gpu_cut[i] = 0;
     for (i = 0; i < RASTQ_SOLO_REASONS; i++)
@@ -206,6 +591,7 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.gpu_lists_shared = 0;
     rastq_stats.gpu_lists_solo = 0;
     rastq_stats.gpu_solo_calls = 0;
+    rastq_stats.gpu_lists_rested = 0;
     if (!g_workers_read) {
         for (i = 0; i < VPROF_WORKERS; i++)
             rastq_threads_times(i + 1, &g_workers_at_window[i]);
@@ -241,9 +627,61 @@ static double music_pct(SceInt64 now) {
     return elapsed > 0 ? 100.0 * __atomic_load_n(&g_audio_us, __ATOMIC_RELAXED) / elapsed : 0.0;
 }
 
+void vprof_alog_add(unsigned micros) {
+    __atomic_fetch_add(&g_alog_us, micros, __ATOMIC_RELAXED);
+    // only the audio thread raises it
+    if (micros > __atomic_load_n(&g_alog_max_us, __ATOMIC_RELAXED))
+        __atomic_store_n(&g_alog_max_us, micros, __ATOMIC_RELAXED);
+}
+
+void vprof_alog_dry(void) { __atomic_fetch_add(&g_alog_dry, 1, __ATOMIC_RELAXED); }
+
+// The game's own log, since the second's line: lines written, their time,
+// and the longest with where it was written from
+static unsigned g_applog_lines, g_applog_us, g_applog_max_us;
+static const void *g_applog_max_from;
+static SceUID g_main_thread;
+
+void vprof_applog_add(unsigned micros, const void *caller) {
+    __atomic_fetch_add(&g_applog_lines, 1, __ATOMIC_RELAXED);
+    __atomic_fetch_add(&g_applog_us, micros, __ATOMIC_RELAXED);
+    // (two threads at once may leave the lesser of two here: no matter)
+    if (micros > __atomic_load_n(&g_applog_max_us, __ATOMIC_RELAXED)) {
+        __atomic_store_n(&g_applog_max_us, micros, __ATOMIC_RELAXED);
+        __atomic_store_n(&g_applog_max_from, caller, __ATOMIC_RELAXED);
+    }
+    // the frame's notes are the main thread's
+    if (g_main_thread != 0 && sceKernelGetThreadId() == g_main_thread)
+        vprof_note("log", caller, 0, 0, micros);
+}
+
+void vprof_audio_begin(void) {
+    __atomic_store_n(&g_mcb_running, (uint32_t)sceKernelGetProcessTimeWide() | 1u, __ATOMIC_RELAXED);
+    if (g_audio_prio < 0) {
+        SceKernelThreadInfo info;
+
+        info.size = sizeof(info);
+        if (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) >= 0) {
+            g_audio_mask = info.currentCpuAffinityMask;
+            g_audio_prio = info.currentPriority;
+        }
+    }
+}
+
 void vprof_audio_add(unsigned micros, int cpu) {
+    unsigned n = g_mcb_count;
+
     __atomic_fetch_add(&g_audio_us, micros, __ATOMIC_RELAXED);
     __atomic_store_n(&g_audio_cpu, cpu, __ATOMIC_RELAXED);
+    g_mcb[n % MCB_KEPT].start = (uint32_t)sceKernelGetProcessTimeWide() - micros;
+    g_mcb[n % MCB_KEPT].length = micros;
+    g_mcb[n % MCB_KEPT].cpu = cpu;
+    __atomic_store_n(&g_mcb_count, n + 1, __ATOMIC_RELEASE);
+    __atomic_store_n(&g_mcb_running, 0, __ATOMIC_RELAXED);
+    if (micros > __atomic_load_n(&g_mcb_max_us, __ATOMIC_RELAXED))
+        __atomic_store_n(&g_mcb_max_us, micros, __ATOMIC_RELAXED);
+    if (cpu == g_main_cpu)
+        __atomic_fetch_add(&g_mcb_on_main, 1, __ATOMIC_RELAXED);
 }
 
 // The workers' share of the window that ends now.
@@ -278,6 +716,22 @@ static void vprof_workers_share(SceInt64 now) {
     g_workers_read = 1;
 }
 
+// Where the player is, as level:x,y,z@heading. x and y are in map squares,
+// the square's number then how far across it; z is the height and the
+// heading a turn in degrees, both as the game counts them. A "c" after the
+// level: cyberspace. "-" outside the game.
+static void vprof_place(char *to, size_t size) {
+    extern short _current_loop;
+
+    if (_current_loop > FULLSCREEN_LOOP || global_fullmap == NULL || PLAYER_OBJ == OBJ_NULL)
+        snprintf(to, size, "-");
+    else {
+        const ObjLoc *loc = &objs[PLAYER_OBJ].loc;
+        snprintf(to, size, "%d%s:%.2f,%.2f,%d@%d", (int)player_struct.level, global_fullmap->cyber ? "c" : "",
+                 loc->x / 256.0, loc->y / 256.0, (int)loc->z, (int)loc->h * 360 / 256);
+    }
+}
+
 // Where most of a stutter went: a load when one took over half of it,
 // otherwise the largest of the frame's five parts or of what they leave.
 static const char *vprof_spike_cause(const vprof_spike_t *s, SceInt64 *us) {
@@ -290,6 +744,10 @@ static const char *vprof_spike_cause(const vprof_spike_t *s, SceInt64 *us) {
     if (2 * s->phase_us[VPROF_SNDLOAD] > s->frame_us) {
         *us = s->phase_us[VPROF_SNDLOAD];
         return "sndload";
+    }
+    if (2 * s->phase_us[VPROF_ALOGLOAD] > s->frame_us) {
+        *us = s->phase_us[VPROF_ALOGLOAD];
+        return "alogload";
     }
     if (2 * s->phase_us[VPROF_RESLOAD] > s->frame_us) {
         *us = s->phase_us[VPROF_RESLOAD];
@@ -327,20 +785,100 @@ static void vprof_spike_add(SceInt64 now, SceInt64 elapsed) {
     s->at_us = now;
     s->frame_us = elapsed;
     s->mode = g_window_loop_mode;
+    s->swap = g_swap;
     for (i = 0; i < VPROF_PHASE_COUNT; i++)
         s->phase_us[i] = g_frame_phase_total_us[i];
     s->gpu_wait_us = rastq_stats.gpu_wait_us - g_rastq_at_frame_begin.gpu_wait_us;
+    s->gpu_cpu_us = rastq_stats.gpu_cpu_us - g_rastq_at_frame_begin.gpu_cpu_us;
+    s->gpu_cut_wait_us = rastq_stats.gpu_cut_wait_us - g_rastq_at_frame_begin.gpu_cut_wait_us;
+    s->gpu_cpu_calls = rastq_stats.gpu_cpu_calls - g_rastq_at_frame_begin.gpu_cpu_calls;
     s->gpu_submit_us = rastq_stats.gpu_submit_us - g_rastq_at_frame_begin.gpu_submit_us;
     s->upload_us = vgpu_counters.upload_us - g_vgpu_at_frame_begin.upload_us;
     s->texture_bytes = vgpu_counters.texture_bytes - g_vgpu_at_frame_begin.texture_bytes;
     s->swap_wait_us = vgpu_counters.swap_wait_us - g_vgpu_at_frame_begin.swap_wait_us;
     s->cmds = rastq_stats.cmds - g_rastq_at_frame_begin.cmds;
     s->views = rastq_stats.views - g_rastq_at_frame_begin.views;
+    vprof_place(s->place, sizeof(s->place));
+    memcpy(s->notes, g_frame_notes, sizeof(s->notes));
+    s->note_count = g_frame_note_count;
     g_last_spike = *s;
     g_spikes_total++;
 }
 
-static void vprof_spikes_write(FILE *fp) {
+// The frame's longest pieces: time:name, then @ the address and # the two
+// numbers where there are any.
+// A frame's hand-over: the refreshes it spanned, how long after a refresh the
+// hand-over was asked for, how late the refresh's thread woke for the next,
+// and the music's stretches about that one, each as start+length@core in ms
+// from it.
+static void vprof_swap_write(const vprof_swap_t *w) {
+    int i;
+
+    if (w->vbl < 0) {
+        log_printf(" vbl=- swapat=- vbllag=- mcb=-");
+        return;
+    }
+    log_printf(" vbl=%d swapat=%.2f", w->vbl, w->swapat_us < 0 ? -1.0 : us_to_ms(w->swapat_us));
+    if (!w->known) {
+        log_printf(" vbllag=- mcb=?");
+        return;
+    }
+    if (w->lag_us < 0)
+        log_printf(" vbllag=- mcb=%s", w->mcb_n ? "" : "-");
+    else
+        log_printf(" vbllag=%.2f mcb=%s", us_to_ms(w->lag_us), w->mcb_n ? "" : "-");
+    for (i = 0; i < w->mcb_n; i++) {
+        if (w->mcb[i].length_us < 0)
+            log_printf("%s%.2f+going", i ? "," : "", us_to_ms(w->mcb[i].rel_us));
+        else
+            log_printf("%s%.2f+%.2f@%d", i ? "," : "", us_to_ms(w->mcb[i].rel_us), us_to_ms(w->mcb[i].length_us),
+                       w->mcb[i].cpu);
+    }
+}
+
+// The frames of this window shown a refresh late for all their short work.
+static void vprof_lates_write(void) {
+    int i;
+
+    for (i = 0; i < g_lates_kept; i++) {
+        const vprof_swap_t *w = &g_lates[i].swap;
+
+        log_printf("late t=%.2f frame=%.2f work=%.2f swapwait=%.2f", (double)g_lates[i].at_us / 1000000.0,
+                   us_to_ms(g_lates[i].frame_us), us_to_ms(w->work_us), us_to_ms(w->wait_us));
+        vprof_swap_write(w);
+        log_printf("\n");
+    }
+    g_lates_kept = 0;
+}
+
+static void vprof_notes_write(const vprof_spike_t *s) {
+    int i;
+
+    log_printf(" | notes=");
+    if (s->note_count == 0)
+        log_putc('-');
+    for (i = 0; i < s->note_count; i++) {
+        const vprof_note_t *n = &s->notes[i];
+        const char *c;
+        int len = 0;
+
+        log_printf("%s%.2f:", i ? ";" : "", us_to_ms(n->us));
+        // a statement's text, without what would cut the field short
+        for (c = n->what; *c != '\0' && len < 40; c++) {
+            if (*c != ' ' && *c != '|' && *c != ';') {
+                log_putc(*c);
+                len++;
+            }
+        }
+        if (n->who != NULL)
+            log_printf("@%08x", (unsigned)(uintptr_t)n->who & ~1u);
+        if (n->a != 0 || n->b != 0)
+            log_printf("#%x/%d", (unsigned)n->a, n->b);
+    }
+    log_putc('\n');
+}
+
+static void vprof_spikes_write(void) {
     int i;
 
     for (i = 0; i < g_spikes_kept; i++) {
@@ -348,11 +886,12 @@ static void vprof_spikes_write(FILE *fp) {
         SceInt64 other = s->frame_us - s->phase_us[VPROF_INPUT] - s->phase_us[VPROF_SIM] -
                          s->phase_us[VPROF_RENDER3D] - s->phase_us[VPROF_UI2D] - s->phase_us[VPROF_PRESENT];
 
-        fprintf(fp,
+        log_printf(
                 "spike t=%.2f mode=%d frame=%.2f input=%.2f sim=%.2f render3d=%.2f ui2d=%.2f present=%.2f "
                 "other=%.2f | traverse=%.2f sendview=%.2f raster=%.2f record=%.2f helpscan=%.2f hud=%.2f "
-                "viewout=%.2f sndload=%.2f resload=%.2f | gpuwait=%.2f gpusubmit=%.2f gpuupload=%.2f "
-                "gputex=%.1fKB swapwait=%.2f cmds=%u views=%u\n",
+                "viewout=%.2f sndload=%.2f resload=%.2f alogload=%.2f outlined=%.2f reswrite=%.2f respack=%.2f reslzw=%.2f resio=%.2f | "
+                "gpuwait=%.2f gpusubmit=%.2f "
+                "gpuupload=%.2f gputex=%.1fKB swapwait=%.2f cmds=%u views=%u at=%s",
                 (double)s->at_us / 1000000.0, s->mode, us_to_ms(s->frame_us),
                 us_to_ms(s->phase_us[VPROF_INPUT]), us_to_ms(s->phase_us[VPROF_SIM]),
                 us_to_ms(s->phase_us[VPROF_RENDER3D]), us_to_ms(s->phase_us[VPROF_UI2D]),
@@ -361,20 +900,39 @@ static void vprof_spikes_write(FILE *fp) {
                 us_to_ms(s->phase_us[VPROF_RASTER]), us_to_ms(s->phase_us[VPROF_RECORD]),
                 us_to_ms(s->phase_us[VPROF_HELPSCAN]), us_to_ms(s->phase_us[VPROF_HUD]),
                 us_to_ms(s->phase_us[VPROF_VIEWOUT]), us_to_ms(s->phase_us[VPROF_SNDLOAD]),
-                us_to_ms(s->phase_us[VPROF_RESLOAD]),
+                us_to_ms(s->phase_us[VPROF_RESLOAD]), us_to_ms(s->phase_us[VPROF_ALOGLOAD]),
+                us_to_ms(s->phase_us[VPROF_OUTLINED]), us_to_ms(s->phase_us[VPROF_RESWRITE]),
+                us_to_ms(s->phase_us[VPROF_RESPACK]), us_to_ms(s->phase_us[VPROF_RESLZW]),
+                us_to_ms(s->phase_us[VPROF_RESIO]),
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
-                us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views);
+                us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views, s->place);
+        log_printf(" gpucpu=%u/%.2f cutwait=%.2f", s->gpu_cpu_calls, us_to_ms((SceInt64)s->gpu_cpu_us),
+                   us_to_ms((SceInt64)s->gpu_cut_wait_us));
+        vprof_swap_write(&s->swap);
+        {
+            // the music's stretches during the frame: start+length@core, from the frame's start
+            const vprof_swap_t *w = &s->swap;
+            int k;
+
+            log_printf(" mcbf=%s", w->frame_mcb_n ? "" : "-");
+            for (k = 0; k < w->frame_mcb_n; k++)
+                log_printf("%s%.2f+%.2f@%d", k ? "," : "", us_to_ms(w->frame_mcb[k].rel_us),
+                           us_to_ms(w->frame_mcb[k].length_us), w->frame_mcb[k].cpu);
+        }
+        vprof_notes_write(s);
     }
     g_spikes_kept = 0;
 }
 
 static void vprof_window_flush(SceInt64 now) {
-    FILE *fp;
     double fps;
     double frame_avg, frame_max;
     double raster_calls_per_frame, raster_call_avg_ms;
     SceInt64 write_t0;
+    int snd_ready, snd_total, snd_decode_ms, snd_bytes;
+    int img_ready, img_wanted, img_bytes, img_ms;
+    char place[40];
 
     if (!g_window_open || g_frame_samples == 0) {
         return;
@@ -393,11 +951,13 @@ static void vprof_window_flush(SceInt64 now) {
     g_lists_solo = (double)rastq_stats.gpu_lists_solo / g_frame_samples;
     g_lists_solo_calls = (double)rastq_stats.gpu_solo_calls / g_frame_samples;
     g_prev_frame_avg_us = g_frame_total_us / g_frame_samples;
+    snd_preload_stats(&snd_ready, &snd_total, &snd_decode_ms, &snd_bytes);
+    resimage_stats(&img_ready, &img_wanted, &img_bytes, &img_ms);
+    vprof_place(place, sizeof(place));
 
     write_t0 = sceKernelGetProcessTimeWide();
-    fp = vprof_open_log();
-    if (fp != NULL) {
-        fprintf(fp,
+    {
+        log_printf(
                 "t=%lld mode=%d var=%d fps=%.1f frame_avg=%.2f frame_max=%.2f "
                 "input=%.2f/%.2f sim=%.2f/%.2f render3d=%.2f/%.2f "
                 "ui2d=%.2f/%.2f present=%.2f/%.2f | "
@@ -408,7 +968,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f | "
                 "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu "
                 "gpuculled=%.1f gpucpu=%.1f/%.2f gputex=%.1fKB swapwait=%.2f | "
-                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f,shaded:%.1f,line:%.1f,point:%.1f gpupieces=%.1f "
+                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f,shaded:%.1f,line:%.1f,point:%.1f,tluc:%.1f,tlucbm:%.1f gpupieces=%.1f "
                 "gpuwhy=tlucbm:%.1f,spoly:%.1f,tlucpoly:%.1f,poly:%.1f,fill:%.1f,verts:%.1f,light:%.1f,clip:%.1f,"
                 "size:%.1f,other:%.1f | "
                 "gpuprepare=%.2f gpuupload=%.2f gpudraw=%.2f gpudraws=%.1f | "
@@ -418,8 +978,14 @@ static void vprof_window_flush(SceInt64 now) {
                 "vitals:%.2f,icons:%.2f | "
                 "hudkept=text:%.1f/%.2f,scaled:%.1f/%.2f hudcheck=%u/%u | gpucut=%.1f/%.1f/%.1f | "
                 "wjob=%.1f/%.1f%% wspin=%.1f/%.1f%% wsleep=%.1f/%.1f%% wjobs=%.2f/%.2f wsleeps=%u/%u | "
-                "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f | "
-                "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f\n",
+                "cutlists=shared:%.2f,solo:%.2f,solocalls:%.1f,rested:%.2f | "
+                "slow=20:%d,34:%d,50:%d,100:%d skipped=%d/%.2f logwrite=%.2f | "
+                "sndready=%d/%d snddecode=%d sndmem=%.1fMB alogload=%.2f/%.2f alogcpu=%.1f%% alogcbmax=%.2f "
+                "alogdry=%u | batt=%d battmv=%d batttemp=%.2f charging=%d | logio=%.2f logdrop=%u | "
+                "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
+                "applog=%u:%.2f applogmax=%08x:%.2f | at=%s | amap=%.2f/%.2f amaps=%d amapmax=%.2f | "
+                "lateswap=%d light=%d onmcb=%d/%d nearmcb=%d/%d prevmcb=%d/%d mcb0=%u mcbmax=%.2f vbllag=%.2f aprio=%d amask=%x mprio=%d "
+                "mmask=%x cutwait=%.2f/%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -477,6 +1043,8 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_SHADED] / g_frame_samples,
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_LINE] / g_frame_samples,
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_POINT] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUC] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUCBM] / g_frame_samples,
                 (double)rastq_stats.gpu_pieces / g_frame_samples,
                 (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_BITMAP] / g_frame_samples,
                 (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_SHADED_POLY] / g_frame_samples,
@@ -522,16 +1090,74 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)g_worker_share[1].jobs / g_frame_samples,
                 g_worker_share[0].sleeps, g_worker_share[1].sleeps,
                 g_lists_shared, g_lists_solo, g_lists_solo_calls,
+                (double)rastq_stats.gpu_lists_rested / g_frame_samples,
                 g_slow[0], g_slow[1], g_slow[2], g_slow[3],
                 g_skipped, us_to_ms(g_skipped_max_us),
-                us_to_ms(g_logwrite_us));
-        vprof_spikes_write(fp);
-        fclose(fp);
+                us_to_ms(g_logwrite_us),
+                snd_ready, snd_total, snd_decode_ms, (double)snd_bytes / (1024.0 * 1024.0),
+                frame_avg_ms(VPROF_ALOGLOAD, g_frame_samples), frame_max_ms(VPROF_ALOGLOAD),
+                now > g_window_start_us
+                    ? 100.0 * __atomic_load_n(&g_alog_us, __ATOMIC_RELAXED) / (double)(now - g_window_start_us)
+                    : 0.0,
+                us_to_ms(__atomic_load_n(&g_alog_max_us, __ATOMIC_RELAXED)),
+                __atomic_load_n(&g_alog_dry, __ATOMIC_RELAXED),
+                scePowerGetBatteryRemainCapacity(), scePowerGetBatteryVolt(),
+                scePowerGetBatteryTemp() / 100.0, (int)scePowerIsBatteryCharging(),
+                us_to_ms(__atomic_exchange_n(&g_log_io_us, 0, __ATOMIC_RELAXED)), g_log_drops,
+                frame_avg_ms(VPROF_OUTLINED, g_frame_samples), frame_max_ms(VPROF_OUTLINED),
+                img_ready, img_wanted, (double)img_bytes / (1024.0 * 1024.0), img_ms,
+                g_res_max_from, (unsigned)g_res_max_id, us_to_ms(g_res_max_us),
+                __atomic_exchange_n(&g_applog_lines, 0, __ATOMIC_RELAXED),
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_us, 0, __ATOMIC_RELAXED)),
+                (unsigned)(uintptr_t)__atomic_load_n(&g_applog_max_from, __ATOMIC_RELAXED) & ~1u,
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_applog_max_us, 0, __ATOMIC_RELAXED)), place,
+                frame_avg_ms(VPROF_AMAP, g_frame_samples), frame_max_ms(VPROF_AMAP),
+                g_call_accum[VPROF_AMAP].samples, us_to_ms(g_call_accum[VPROF_AMAP].max_us),
+                g_swap_late, g_swap_light, g_swap_on_late, g_swap_on, g_swap_near_late, g_swap_near,
+                g_swap_prev_late, g_swap_prev, __atomic_exchange_n(&g_mcb_on_main, 0, __ATOMIC_RELAXED),
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_mcb_max_us, 0, __ATOMIC_RELAXED)),
+                us_to_ms((SceInt64)__atomic_exchange_n(&g_vbl_lag_max, 0, __ATOMIC_RELAXED)),
+                g_audio_prio, (unsigned)g_audio_mask, g_main_prio, (unsigned)g_main_mask,
+                us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_us) / g_frame_samples,
+                us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_max_us));
+        __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
+        g_res_max_us = 0;
+        g_res_max_id = 0;
+        vprof_spikes_write();
+        vprof_lates_write();
+        log_submit();
     }
     g_logwrite_us = sceKernelGetProcessTimeWide() - write_t0;
 }
 
-void vprof_record(vprof_phase_t phase, long long micros) {
+void vprof_note(const char *what, const void *who, int a, int b, long long micros) {
+    int at;
+
+    if (micros < VPROF_NOTE_MIN_US)
+        return;
+    // among the longest, in its place
+    for (at = g_frame_note_count; at > 0 && g_frame_notes[at - 1].us < micros; at--)
+        ;
+    if (at >= VPROF_NOTES_KEPT)
+        return;
+    if (g_frame_note_count < VPROF_NOTES_KEPT)
+        g_frame_note_count++;
+    memmove(&g_frame_notes[at + 1], &g_frame_notes[at], (g_frame_note_count - 1 - at) * sizeof(g_frame_notes[0]));
+    g_frame_notes[at].what = what;
+    g_frame_notes[at].who = who;
+    g_frame_notes[at].a = a;
+    g_frame_notes[at].b = b;
+    g_frame_notes[at].us = micros;
+}
+
+void vprof_record(vprof_phase_t phase, long long micros, const char *what, int n1, int n2) {
+    if (what != NULL)
+        vprof_note(what, NULL, n1, n2, micros);
+    if (phase == VPROF_RESLOAD && what != NULL && micros > g_res_max_us) {
+        g_res_max_us = micros;
+        g_res_max_id = n1;
+        g_res_max_from = what;
+    }
     vprof_call_accum_t *a = &g_call_accum[phase];
     a->total_us += micros;
     a->samples++;
@@ -550,7 +1176,7 @@ void vprof_mark_begin(vprof_phase_t phase) {
 }
 
 void vprof_mark_end(vprof_phase_t phase) {
-    vprof_record(phase, sceKernelGetProcessTimeWide() - g_mark_t0[phase]);
+    vprof_record(phase, sceKernelGetProcessTimeWide() - g_mark_t0[phase], NULL, 0, 0);
 }
 
 void vprof_frame_begin(void) {
@@ -558,7 +1184,18 @@ void vprof_frame_begin(void) {
     int i;
 
     if (!g_startup_done) {
+        SceKernelThreadInfo info;
+
         g_startup_done = 1;
+        g_main_thread = sceKernelGetThreadId();
+        info.size = sizeof(info);
+        if (sceKernelGetThreadInfo(g_main_thread, &info) >= 0) {
+            g_main_mask = info.currentCpuAffinityMask;
+            g_main_prio = info.currentPriority;
+        }
+        g_vbl_thread = SDL_CreateThread(vbl_thread, "vprof_vbl", NULL);
+        if (g_vbl_thread != NULL)
+            SDL_DetachThread(g_vbl_thread);
         vprof_startup_checks();
     }
 
@@ -578,6 +1215,7 @@ void vprof_frame_begin(void) {
     g_rastq_at_frame_begin = rastq_stats;
     g_vgpu_at_frame_begin = vgpu_counters;
     g_frame_discard = 0;
+    g_frame_note_count = 0;
 
     g_frame_t0 = now;
 }
@@ -620,6 +1258,7 @@ void vprof_frame_end(void) {
                 g_slow[i]++;
             }
         }
+        vprof_swap_look(g_frame_t0, now, elapsed);
         if (elapsed >= VPROF_SPIKE_MIN_US && 2 * elapsed >= 3 * g_prev_frame_avg_us) {
             vprof_spike_add(now, elapsed);
         }

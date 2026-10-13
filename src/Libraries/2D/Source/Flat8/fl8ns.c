@@ -35,6 +35,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "poly.h"
 #include "tlucdat.h"
 #include "tmapint.h"
+#include <string.h>
 
 // prototypes
 int gri_tluc8_scale_umap_loop(grs_tmap_loop_info *tli);
@@ -51,53 +52,64 @@ int gri_tluc8_scale_umap_loop(grs_tmap_loop_info *tli) {
     du = fix_div(tli->right.u - ul, tli->right.x - tli->left.x);
     ul += fix_mul(du, fix_ceil(tli->left.x) - tli->left.x);
     do {
-        uchar *p_dst, k;
+        uchar *p_dst, *p_row, k;
         uchar *p_src = tli->bm.bits + tli->bm.row * fix_int(tli->left.v);
-        switch (tli->bm.hlog) {
-        case GRL_OPAQUE:
-            for (p_dst = pl, u = ul; p_dst < pr; p_dst++) {
-                k = p_src[fix_fint(u)];
-                if (tluc8tab[k] != NULL)
-                    *p_dst = tluc8tab[k][*p_dst];
-                else
-                    *p_dst = k;
-                u += du;
-            }
-            break;
-        case GRL_TRANS:
-            for (p_dst = pl, u = ul; p_dst < pr; p_dst++) {
-                k = p_src[fix_fint(u)];
-                if (k != 0) {
+        // through a copy, a stretch of the row at a time: see
+        // gri_tluc8_lin_umap_loop
+        for (p_row = pl, u = ul; p_row < pr;) {
+            uchar pixels[256];
+            int count = pr - p_row < (int)sizeof(pixels) ? (int)(pr - p_row) : (int)sizeof(pixels);
+            uchar *p_end = pixels + count;
+
+            memcpy(pixels, p_row, count);
+            switch (tli->bm.hlog) {
+            case GRL_OPAQUE:
+                for (p_dst = pixels; p_dst < p_end; p_dst++) {
+                    k = p_src[fix_fint(u)];
                     if (tluc8tab[k] != NULL)
                         *p_dst = tluc8tab[k][*p_dst];
                     else
                         *p_dst = k;
+                    u += du;
                 }
-                u += du;
-            }
-            break;
-        case GRL_OPAQUE | GRL_CLUT:
-            for (p_dst = pl, u = ul; p_dst < pr; p_dst++) {
-                k = p_src[fix_fint(u)];
-                if (tluc8tab[k] != NULL)
-                    *p_dst = tli->clut[tluc8tab[k][*p_dst]];
-                else
-                    *p_dst = tli->clut[k];
-                u += du;
-            }
-            break;
-        case GRL_TRANS | GRL_CLUT:
-            for (p_dst = pl, u = ul; p_dst < pr; p_dst++) {
-                k = p_src[fix_fint(u)];
-                if (k != 0) {
+                break;
+            case GRL_TRANS:
+                for (p_dst = pixels; p_dst < p_end; p_dst++) {
+                    k = p_src[fix_fint(u)];
+                    if (k != 0) {
+                        if (tluc8tab[k] != NULL)
+                            *p_dst = tluc8tab[k][*p_dst];
+                        else
+                            *p_dst = k;
+                    }
+                    u += du;
+                }
+                break;
+            case GRL_OPAQUE | GRL_CLUT:
+                for (p_dst = pixels; p_dst < p_end; p_dst++) {
+                    k = p_src[fix_fint(u)];
                     if (tluc8tab[k] != NULL)
                         *p_dst = tli->clut[tluc8tab[k][*p_dst]];
                     else
                         *p_dst = tli->clut[k];
+                    u += du;
                 }
-                u += du;
+                break;
+            case GRL_TRANS | GRL_CLUT:
+                for (p_dst = pixels; p_dst < p_end; p_dst++) {
+                    k = p_src[fix_fint(u)];
+                    if (k != 0) {
+                        if (tluc8tab[k] != NULL)
+                            *p_dst = tli->clut[tluc8tab[k][*p_dst]];
+                        else
+                            *p_dst = tli->clut[k];
+                    }
+                    u += du;
+                }
+                break;
             }
-            break;
+            memcpy(p_row, pixels, count);
+            p_row += count;
         }
         tli->left.v += tli->left.dv;
         pl += grd_bm.row;

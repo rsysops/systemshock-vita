@@ -55,6 +55,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "popups.h"
 #include "statics.h"
 #include "gr2ss.h"
+#include "vprof.h"
 
 #include "cybstrng.h"
 
@@ -843,15 +844,24 @@ uchar mfd_view_callback(uiEvent *e, LGRegion *r, intptr_t udata) {
         object_button_down = FALSE;
     func_id = mfd_get_active_func(which_mfd);
     f = &(mfd_funcs[func_id]);
-    if (f->simp && f->simp(m, e))
-        return TRUE;
+    // the profiler's notes name the panel's own functions by their address
+    if (f->simp) {
+        uchar done;
+        VPROF_NOTE("mfd_simp", f->simp, func_id, which_mfd, done = f->simp(m, e));
+        if (done)
+            return TRUE;
+    }
     for (i = 0; i < f->handler_count; i++) {
         LGPoint pos = e->pos;
             pos.x -= m->rect.ul.x;
             pos.y -= m->rect.ul.y;
-        if (RECT_TEST_PT(&f->handlers[i].r, pos))
-            if (f->handlers[i].proc(m, e, &f->handlers[i]))
+        if (RECT_TEST_PT(&f->handlers[i].r, pos)) {
+            uchar done;
+            VPROF_NOTE("mfd_handler", f->handlers[i].proc, func_id, which_mfd,
+                       done = f->handlers[i].proc(m, e, &f->handlers[i]));
+            if (done)
                 return TRUE;
+        }
     }
 
     return FALSE;
@@ -1077,7 +1087,8 @@ uchar mfd_update_current_slot(ubyte mfd_id, ubyte status, ubyte num_steps) {
             gr_pop_canvas();
         }
 
-        f->expose(m, control); // pass # steps + flags to
+        // which panel function, by its address and its number, and which panel
+        VPROF_NOTE("mfd", f->expose, f_id, mfd_id, f->expose(m, control)); // pass # steps + flags to
         ss_set_hack_mode(0, &temp);
         gr2ss_override = old_over;
 

@@ -42,6 +42,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "Xmi.h"
 
 #include "audiolog.h"
+#include "vprof.h"
 
 //#include <ail.h>
 
@@ -405,14 +406,14 @@ errtype fade_into_location(int x, int y) {
         if (old_score != score_playing) // Don't restart music if going from elevator
         {                               // to elevator (eg, when changing levels).
             load_score_for_location(new_x, new_y);
-            MacTuneStartCurrentTheme();
+            VPROF_NOTE("MacTuneStartCurrentTheme", NULL, score_playing, 0, MacTuneStartCurrentTheme());
             new_theme = 0;
         }
     } else // for now, we're not going to do any cross-fading.  Just load the new score.
     {
         //		message_info("Sould be fading into new location.");
         load_score_for_location(new_x, new_y);
-        MacTuneStartCurrentTheme();
+        VPROF_NOTE("MacTuneStartCurrentTheme", NULL, score_playing, 0, MacTuneStartCurrentTheme());
         new_theme = 0;
     }
     return (OK);
@@ -437,10 +438,11 @@ void load_score_guts(uint8_t score_play) {
 
     // Get the theme file name.
     sprintf(base, "thm%d", score_play);
-    musicai_shutdown();
+    // (the profiler's notes: what a change of the music's zone is made of)
+    VPROF_NOTE("musicai_shutdown", NULL, score_play, 0, musicai_shutdown());
 
     // rv = MacTuneLoadTheme(&themeSpec, score_playing);
-    rv = MacTuneLoadTheme(base, score_play);
+    VPROF_NOTE("MacTuneLoadTheme", NULL, score_play, 0, rv = MacTuneLoadTheme(base, score_play));
 
     if (rv == 0) {
         musicai_reset(false);

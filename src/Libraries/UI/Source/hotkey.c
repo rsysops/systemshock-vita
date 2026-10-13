@@ -19,6 +19,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define __HOTKEY_SRC
 #include "hotkey.h"
 #include "hash.h"
+#include "vprof.h"
 //#include <_ui.h>
 
 #include <string.h>
@@ -138,7 +139,11 @@ errtype hotkey_dispatch(short keycode)
       if (chain[i].context & HotkeyContext)
       {
 //         Spew(DSRC_UI_Hotkey,("Succeeded context test %d\n",chain[i].context));
-         if (chain[i].func(keycode,HotkeyContext,chain[i].state))
+         uchar caught;
+
+         // the profiler's note says which function it was, by its address
+         VPROF_NOTE("hotkey", chain[i].func, keycode, 0, caught = chain[i].func(keycode,HotkeyContext,chain[i].state));
+         if (caught)
             return OK;
       }
    }

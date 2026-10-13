@@ -7,7 +7,7 @@
 //
 // It also checks what the queue hands a GPU: a stand-in fills that with the
 // arithmetic of the Vita's shader, and its picture must be close to the
-// mappers' (see docs/PERFORMANCE-GPU.md, step G3).
+// mappers' (see docs/PERFORMANCE.md, step G3).
 //
 // Usage: rastq_test [frames] [seed]
 // RASTQ_GPU_EXPLAIN=frames prints how each frame of the GPU comparison did;
@@ -872,6 +872,11 @@ static int ref_begin(uchar *bits, int w, int h, int row, const uchar *tables, in
     return 1;
 }
 
+// With the sampler's flags: a translucent bitmap, the texel and what is there
+// going through ref_matrix, the call's, first
+#define REF_TLUCBM 0x400
+static const uchar *ref_matrix;
+
 // The fragment shader. The hardware has divided u and v by q; the five
 // light values arrive as they are on screen.
 static void ref_pixel(uchar *dest, const grs_bitmap *bm, int flags, float u, float v, float left, float span,
@@ -891,6 +896,8 @@ static void ref_pixel(uchar *dest, const grs_bitmap *bm, int flags, float u, flo
     texel = bm->bits[(size_t)ty * bm->row + tx];
     if ((flags & RASTQ_GPU_TRANS) && texel == 0)
         return;
+    if (flags & REF_TLUCBM)
+        texel = ref_matrix[texel * 256 + *dest];
     row = (left + span * (along / fmaxf(width, 0.0001f))) / depth;
     r = (int)floorf(row); // the tables' sampler picks the nearest row
     r = r < 0 ? 0 : r >= ref.rows ? ref.rows - 1 : r;
@@ -920,6 +927,7 @@ static void ref_shade(uchar *dest, float part, float r, float r_span, float g, f
 }
 
 #define REF_SHADED 0x100 // with bm NULL: shaded between colours, not one colour
+#define REF_TLUC 0x200   // with bm NULL: what is there through a row of the tables
 
 // A fan of triangles, both windings drawn, as the GPU is set up.
 static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, int color) {
@@ -955,6 +963,11 @@ static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_
                 if (ea < 0 || eb < 0 || ec < 0 || (ea == 0 && !ref_owns(b, c)) || (eb == 0 && !ref_owns(c, a)) ||
                     (ec == 0 && !ref_owns(a, b)))
                     continue;
+                if (bm == NULL && (flags & REF_TLUC)) {
+                    int r = (int)floorf(a->left);
+                    *dest = ref.tables[(r < 0 ? 0 : r >= ref.rows ? ref.rows - 1 : r) * 256 + *dest];
+                    continue;
+                }
                 if (bm == NULL && !(flags & REF_SHADED)) {
                     *dest = (uchar)color;
                     continue;
@@ -1001,6 +1014,19 @@ static int ref_shaded(int n, const rastq_gpu_vertex *v) {
     return 1;
 }
 
+static int ref_tluc(int n, const rastq_gpu_vertex *v) {
+    ref_polygon(NULL, REF_TLUC, n, v, 0);
+    return 1;
+}
+
+static int ref_tluc_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, const uchar *matrix,
+                         unsigned version) {
+    (void)version;
+    ref_matrix = matrix;
+    ref_polygon(bm, flags | REF_TLUCBM, n, v, 0);
+    return 1;
+}
+
 static void ref_end(void) { ref_out = 1; }
 
 static void ref_finish(void) {
@@ -1018,7 +1044,8 @@ static void ref_compared_cb(const uchar *gpu, const uchar *cpu, int w, int h, in
     ref_gpu_matched = ref_expected_gpu != NULL && memcmp(gpu, ref_expected_gpu, (size_t)row * h) == 0;
 }
 
-static const rastq_gpu ref_gpu = {ref_begin, ref_flat, ref_tmap, ref_shaded, ref_end, ref_finish, ref_compared_cb};
+static const rastq_gpu ref_gpu = {ref_begin,  ref_flat,        ref_tmap, ref_shaded,   ref_end,
+                                  ref_finish, ref_compared_cb, ref_tluc, ref_tluc_tmap};
 
 // The share of a frame's pixels that may differ between the stand-in and the
 // mappers, and the share over a whole run.
@@ -1092,7 +1119,7 @@ static void explain_gpu(const op_t *ops, int count) {
 #endif
 
 #ifndef RASTQ_REFERENCE
-// ---- the overlays' drawing (docs/PERFORMANCE-GPU.md, step G9) -------------
+// ---- the overlays' drawing (docs/PERFORMANCE.md, step G9) -------------
 // These have a generator of their own: the frames' must give the reference
 // build the same scenes.
 static uint64_t ov_state = 0x9E3779B97F4A7C15ULL;
@@ -1268,6 +1295,217 @@ static int test_marks(void) {
         bad++;
     return bad;
 }
+
+// Translucent polygons and bitmaps handed to the GPU: rectangles with their
+// corners on whole pixels, which the stand-in and the mappers fill alike,
+// opaque and translucent ones over one another in every fill type, and
+// translucent bitmaps drawn a pixel for a texel among them. The stand-in's
+// picture must be the mappers', pixel for pixel; and so must it be when the
+// GPU has no translucent calls and the CPU draws those. Returns the number
+// of failures.
+static int test_tluc(void) {
+    static op_t ops[MAX_OPS];
+    rastq_gpu no_tluc = ref_gpu;
+    uint64_t main_state = rng_state;
+    long diff[2] = {0, 0}, by_gpu = 0, by_cpu[2] = {0, 0}, other_cpu = 0, bm_by_gpu = 0, bm_by_cpu[2] = {0, 0};
+    int pass, n, k, bad = 0;
+
+    no_tluc.tluc = NULL;
+    no_tluc.tluc_tmap = NULL;
+    rng_state = 0xA24BAED4963EE407ULL;
+    set_canvas(960, 544, 960);
+    rastq_set_check_interval(0);
+    for (pass = 0; pass < 2; pass++) { // with the GPU's translucent call, then without
+        for (n = 0; n < 150; n++) {
+            for (k = 0; k < 40; k++) {
+                op_t *o = &ops[k];
+                int x0 = rnd_in(0, cw - 9), y0 = rnd_in(0, ch - 9);
+                int x1 = rnd_in(x0 + 8, x0 + cw / 3 < cw ? x0 + cw / 3 : cw);
+                int y1 = rnd_in(y0 + 8, y0 + ch / 3 < ch ? y0 + ch / 3 : ch);
+                int fill = rnd_in(0, 5), tluc = rnd_in(0, 2) != 0;
+
+                memset(o, 0, sizeof(*o));
+                o->op = OP_POLY;
+                o->clip[2] = (short)cw;
+                o->clip[3] = (short)ch;
+                if (rnd_in(0, 2) == 0) {
+                    // A translucent bitmap, a pixel for a texel: texel i in
+                    // column i by the mapper's count and by the GPU's, each
+                    // taking the texel half a pixel in.
+                    const picture_t *pic = &sprites[rnd_in(0, N_SPRITES - 1)];
+                    int i, index;
+
+                    x0 = rnd_in(0, cw - pic->flat.w);
+                    y0 = rnd_in(0, ch - pic->flat.h);
+                    o->op = OP_SPRITE;
+                    o->src = SRC_POOL;
+                    o->bm = pic->flat;
+                    o->bm.type = BMT_TLUC8;
+                    if (rnd() & 1)
+                        o->bm.flags &= ~BMF_TRANS;
+                    o->fill_type = fill <= 1 ? FILL_CLUT : FILL_NORM;
+                    if (o->fill_type == FILL_CLUT)
+                        o->fill_parm = (intptr_t)(ltab + (rnd_in(0, 15) << 8));
+                    o->n = 4;
+                    for (i = 0; i < 4; i++) {
+                        int right = (i == 1 || i == 2), low = (i >= 2);
+                        o->v[i].x = fix_make(x0 + (right ? pic->flat.w : 0), 0);
+                        o->v[i].y = fix_make(y0 + (low ? pic->flat.h : 0), 0);
+                        o->v[i].u = fix_make(right ? pic->flat.w : 0, 0x8000);
+                        o->v[i].v = fix_make(low ? pic->flat.h : 0, 0x8000);
+                    }
+                    if (rnd() & 1) {
+                        o->ti.tmap_type = GRC_CLUT_BILIN;
+                        o->ti.flags = TMF_CLUT;
+                        o->ti.clut = ltab + (rnd_in(0, 15) << 8);
+                    } else {
+                        o->ti.tmap_type = GRC_BILIN;
+                    }
+                    gr_set_fill_type(o->fill_type);
+                    index = (o->bm.flags & BMF_TRANS) + o->ti.tmap_type + GRD_FUNCS * o->bm.type;
+                    if (usable(index))
+                        continue;
+                    memset(o, 0, sizeof(*o));
+                    o->op = OP_POLY;
+                    o->clip[2] = (short)cw;
+                    o->clip[3] = (short)ch;
+                }
+                o->fill_type = fill == 0 ? FILL_SOLID : fill <= 2 ? FILL_CLUT : FILL_NORM;
+                if (o->fill_type == FILL_CLUT)
+                    o->fill_parm = (intptr_t)(ltab + (rnd_in(0, 15) << 8));
+                if (o->fill_type == FILL_SOLID)
+                    o->fill_parm = rnd_in(1, 255);
+                o->index = tluc ? FIX_TLUC8_UPOLY : FIX_UPOLY;
+                // an odd colour has a translucency table, an even one none
+                o->color = rnd_in(1, 255);
+                o->n = 4;
+                o->v[0].x = o->v[3].x = fix_make(x0, 0);
+                o->v[1].x = o->v[2].x = fix_make(x1, 0);
+                o->v[0].y = o->v[1].y = fix_make(y0, 0);
+                o->v[2].y = o->v[3].y = fix_make(y1, 0);
+                fix_winding(o);
+            }
+            draw_scene(ops, 40, RASTQ_OFF, result[1]);
+            rastq_set_gpu(pass == 0 ? &ref_gpu : &no_tluc);
+            rastq_use_gpu(1);
+            memset(&rastq_stats, 0, sizeof(rastq_stats));
+            draw_scene(ops, 40, RASTQ_TRUST_STABLE, result[2]);
+            rastq_use_gpu(0);
+            rastq_set_gpu(NULL);
+            by_gpu += rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUC];
+            by_cpu[pass] += rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_POLY];
+            bm_by_gpu += rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUCBM];
+            bm_by_cpu[pass] += rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_BITMAP];
+            other_cpu += rastq_stats.gpu_cpu_calls - rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_POLY] -
+                         rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_BITMAP] + rastq_stats.gpu_fallbacks +
+                         rastq_stats.solo[RASTQ_SOLO_DIRECT];
+            diff[pass] += differing(result[1], result[2]);
+        }
+    }
+    rng_state = main_state;
+    printf("translucent polygons and bitmaps: %ld and %ld drawn by the stand-in, %ld pixels differ from the 2D "
+           "library's; left to the CPU %ld and %ld, %ld pixels differ\n",
+           by_gpu, bm_by_gpu, diff[0], by_cpu[1], bm_by_cpu[1], diff[1]);
+    if (by_gpu == 0 || by_cpu[0] != 0 || by_cpu[1] == 0 || bm_by_gpu == 0 || bm_by_cpu[0] != 0 || bm_by_cpu[1] == 0 ||
+        other_cpu != 0 || diff[0] != 0 || diff[1] != 0) {
+        printf("  other calls left to the CPU: %ld; bitmaps left to it with the call there: %ld\n", other_cpu,
+               bm_by_cpu[0]);
+        bad++;
+    }
+    return bad;
+}
+
+// The rule that shares the GPU's lists with the workers only while frames
+// are short of time (rastq_gpu_frame), fed made-up frames. Returns the
+// number of failures.
+static int test_sharing(void) {
+    // work times that leave this much of the screen's time, in microseconds
+    const long long easy = RASTQ_FRAME_US - 4200, between = RASTQ_FRAME_US - 2400, tight = RASTQ_FRAME_US - 1000;
+    const long long stutter = 80000;
+    int bad = 0, checks = 0, i, k, wait;
+
+#define SHARING_CHECK(what, ok)                 \
+    do {                                        \
+        checks++;                               \
+        if (!(ok)) {                            \
+            printf("  sharing rule: %s\n", what); \
+            bad++;                              \
+        }                                       \
+    } while (0)
+
+    rastq_gpu_frame(-1);
+    SHARING_CHECK("lists aren't shared before a first frame", rastq_gpu_sharing());
+    rastq_gpu_frame(easy);
+    SHARING_CHECK("the first frame doesn't put the queue at rest", !rastq_gpu_sharing());
+
+    // an easy scene stays at rest, a long frame or two on their own now and
+    // then included
+    for (i = 0; i < 2000 && !rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(i % 20 == 7 || i % 60 == 8 ? stutter : easy);
+    SHARING_CHECK("an easy scene doesn't stay at rest", i == 2000);
+
+    // a tight one shares from its RASTQ_SHARE_FRAMES-th frame, and stays shared
+    for (i = 1; i < RASTQ_SHARE_FRAMES; i++) {
+        rastq_gpu_frame(tight);
+        SHARING_CHECK("too few tight frames start the sharing", !rastq_gpu_sharing());
+    }
+    rastq_gpu_frame(tight);
+    SHARING_CHECK("RASTQ_SHARE_FRAMES tight frames in a row don't start the sharing", rastq_gpu_sharing());
+    for (i = 0; i < 5000 && rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(tight);
+    SHARING_CHECK("a tight scene doesn't stay shared", i == 5000);
+
+    // neither tight nor easy: no reason to rest
+    for (i = 0; i < 5000 && rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(between);
+    SHARING_CHECK("a scene with a little to spare rests", i == 5000);
+
+    // easy again: a rest after RASTQ_REST_FRAMES easy frames, the stutters among them not counted
+    for (i = k = 0; i < 5000 && rastq_gpu_sharing(); i++) {
+        if (i % 20 == 7)
+            rastq_gpu_frame(stutter);
+        else {
+            rastq_gpu_frame(easy);
+            k++;
+        }
+    }
+    SHARING_CHECK("the rest doesn't come after RASTQ_REST_FRAMES easy frames", k == RASTQ_REST_FRAMES);
+
+    // A scene that is easy only when its lists are shared: every rest is
+    // given up at once, and the next one comes twice as late, up to the cap.
+    rastq_gpu_frame(-1);
+    rastq_gpu_frame(easy);
+    wait = RASTQ_REST_FRAMES;
+    for (k = 0; k < 8; k++) {
+        for (i = 0; i < 10 && !rastq_gpu_sharing(); i++)
+            rastq_gpu_frame(tight);
+        SHARING_CHECK("the sharing doesn't come back after RASTQ_SHARE_FRAMES tight frames", i == RASTQ_SHARE_FRAMES);
+        for (i = 0; i < 2 * RASTQ_REST_FRAMES_MAX && rastq_gpu_sharing(); i++)
+            rastq_gpu_frame(easy);
+        if (i != wait) {
+            printf("  sharing rule: rest %d after %d easy frames, not %d\n", k, i, wait);
+            bad++;
+        }
+        checks++;
+        if (wait < RASTQ_REST_FRAMES_MAX)
+            wait *= 2;
+    }
+
+    // a rest that holds puts the wait back
+    for (i = 0; i < RASTQ_REST_HELD; i++)
+        rastq_gpu_frame(easy);
+    for (i = 0; i < RASTQ_SHARE_FRAMES; i++)
+        rastq_gpu_frame(tight);
+    for (i = 0; i < 2 * RASTQ_REST_FRAMES_MAX && rastq_gpu_sharing(); i++)
+        rastq_gpu_frame(easy);
+    SHARING_CHECK("a rest that held doesn't put the wait back", i == RASTQ_REST_FRAMES);
+#undef SHARING_CHECK
+
+    // back to always, for the rest of the test
+    rastq_gpu_frame(-1);
+    printf("sharing rule: %d of %d checks failed\n", bad, checks);
+    return bad;
+}
 #endif
 
 int main(int argc, char **argv) {
@@ -1283,6 +1521,8 @@ int main(int argc, char **argv) {
     unsigned gpu_scenes = 0, gpu_polys = 0, gpu_culled = 0, gpu_cpu_calls = 0, gpu_whole_checks = 0;
     unsigned gpu_pieces = 0;
     unsigned cut_lists = 0, cut_bad = 0, cut_calls = 0, cut_by_workers = 0;
+    unsigned rows_views = 0, rows_bad = 0;
+    long rows_left = 0;
     long gpu_diff = 0, gpu_far = 0;
     int s, f;
     // RASTQ_HASH: only draw directly and print a checksum per frame, to
@@ -1297,6 +1537,8 @@ int main(int argc, char **argv) {
     if (!hash_only) {
         bad += test_overlays();
         bad += test_marks();
+        bad += test_tluc();
+        bad += test_sharing();
     }
 #endif
 
@@ -1386,6 +1628,52 @@ int main(int argc, char **argv) {
                             explain(ops, count, split);
                         }
                         bad++;
+                    }
+                }
+
+                // Only some rows asked for, as the game does to find what is
+                // under the cursor: those rows must be the whole replay's,
+                // whatever is left in the others. On this thread alone and
+                // with three set up; then under the self-check, which is to
+                // replay the view whole.
+                {
+                    int top = aux_in(-8, ch - 1), bot = top + aux_in(1, 40), from, to, y, k;
+
+                    from = top < 0 ? 0 : top;
+                    to = bot > ch ? ch : bot;
+                    for (k = 0; k < 3; k++) {
+                        int wrong = 0;
+
+                        set_split(k == 1 ? SPLIT_THREADS : SPLIT_NONE);
+                        rastq_set_check_interval(k == 2 ? 1 : 0);
+                        memset(&rastq_stats, 0, sizeof(rastq_stats));
+                        rastq_rows_next(top, bot);
+                        draw_scene(ops, count, k == 0 ? RASTQ_COPY_ALL : RASTQ_TRUST_STABLE, result[4]);
+                        set_split(SPLIT_NONE);
+                        for (y = from; y < to; y++)
+                            wrong += memcmp(result[0] + (size_t)y * crow, result[4] + (size_t)y * crow, (size_t)cw) != 0;
+                        if (k == 2) {
+                            // whole, and found right by the check
+                            wrong += differing(result[0], result[4]) != 0 || rastq_stats.check_bad_rows != 0 ||
+                                     rastq_stats.check_runs == 0;
+                        } else {
+                            // rows that were not drawn: there must be some,
+                            // or nothing was left out and this checks nothing
+                            for (y = 0; y < ch; y++)
+                                if (y < from || y >= to)
+                                    rows_left += memcmp(background + (size_t)y * crow, result[4] + (size_t)y * crow,
+                                                        (size_t)cw) == 0 &&
+                                                 memcmp(result[0] + (size_t)y * crow, result[4] + (size_t)y * crow,
+                                                        (size_t)cw) != 0;
+                        }
+                        rows_views++;
+                        if (wrong) {
+                            if (bad < 10)
+                                printf("  %dx%d frame %d (%d calls), rows %d to %d only (%s): %d rows differ\n", cw, ch,
+                                       f, count, top, bot, k == 0 ? "alone" : k == 1 ? "threads" : "checked", wrong);
+                            rows_bad++;
+                            bad++;
+                        }
                     }
                 }
 
@@ -1548,6 +1836,16 @@ int main(int argc, char **argv) {
     if (gpu_far > GPU_RUN_LIMIT * total) {
         printf("  that is more than %.2f%%\n", 100.0 * GPU_RUN_LIMIT);
         bad++;
+    }
+#endif
+#ifndef RASTQ_REFERENCE
+    if (!hash_only) {
+        printf("  rows only: %u views replayed for a few rows, %u differ there; %ld rows left undrawn\n", rows_views,
+               rows_bad, rows_left);
+        if (rows_left == 0) {
+            printf("  no row was ever left out\n");
+            bad++;
+        }
     }
 #endif
     printf("  %ld frames differ\n", bad);

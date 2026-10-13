@@ -112,6 +112,8 @@ void *ResGet(Id id);                   // get ptr to resource (dangerous!)
 void *ResExtract(Id id, const ResourceFormat *format, void *buffer); // extract resource into buffer
 void ResDrop(Id id);                   // drop resource from immediate use
 void ResDelete(Id id);                 // delete resource forever
+// where a resource's bytes are in its file, for a reader of its own
+bool ResFilePlace(Id id, int32_t *filenum, uint32_t *offset, uint32_t *size);
 
 //	------------------------------------------------------------
 //		ACCESS TO ITEMS IN COMPOUND RESOURCES (REF'S)  (refacc.c)
@@ -380,6 +382,11 @@ int32_t ResPack(int32_t filenum);                   // remove empty entries
 //#define ResAutoPackOff(filenum) (resFile[filenum].pedit->flags &=
 //~RFF_AUTOPACK) #define ResNeedsPacking(filenum) (resFile[filenum].pedit->flags
 //& RFF_NEEDSPACK)
+// A resource file's whole content, to read it from in place of the file
+// (resfile.c)
+bool ResUseImage(const char *fname, const void *bytes, size_t size);
+bool ResOnImage(Id id); // is this resource's file read from memory?
+
 // DG: a case-insensitive fopen()-wrapper (see resfile.c)
 extern FILE *fopen_caseless(const char *path, const char *mode);
 

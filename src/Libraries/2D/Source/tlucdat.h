@@ -47,4 +47,8 @@ extern uchar *tluc8ltab[256];
 extern uchar *tluc8stab;
 extern int tluc8nstab;
 
+// `count` pixels of a canvas row passed through a translucency table, then
+// through a colour table if there is one.
+extern void gr_tluc8_span(uchar *p, int count, const uchar *tluc, const uchar *clut);
+
 #endif

@@ -43,6 +43,11 @@ fix inv_convert_y[MAX_CONVERT_TYPES][MAX_USE_MODES];
 #define SVGA_CONV_NORMAL 1
 #define SVGA_CONV_SCREEN 2
 
+// The two characters a wrapped text has that aren't drawn (chr.h, in the 2D
+// library's own folder)
+#define SS_CHAR_SOFTCR 1
+#define SS_CHAR_SOFTSP 2
+
 // Internal prototypes
 
 uchar perform_svga_conversion(uchar mask) {
@@ -149,8 +154,53 @@ static grs_font *hires_tiny_font(void) {
 // to the actual 2d functions, with appropriate compensations
 // for screen mode coordinates and aspect ratios.
 
+// What gr_string draws of s in the canvas's font covers this much, from where
+// it starts. Returns 0 if s has characters the font hasn't: they aren't
+// drawn, but gr_string_size counts them, at whatever width it finds.
+static uchar drawn_string_size(char *s, short *w, short *h) {
+    grs_font *f = gr_get_font();
+    short line = 0, widest = 0, lines = 1;
+    uchar c, all = TRUE;
+
+    while ((c = (uchar)(*s++)) != '\0') {
+        if (c == '\n' || c == SS_CHAR_SOFTCR) {
+            if (line > widest)
+                widest = line;
+            line = 0;
+            lines++;
+            continue;
+        }
+        if (c == SS_CHAR_SOFTSP)
+            continue;
+        if (c > f->max || c < f->min) {
+            all = FALSE;
+            continue;
+        }
+        line += f->off_tab[c - f->min + 1] - f->off_tab[c - f->min];
+    }
+    *w = (line > widest) ? line : widest;
+    *h = lines * f->h;
+    return all;
+}
+
+// And what gr_scale_string draws of it, stretched to w x h: at most that.
+// -1: it can't be said, the stretch is worked out from gr_string_size.
+static void scaled_string_size(char *s, short w, short h, short *pw, short *ph) {
+    short drawn_w, drawn_h;
+
+    if (drawn_string_size(s, &drawn_w, &drawn_h)) {
+        *pw = w;
+        *ph = h;
+    } else
+        *pw = *ph = -1;
+}
+
 // Note, x and y already converted here!
-void ss_scale_string(char *s, short x, short y) {
+void ss_scale_string(char *s, short x, short y) { ss_scale_string_sized(s, x, y, NULL, NULL); }
+
+// The same and, if pw isn't NULL, how much the string covers from (x, y):
+// at most *pw by *ph pixels, or -1 where that isn't known.
+void ss_scale_string_sized(char *s, short x, short y, short *pw, short *ph) {
     // needs to scale still!
     // know about different fonts instead?  That would be better...
     grs_font *ttfont = (grs_font *)ResLock(RES_tinyTechFont);
@@ -160,6 +210,8 @@ void ss_scale_string(char *s, short x, short y) {
     Id use_font = ID_NULL;
 
     if (convert_use_mode == 0) {
+        if (pw != NULL)
+            drawn_string_size(s, pw, ph);
         gr_string(s, x, y);
         return;
     }
@@ -170,6 +222,8 @@ void ss_scale_string(char *s, short x, short y) {
 
         if (hires != NULL) {
             gr_set_font(hires);
+            if (pw != NULL)
+                drawn_string_size(s, pw, ph);
             gr_string(s, x, y);
             gr_set_font(ttfont);
             ResUnlock(RES_tinyTechFont);
@@ -207,9 +261,13 @@ void ss_scale_string(char *s, short x, short y) {
             if (use_font == ID_NULL) {
                 short w, h;
                 gr_string_size(s, (short *)&w, (short *)&h);
+                if (pw != NULL)
+                    scaled_string_size(s, SCONV_X(w), SCONV_Y(h), pw, ph);
                 gr_scale_string(s, x, y, SCONV_X(w), SCONV_Y(h));
             } else {
                 gr_set_font((grs_font *)ResLock(use_font));
+                if (pw != NULL)
+                    drawn_string_size(s, pw, ph);
                 gr_string(s, x, y);
             }
         if (use_font != ID_NULL)
@@ -221,6 +279,8 @@ void ss_scale_string(char *s, short x, short y) {
         // Attempt to scale it
         short w, h;
         gr_string_size(s, (short *)&w, (short *)&h);
+        if (pw != NULL)
+            scaled_string_size(s, SCONV_X(w), SCONV_Y(h), pw, ph);
         gr_scale_string(s, x, y, SCONV_X(w), SCONV_Y(h));
     }
 }

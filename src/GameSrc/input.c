@@ -71,6 +71,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "tools.h"
 #include "weapons.h"
 #include "mouselook.h"
+#include "vprof.h"
 
 
 #define CHECK_FOR_A_PACKET
@@ -262,9 +263,9 @@ uchar citadel_check_input(void) {
 void input_chk(void) {
     setup_motion_polling();
     view3d_got_event = FALSE;
-    uiPoll();
+    VPROF_NOTE("uiPoll", NULL, 0, 0, uiPoll());
     if (!view3d_got_event)
-        poll_mouse();
+        VPROF_NOTE("poll_mouse", NULL, 0, 0, poll_mouse());
 
     // KLC - not needed on MAC   kb_flush_bios();
     // KLC - not needed on MAC   mouse_set_velocity(0,0);
@@ -296,7 +297,7 @@ void input_chk(void) {
        if (joystick_count)
           joystick_chk();
     */
-    process_motion_keys();
+    VPROF_NOTE("process_motion_keys", NULL, 0, 0, process_motion_keys());
     handle_keyboard_fatigue();
 }
 

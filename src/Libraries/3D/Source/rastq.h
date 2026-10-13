@@ -4,7 +4,7 @@
 // Records the calls that hand a finished 2D polygon to the pixel-filling
 // mappers during a 3D pass, and replays them later in the same order, on one
 // thread or on several that each draw a band of rows. See
-// docs/PERFORMANCE-CPU.md, "Multicore rasterizer".
+// docs/PERFORMANCE.md, "Multicore rasterizer".
 
 #include <stddef.h>
 
@@ -21,7 +21,7 @@ enum {
 #define RASTQ_THREADS 3
 // A view with fewer rows than this is better replayed by one thread. On the
 // Vita that is the on-screen help's scan, a third of the screen's size in
-// flat colours that change with almost every call (docs/PERFORMANCE-CPU.md).
+// flat colours that change with almost every call (docs/PERFORMANCE.md).
 #define RASTQ_SMALL_VIEW_ROWS 272
 
 // What the GPU drew of a view, by kind of call
@@ -33,6 +33,8 @@ enum {
     RASTQ_GPU_KIND_SHADED, // a polygon shaded between its corners' colours
     RASTQ_GPU_KIND_LINE,  // a line, in one colour or shaded
     RASTQ_GPU_KIND_POINT,
+    RASTQ_GPU_KIND_TLUC,  // a translucent polygon: what is under it, through a table
+    RASTQ_GPU_KIND_TLUCBM, // a translucent bitmap's texture map
     RASTQ_GPU_KINDS
 };
 
@@ -96,6 +98,9 @@ typedef struct {
     unsigned gpu_lists_shared;          // all the threads: a job for the workers
     unsigned gpu_lists_solo;            // the caller alone, the list being short
     unsigned gpu_solo_calls;            // calls in those
+    unsigned gpu_lists_rested;          // of the caller's, those long enough to share
+    unsigned long long gpu_cut_wait_us; // the caller's wait for the workers' share of a shared list
+    unsigned gpu_cut_wait_max_us;       // and the longest
 #endif
 } rastq_stats_t;
 
@@ -107,9 +112,13 @@ void rastq_set_mode(int mode);
 int rastq_set_threads(int threads);
 // Views with fewer canvas rows than this are replayed by the caller alone.
 void rastq_set_min_rows(int rows);
+// Of the view that starts next, only canvas rows [top, bot) will be read:
+// its replay may leave the others as they are, and is the caller's alone.
+// For the one view; an empty range withdraws it.
+void rastq_rows_next(int top, int bot);
 
 // A GPU that can fill the recorded calls in place of the CPU. On Vita it is
-// src/MacSrc/VitaGpu.c; see docs/PERFORMANCE-GPU.md.
+// src/MacSrc/VitaGpu.c; see docs/PERFORMANCE.md.
 //
 // Every software texture mapper ends the same way: it picks a texel from the
 // bitmap and passes it through a table of 256 entries, or through none. The
@@ -181,6 +190,23 @@ typedef struct {
     // Told of each comparison of its result with the CPU's, and how many
     // pixels differed. May be NULL.
     void (*compared)(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing);
+    // A translucent polygon: each of its pixels becomes what the canvas
+    // holds there, as the calls before it in the scene left it, passed
+    // through the row of the scene's tables its vertices name (`left`, the
+    // row plus a half). 0: no room left in this scene. NULL: it can't, and
+    // the CPU draws those.
+    int (*tluc)(int n, const rastq_gpu_vertex *v);
+    // A texture map of a translucent bitmap (BMT_TLUC8): as `tmap`, but what
+    // goes through the table row is not the texel. It is the entry of
+    // `matrix`, 256 rows of 256, in the texel's row at what the canvas holds
+    // there, as the calls before it in the scene left it: the pixel under
+    // the texel through the texel's translucency table, or the texel itself
+    // where it has none. A texel 0 still leaves the pixel alone under
+    // RASTQ_GPU_TRANS. `matrix` is valid until the scene ends, and `version`
+    // changes when its content does. 0: no room left in this scene. NULL:
+    // it can't, and the CPU draws those.
+    int (*tluc_tmap)(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, const uchar *matrix,
+                     unsigned version);
 } rastq_gpu;
 
 // Offers a GPU to the queue (NULL: none), and says whether to use it.
@@ -203,6 +229,29 @@ int rastq_gpu_clear(int color);
 // starting the other threads costs more than they save.
 #define RASTQ_GPU_CUT_CALLS 64
 void rastq_set_gpu_cut(int min_calls);
+// Such a list is shared with the other threads only while frames are short
+// of time: sharing keeps the workers awake from one frame to the next, which
+// a frame with time to spare has no use for. The caller reports how long the
+// main thread worked on each frame, from one hand-over to the screen to the
+// next. From its first report on, the queue is at rest (the caller cuts its
+// lists alone) until RASTQ_SHARE_FRAMES frames in a row leave less than
+// RASTQ_SHARE_BELOW_US of the screen's RASTQ_FRAME_US: fewer are a stutter,
+// not a busy scene. It rests again after
+// RASTQ_REST_FRAMES frames that left more than RASTQ_REST_ABOVE_US while
+// sharing. A rest given up within RASTQ_REST_FAILED frames was one too
+// early: the next takes twice as many, up to RASTQ_REST_FRAMES_MAX, and
+// RASTQ_REST_FRAMES again once a rest has held for RASTQ_REST_HELD.
+// Until a first report, or after a negative one, lists are always shared.
+#define RASTQ_FRAME_US 16667
+#define RASTQ_SHARE_BELOW_US 1500
+#define RASTQ_SHARE_FRAMES 3
+#define RASTQ_REST_ABOVE_US 3500
+#define RASTQ_REST_FRAMES 120
+#define RASTQ_REST_FRAMES_MAX 3840
+#define RASTQ_REST_FAILED 60
+#define RASTQ_REST_HELD 600
+void rastq_gpu_frame(long long work_us);
+int rastq_gpu_sharing(void);
 // rastq_end doesn't wait for the last scene of a view the GPU draws: until
 // rastq_gpu_finish, the canvas is the GPU's and the CPU must leave it alone,
 // but is free for anything else. rastq_gpu_busy: is a scene still out?

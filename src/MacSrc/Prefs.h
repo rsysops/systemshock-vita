@@ -72,6 +72,11 @@ extern ShockPrefs gShockPrefs;
 void SetDefaultPrefs(void);
 int16_t LoadPrefs(void);
 int16_t SavePrefs(void);
+// A save asked for from the middle of the game, where writing to the card
+// is a long frame: done at the next SavePrefs() or SavePrefsIfWanted(),
+// which is called where the game waits anyway (begin_wait).
+void SavePrefsLater(void);
+void SavePrefsIfWanted(void);
 
 //-------------------
 //  Enums

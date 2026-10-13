@@ -95,7 +95,8 @@ void *ResLoadResource(Id id, const ResourceFormat *format) {
 	if (prd->ptr == NULL)
 	    return (NULL);
 	// Load from disk
-	VPROF_RUN(VPROF_RESLOAD, ResRetrieve(id, prd->ptr));
+	// "resm": read from the file's copy in memory
+	VPROF_RUN_AS(VPROF_RESLOAD, ResOnImage(id) ? "resm" : "res", id, prd->fsize, ResRetrieve(id, prd->ptr));
     } else {
 	assert(format->decoder != NULL);
     }
@@ -147,6 +148,7 @@ bool ResRetrieve(Id id, void *buffer) {
     }
 
     // Seek to data, set up
+    ResTailLost(prd->filenum);
     fseek(fd, RES_OFFSET_DESC2REAL(prd->offset), SEEK_SET);
     p = (uint8_t *)buffer;
     size = prd->fsize;

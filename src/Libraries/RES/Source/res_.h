@@ -56,6 +56,12 @@ bool RefCheckRef(Ref ref); // returns TRUE if ref ok, else FALSE & warns
 void *ResLoadResource(Id id, const ResourceFormat *format);
 bool ResRetrieve(Id id, void *buffer);
 
+//	Resource writing (resbuild.c)
+
+// The file's handle has been moved or read from: the next resource written
+// to it must seek to its place first (see ResWrite).
+void ResTailLost(int32_t filenum);
+
 /*
 //	Resource paging (resmem.c)
 

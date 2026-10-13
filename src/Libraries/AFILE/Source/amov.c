@@ -401,16 +401,40 @@ int32_t AmovReadNextAudioChunk(Afile *paf, void *paudio) {
         memset(((uint8_t *)paudio) + size, 128,
                MOVIE_DEFAULT_BLOCKLEN - size); // fill rest with silence (128)
 
+    MovieChunk *pthis = pmi->paudioChunk;
     pmi->paudioChunk++;
 
-    // If this was the last audio chunk, taper the tail to avoid a pop at the end.
-    MovieChunk *pnext = pmi->paudioChunk;
-    while (pnext->chunkType != MOVIE_CHUNK_END && pnext->chunkType != MOVIE_CHUNK_AUDIO)
-        pnext++;
-    if (pnext->chunkType == MOVIE_CHUNK_END) {
+    // The last 512 bytes of the whole track are tapered to avoid a pop at the
+    // end, the very bytes AmovReadAudio() tapers: the end of what the last
+    // chunk holds, not of its block (a chunk read short is padded with
+    // silence), and the end of the chunk before it when the last one holds
+    // less than that.
+    MovieChunk *pnext;
+    int32_t after = 0; // bytes of the track after this chunk, as far as it matters
+    for (pnext = pmi->paudioChunk; pnext->chunkType != MOVIE_CHUNK_END && after < 512; pnext++) {
+        if (pnext->chunkType == MOVIE_CHUNK_AUDIO) {
+            int32_t left = paf->mf->size - (int32_t)pnext->offset;
+            if (left > 0)
+                after += left < MOVIE_DEFAULT_BLOCKLEN ? left : MOVIE_DEFAULT_BLOCKLEN;
+        }
+    }
+    if (after < 512) {
         float vol = 1.0;
-        uint32_t i = MOVIE_DEFAULT_BLOCKLEN - 512;
-        for (; i < MOVIE_DEFAULT_BLOCKLEN; i++, vol *= 0.8)
+        int32_t i = (int32_t)size - (512 - after);
+        if (i < 0) {
+            // The taper began in the audio chunk before this one, if there is one.
+            MovieChunk *pprev = pthis;
+            bool before = false;
+            while (pprev != pmi->pmc && !before) {
+                pprev--;
+                before = pprev->chunkType == MOVIE_CHUNK_AUDIO;
+            }
+            if (before)
+                for (; i < 0; i++)
+                    vol *= 0.8;
+            i = 0;
+        }
+        for (; i < (int32_t)size; i++, vol *= 0.8)
             *((uint8_t *)paudio + i) = 128 + (uint8_t)((*((uint8_t *)paudio + i) - 128) * vol);
     }
 
@@ -441,7 +465,9 @@ int32_t AmovReadClose(Afile *paf) {
 
 	// mf->p points at a ResLock()'d resource buffer, not a private copy; release it
 	// instead of freeing memory this Afile doesn't own (see AfilePrepareRes()).
-	ResUnlock(paf->mf->resId);
+	// A movie in memory of the caller's (AfilePrepareMem()) has no resource.
+	if (paf->mf->resId != ID_NULL)
+		ResUnlock(paf->mf->resId);
 	free(paf->mf);
 
     return (0);

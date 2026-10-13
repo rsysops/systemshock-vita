@@ -62,6 +62,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "vmail.h"
 
 #include "audiolog.h"
+#include "vprof.h"
 
 // -------
 // DEFINES
@@ -418,13 +419,15 @@ void email_draw_text(Id email_id, bool really_an_email) {
 
     email_curr_page++;
 
-    uiHideMouse(NULL);
-    make_email_cursor(&email_cursor, &email_cursor_bitmap, email_curr_page, email_curr_page == 1);
+    // (the profiler's notes: what opening a mail or turning its page is made of)
+    VPROF_NOTE("email_hide_mouse", NULL, 0, 0, uiHideMouse(NULL));
+    VPROF_NOTE("make_email_cursor", NULL, 0, 0,
+               make_email_cursor(&email_cursor, &email_cursor_bitmap, email_curr_page, email_curr_page == 1));
     if (!email_cursor_currently) {
-        push_inventory_cursors(&email_cursor);
+        VPROF_NOTE("push_inventory_cursors", NULL, 0, 0, push_inventory_cursors(&email_cursor));
         email_cursor_currently = TRUE;
     }
-    uiShowMouse(NULL);
+    VPROF_NOTE("email_show_mouse", NULL, 0, 0, uiShowMouse(NULL));
 
     if (!ResInUse(email_id)) {
         return;
@@ -449,7 +452,7 @@ void email_draw_text(Id email_id, bool really_an_email) {
     gr_set_font((grs_font *)ResLock(email_font));
     if (!full_game_3d)
         uiHideMouse(inventory_region->r);
-    inventory_clear();
+    VPROF_NOTE("inventory_clear", NULL, 0, 0, inventory_clear());
     if (*email_buffer != '\0') {
         ubyte line = EMAIL_MESSAGE_IDX + next_text_line;
         char *next = get_temp_string(MKREF(email_id, line));
@@ -580,7 +583,8 @@ uchar email_invpanel_input_handler(uiEvent *ev, LGRegion *r, intptr_t data) {
         email_page_exit();
         inventory_draw_new_page(old_invent_page);
     } else
-        email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID);
+        VPROF_NOTE("email_draw_text", NULL, 0, 0,
+                   email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID));
     return TRUE;
 }
 
@@ -803,13 +807,14 @@ void select_email(int num, uchar scr) {
     ResUnlock(id);
 
     if (mug_num >= BASE_VMAIL)
-        read_email(current_email_base, num);
+        VPROF_NOTE("read_email", NULL, num, 0, read_email(current_email_base, num));
     if (scr) {
         current_email = num;
         next_text_line = EMAIL_DONE;
-        mfd_notify_func(MFD_EMAILMUG_FUNC, EMAILMUG_SLOT, TRUE, MFD_ACTIVE, TRUE);
+        VPROF_NOTE("mfd_notify_func", NULL, 0, 0,
+                   mfd_notify_func(MFD_EMAILMUG_FUNC, EMAILMUG_SLOT, TRUE, MFD_ACTIVE, TRUE));
         if (mug_num < BASE_VMAIL && inventory_page == INV_EMAILTEXT_PAGE)
-            read_email(0, num);
+            VPROF_NOTE("read_email", NULL, num, 0, read_email(0, num));
     }
 }
 
@@ -838,7 +843,7 @@ void read_email(Id new_base, int num) {
 
     email_flags = 0;
     if (current_email_base == EMAIL_BASE_ID) {
-        alog_rv = audiolog_play(num);
+        VPROF_NOTE("audiolog_play", NULL, num, 0, alog_rv = audiolog_play(num));
         if (player_struct.email[num] & EMAIL_READ)
             email_flags |= EMAIL_FLAG_BEEN_READ;
         player_struct.email[num] |= EMAIL_READ;
@@ -848,13 +853,14 @@ void read_email(Id new_base, int num) {
     if (inventory_page >= 0)
         old_invent_page = inventory_page;
     if ((alog_rv != OK) || (audiolog_setting == 2)) {
-        inventory_draw_new_page(INV_EMAILTEXT_PAGE);
+        VPROF_NOTE("inventory_draw_new_page", NULL, 0, 0, inventory_draw_new_page(INV_EMAILTEXT_PAGE));
         next_text_line = 0;
         if (terseness > 0) // let's be terse
         {
             // skip ahead to the terse version
-            while (*get_temp_string(MKREF(current_email_base + num, MESSAGE_IDX + next_text_line)) != '\0')
-                next_text_line++;
+            VPROF_NOTE("email_skip_lines", NULL, 0, 0,
+                       while (*get_temp_string(MKREF(current_email_base + num, MESSAGE_IDX + next_text_line)) != '\0')
+                           next_text_line++);
             next_text_line++;
         }
         free_email_buffer();
@@ -871,12 +877,14 @@ void read_email(Id new_base, int num) {
         {
             if ((alog_rv != OK) || (audiolog_setting == 2)) {
                 // draw the text for the vmail before playing vmail
-                email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID);
-                play_vmail(mug_num - BASE_VMAIL);
+                VPROF_NOTE("email_draw_text", NULL, 0, 0,
+                           email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID));
+                VPROF_NOTE("play_vmail", NULL, mug_num - BASE_VMAIL, 0, play_vmail(mug_num - BASE_VMAIL));
             } else {
             }
         } else {
-            mfd_notify_func(MFD_EMAILMUG_FUNC, EMAILMUG_SLOT, TRUE, MFD_ACTIVE, TRUE);
+            VPROF_NOTE("mfd_notify_func", NULL, 0, 0,
+                       mfd_notify_func(MFD_EMAILMUG_FUNC, EMAILMUG_SLOT, TRUE, MFD_ACTIVE, TRUE));
             if (current_email != EMAIL_INACTIVE) {
                 int i;
                 ushort mnums[NUM_MFDS];
@@ -901,7 +909,8 @@ void read_email(Id new_base, int num) {
         }
     }
     if ((alog_rv != OK) || (audiolog_setting == 2)) {
-        email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID);
+        VPROF_NOTE("email_draw_text", NULL, 0, 0,
+                   email_draw_text(current_email_base + current_email, current_email_base == EMAIL_BASE_ID));
     } else {
         if (_current_loop <= FULLSCREEN_LOOP)
             chg_set_flg(INVENTORY_UPDATE);

@@ -1,5 +1,7 @@
 #include <SDL.h>
 
+#include <psp2/kernel/threadmgr.h>
+
 #include "Xmi.h"
 #include "MusicDevice.h"
 #include "Prefs.h"
@@ -27,9 +29,26 @@ static SDL_mutex *MyMutex;
 static MusicMode LoadedMode;
 static bool HaveLoadedMode = false;
 
+// The audio thread on cores 1 and 2, never on core 0, which is the main
+// thread's only one: at its priority the audio thread holds the game up there
+// for as long as it works, 6 to 10 ms of music at a time, and a frame that
+// should have woken for the screen's refresh starts that much late
+// (docs/PERFORMANCE.md, step S12b). It is SDL's thread, so it is placed from
+// inside, the first time it calls.
+static void audio_thread_off_main_core(void) {
+    static SceUID placed;
+    SceUID self = sceKernelGetThreadId();
+
+    if (placed != self) {
+        placed = self;
+        sceKernelChangeThreadCpuAffinityMask(self, SCE_KERNEL_CPU_MASK_USER_1 | SCE_KERNEL_CPU_MASK_USER_2);
+    }
+}
+
 void MusicCallback(void *userdata, Uint8 *stream, int len) {
     MusicDevice *dev;
 
+    audio_thread_off_main_core();
     SDL_LockMutex(MyMutex);
     dev = *(MusicDevice **)userdata;
     if (!dev || !dev->isOpen) {
@@ -40,6 +59,7 @@ void MusicCallback(void *userdata, Uint8 *stream, int len) {
     SDL_memset(stream, 0, (size_t)len); // in case we don't get anything
 #ifdef VITA_PROFILE
     SceInt64 t0 = sceKernelGetProcessTimeWide();
+    vprof_audio_begin();
 #endif
     dev->generate(dev, (short *)((void *)stream), len / (int)(2 * sizeof(short)));
 #ifdef VITA_PROFILE
@@ -48,9 +68,118 @@ void MusicCallback(void *userdata, Uint8 *stream, int len) {
     SDL_UnlockMutex(MyMutex);
 }
 
+// ---- files read ahead ----------------------------------------------------
+//
+// A score first wanted is read from the card: 24 to 47 ms for 10 to 25 KB,
+// in the frame where the player steps into a new zone. And its tables, a
+// file of 400 bytes, at every change of zone. They are few and small, so a
+// thread reads them all once the music device is there.
+
+#define AHEAD_SCORES 16 // thm0 to thm15: those that exist
+#define AHEAD_FILES (2 * AHEAD_SCORES)
+#define AHEAD_NAME 48
+
+static struct {
+    char name[AHEAD_NAME];
+    unsigned char *bytes;
+    int size;
+    SDL_atomic_t ready; // set last: bytes and size are then for good
+} Ahead[AHEAD_FILES];
+static int AheadCount;
+static int AheadPriority;
+
+static int AheadReader(void *unused) {
+    extern FILE *fopen_caseless(const char *path, const char *mode); // see caseless.c
+    int i;
+
+    (void)unused;
+    // on any core and below the game's threads, as the thread that decodes
+    // the sound effects
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
+    sceKernelChangeThreadPriority(sceKernelGetThreadId(), AheadPriority);
+
+    for (i = 0; i < AheadCount; i++) {
+        FILE *f = fopen_caseless(Ahead[i].name, "rb");
+        long size;
+        unsigned char *bytes = NULL;
+
+        if (f == NULL)
+            continue;
+        if (fseek(f, 0, SEEK_END) == 0 && (size = ftell(f)) > 0 && fseek(f, 0, SEEK_SET) == 0 &&
+            (bytes = malloc((size_t)size)) != NULL && fread(bytes, (size_t)size, 1, f) == 1) {
+            Ahead[i].bytes = bytes;
+            Ahead[i].size = (int)size;
+            SDL_AtomicSet(&Ahead[i].ready, 1);
+        } else
+            free(bytes);
+        fclose(f);
+    }
+    return 0;
+}
+
+void XmiReadAhead(const char *music_type) {
+    SceKernelThreadInfo info;
+    SDL_Thread *thread;
+    int i;
+
+    if (AheadCount != 0 || music_type == NULL)
+        return;
+    // by the names MacTuneLoadTheme opens them with
+    for (i = 0; i < AHEAD_SCORES; i++) {
+        snprintf(Ahead[AheadCount++].name, AHEAD_NAME, "res/sound/%s/thm%i.xmi", music_type, i);
+        snprintf(Ahead[AheadCount++].name, AHEAD_NAME, "res/sound/thm%i.bin", i);
+    }
+    info.size = sizeof(info);
+    AheadPriority = (sceKernelGetThreadInfo(sceKernelGetThreadId(), &info) < 0 ? 160 : info.currentPriority) + 2;
+    thread = SDL_CreateThread(AheadReader, "xmi_ahead", NULL);
+    if (thread != NULL)
+        SDL_DetachThread(thread);
+}
+
+const unsigned char *XmiAhead(const char *filename, int *size) {
+    int i;
+
+    for (i = 0; i < AheadCount; i++) {
+        if (strcmp(Ahead[i].name, filename) == 0) {
+            if (!SDL_AtomicGet(&Ahead[i].ready))
+                return NULL;
+            *size = Ahead[i].size;
+            return Ahead[i].bytes;
+        }
+    }
+    return NULL;
+}
+
+// A score read once is kept: the music changes score each time the player
+// crosses from one zone to another, back and forth across a door as often
+// as they like, and reading one, taking it apart and letting it go again
+// is a long frame every time (docs/PERFORMANCE.md, step S9). The player
+// threads only read a score, so a kept one is the one that was read.
+#define KEPT_SCORES 24
+#define KEPT_NAME 48
+
+static struct {
+    char name[KEPT_NAME]; // the file it was read from
+    unsigned int tracks;
+    MIDI_EVENT **events;
+    short *timing;
+    unsigned short *used;
+} Kept[KEPT_SCORES];
+static int KeptCount;
+static bool CurrentIsKept; // the score in TrackEvents is one of Kept: not FreeXMI's to free
+
 void FreeXMI(void) {
     unsigned int track;
     MIDI_EVENT *event, *next;
+
+    if (CurrentIsKept) {
+        TrackEvents = 0;
+        TrackTiming = 0;
+        TrackUsedChannels = 0;
+        NumTracks = 0;
+        CurrentIsKept = false;
+        return;
+    }
 
     for (track = 0; track < NumTracks; track++) {
         event = TrackEvents[track];
@@ -151,26 +280,50 @@ int ReadXMI(const char *filename) {
     MIDI_EVENT *eventlist, *curevent, *prev;
     char buf[32];
     MusicMode mode = Music_GeneralMidi;
+    const unsigned char *ahead;
 
     INFO("Reading XMI %s", filename);
 
-    extern FILE *fopen_caseless(const char *path, const char *mode); // see caseless.c
-    f = fopen_caseless(filename, "rb");
-    if (f == 0) {
-        ERROR("Could not read XMI");
-        return 0;
+    for (i = 0; i < (unsigned)KeptCount; i++) {
+        if (strcmp(Kept[i].name, filename) == 0) {
+            NumTracks = Kept[i].tracks;
+            TrackEvents = Kept[i].events;
+            TrackTiming = Kept[i].timing;
+            TrackUsedChannels = Kept[i].used;
+            CurrentIsKept = true;
+            goto setup;
+        }
     }
 
-    fseek(f, 0, SEEK_END);
-    size = ftell(f);
-    fseek(f, 0, SEEK_SET);
-    data = (unsigned char *)malloc(size);
-    if (fread(data, size, 1, f) != 1) {
-        free(data);
+    // (the profiler's notes: what a score's first reading is made of)
+    VPROF_SPAN_BEGIN(read_began);
+    ahead = XmiAhead(filename, &size);
+    if (ahead != NULL) {
+        // read ahead: a copy, for what follows to take apart and free as
+        // it does one read from the card
+        data = (unsigned char *)malloc(size);
+        memcpy(data, ahead, size);
+    } else {
+        extern FILE *fopen_caseless(const char *path, const char *mode); // see caseless.c
+        f = fopen_caseless(filename, "rb");
+        if (f == 0) {
+            ERROR("Could not read XMI");
+            return 0;
+        }
+
+        fseek(f, 0, SEEK_END);
+        size = ftell(f);
+        fseek(f, 0, SEEK_SET);
+        data = (unsigned char *)malloc(size);
+        if (fread(data, size, 1, f) != 1) {
+            free(data);
+            fclose(f);
+            return 0;
+        }
         fclose(f);
-        return 0;
     }
-    fclose(f);
+    VPROF_SPAN_END(read_began, ahead != NULL ? "xmi_ahead" : "xmi_file", size, 0);
+    VPROF_SPAN_BEGIN(parse_began);
 
     p = data;
 
@@ -435,10 +588,24 @@ int ReadXMI(const char *filename) {
     }
 
     free(data);
+    VPROF_SPAN_END(parse_began, "xmi_parse", NumTracks, 0);
 
+    if (KeptCount < KEPT_SCORES && strlen(filename) < KEPT_NAME) {
+        strcpy(Kept[KeptCount].name, filename);
+        Kept[KeptCount].tracks = NumTracks;
+        Kept[KeptCount].events = TrackEvents;
+        Kept[KeptCount].timing = TrackTiming;
+        Kept[KeptCount].used = TrackUsedChannels;
+        KeptCount++;
+        CurrentIsKept = true;
+    }
+
+setup:
     // Setup a sound bank for res/sound/sblaster, or res/sound/genmidi
+    // (at every change of score, kept or not, as it always was)
     if (strstr(filename, "sblaster") != NULL)
         mode = Music_SoundBlaster;
+    VPROF_SPAN_BEGIN(setup_began);
     SDL_LockMutex(MyMutex);
     LoadedMode = mode;
     HaveLoadedMode = true;
@@ -446,6 +613,7 @@ int ReadXMI(const char *filename) {
         MusicDev->setupMode(MusicDev, mode);
     }
     SDL_UnlockMutex(MyMutex);
+    VPROF_SPAN_END(setup_began, "xmi_setup_mode", mode, 0);
     switch (mode) {
     case Music_GeneralMidi:
         INFO("Set General MIDI mode");

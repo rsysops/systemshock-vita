@@ -30,6 +30,7 @@ extern errtype audiolog_play(int email_id);
 extern errtype audiolog_bark_play(int bark_id);
 extern void audiolog_stop();
 extern errtype audiolog_loop_callback();
+extern void audiolog_open_files(void);
 extern bool audiolog_playing(int email_id);
 
 extern uchar audiolog_setting;

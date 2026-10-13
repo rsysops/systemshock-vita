@@ -72,6 +72,30 @@ errtype digifx_init() {
     fclose(fp);
     // clear_digi_fx();
 
+    // From now on the effects are decoded in the background, ahead of their
+    // first play: those that are in the game's own file as they are. An
+    // effect a mod file replaces, or a compressed one, is decoded when it is
+    // first played.
+    {
+        extern int digifx_res_file;
+        snd_preload_item items[256];
+        int count = 0;
+        Id id;
+
+        for (id = SFX_BASE; id < SFX_BASE + 256; id++) {
+            int32_t filenum;
+            uint32_t offset, size;
+
+            if (ResFilePlace(id, &filenum, &offset, &size) && filenum == digifx_res_file) {
+                items[count].snd_ref = id;
+                items[count].offset = offset;
+                items[count].size = size;
+                count++;
+            }
+        }
+        snd_preload("res/data/digifx.res", items, count);
+    }
+
     // snd_finish = digifx_EOS_callback;
 
     /* KLC - not needed now.
@@ -260,6 +284,9 @@ int play_digi_fx_master(int sfx_code, int num_loops, ObjID id, ushort x, ushort 
 
     // have to hash x,y no id to a secret ID code, eh?
     s_dprm.flags = 0;
+    // decoded ahead (see digifx_init): the resource itself isn't needed
+    if (snd_sample_decoded(vocRes))
+        return snd_sample_play(vocRes, 0, NULL, &s_dprm); // which sample id
     addr = (uchar *)ResLock(vocRes);
     len = ResSize(vocRes);
     if (addr != NULL) {
