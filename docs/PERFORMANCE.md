@@ -80,6 +80,8 @@ and read its log is in [PROFILING.md](PROFILING.md).
     - [S11c: the shader as the compiler wants it, and a cheaper fill](#s11c-the-shader-as-the-compiler-wants-it-and-a-cheaper-fill)
     - [S12: frames shown a refresh late](#s12-frames-shown-a-refresh-late)
     - [S12b: the audio thread off the game's core](#s12b-the-audio-thread-off-the-games-core)
+    - [S13: translucent bitmaps on the GPU](#s13-translucent-bitmaps-on-the-gpu)
+    - [S13b: a worker thread held up by the music](#s13b-a-worker-thread-held-up-by-the-music)
 
 ## Part 1: three cores
 
@@ -3371,7 +3373,8 @@ What is left, none of it started:
   in their place in the frame. None had come up in a capture until
   S11's, where a force bridge took the game to 13 fps, and to 4 from
   underneath: translucent polygons are the GPU's since S11c (Part 3),
-  and the bridge is at the screen's rate.
+  and the bridge is at the screen's rate. Translucent bitmaps came up
+  in S12b's capture, on level 3, and are the GPU's with S13.
 - **The zoom rectangle in full screen**: not shown with the GPU
   renderer since G6.
 - **The stalls**: a sound effect decoded on the main thread for its
@@ -3491,7 +3494,12 @@ to 20. That roadmap is finished. S12, after it, is what S11's capture
 showed besides: frames that start late where the music is heavy. It
 is measured, and done with S12b: the audio thread, on the main thread's
 core, held the game up; kept on the two other cores, no frame starts
-late and the 20 to 23 ms frames of a quiet second are gone.
+late and the 20 to 23 ms frames of a quiet second are gone. S13 is
+what S12b's capture showed besides, a place on level 3 at 39 to 56
+fps: translucent bitmaps drawn by the CPU. Done: the GPU draws them.
+The place is heavy besides, and S13b cures what its capture pointed
+at, a worker thread held up by the music: the main thread's wait for
+it, up to 6.6 ms, is gone, and two thirds of the frames over 23 ms.
 
 | step | what | for |
 |---|---|---|
@@ -3514,6 +3522,7 @@ late and the 20 to 23 ms frames of a quiet second are gone.
 | S10 | Changing level: cyberspace and the lift | **done**, by S8b and S8c: cyberspace in 0.78 s, out 0.47 s, from up to 7.2; the lift 0.37 s (S9's capture) |
 | S11 | Heavy views: the render, and clicks there; the maps | measured: the maps cost nothing, a force bridge 13 fps, 4 from underneath, now 60 (S11b, S11c). 4 of the 6 stutters S7c left; a look-up under the cursor still 7 ms there |
 | S12 | Frames shown a refresh late, where the music is heavy | measured: the audio thread at work on the main thread's core when it should wake (all 42 late frames); **done** with S12b, which keeps it on cores 1 and 2: no late frame in 18086, a frame over 20 ms in 1% of the quiet seconds from 27%. 25 of S11's 683 seconds have one; 21 of them among the 105 seconds with the music at 18% of a core or more |
+| S13 | Translucent bitmaps, drawn by the CPU in GPU views | **done**: the GPU draws them, nothing is left to the CPU there and a frame is one scene; the slowest second 47.9 fps from 38.6. S13b, **done**: the workers' share of the GPU's list was held up by the music (a wait of over 3 ms in 45% of the seconds, none with the cure; a frame over 23 ms in 7% of the seconds from 21%). On level 3 (squares 27 to 29, 32 to 36) 39 to 56 fps for seconds, 2 to 8 ms a frame of CPU drawing and up to three scenes a frame |
 
 The order is by what the player gains. S4 is the smallest and could go
 whenever it helps. S5 to S7 came out of S3's capture, in the order of
@@ -5112,3 +5121,152 @@ levels; the player: "music was good"):
   are a heavy render elsewhere, one a click, one 23 ms outside every
   timer (level 11), one the leaving of the game. `mcbf=` shows the
   music's stretches during each, on cores 1 and 2.
+
+#### S13: translucent bitmaps on the GPU
+
+Done; the capture is at the end of this section. The place on level 3 that S12b's
+capture has (squares 27 to 29, 32 to 36; its seconds 138 to 170):
+
+- **Measured**: `gpuwhy=tlucbm` in 25 of the 377 seconds, about one
+  call a frame, and nowhere but there. A translucent bitmap
+  (`BMT_TLUC8`) is the bridge's problem in its other form: the GPU
+  path left it to the CPU, which draws it on the canvas in the GPU's
+  memory, a pixel read after each pixel written. `gpucpu=` says 2 to
+  8 ms a frame on average over a second (8.1 at second 152, 7.9 at
+  165), and each call splits the frame in two or three scenes. The
+  seconds run at 39 to 56 fps.
+- **Read, not measured**: that the twelve stutters there, 19 to 27 ms
+  in `gpu_run()`, are that same bitmap seen from close. The log had a
+  second's average of the CPU's drawing and not a frame's; a
+  stutter's line has it from now on (`gpucpu=calls/ms`).
+- **What such a pixel is** (`gri_tluc8_lin_umap_loop` in
+  `src/Libraries/2D/Source/Flat8/fl8nl.c`, and the scaler's in
+  `fl8ns.c`): the bitmap's texel; if that colour has a translucency
+  table, the table's entry for the pixel already there, otherwise the
+  texel; then the call's colour table, if it has one. Texel 0 leaves
+  the pixel alone in a transparent bitmap. The 2D library has only
+  the linear mapper and its scaler for these, plain or through a
+  colour table.
+- **For the GPU** that is the textured shader with one lookup more,
+  between the texel and the tables: a matrix of 256 rows of 256, the
+  texel's row at the canvas's pixel (`gpu_matrix` in `rastq.c`, made
+  from `tluc8tab` when it changes; a 256 by 256 texture in
+  `src/MacSrc/VitaGpu.c`). The canvas's pixel is read as S11c's
+  shader reads it. `gpu_classify` lets a `BMT_TLUC8` bitmap through
+  the linear family as a `GPU_TMAP` with a mark (`gpu_tluc`), so the
+  cutting, the repeats and the culling are the ordinary bitmaps', and
+  `tluc_tmap` joins the queue's GPU interface.
+- **Checked at start-up**: `tlucbm_check`, four bands over a ground
+  whose column x holds x, the texels some with a row of their own in
+  the matrix, some without, some 0: all of them (`opaque`), texel 0
+  left out (`trans`), through a table (`table`), drawn twice
+  (`twice`). A wrong column, or a shader that doesn't compile, and
+  the CPU keeps these bitmaps: `tlucbm=off (CPU)` in the session's
+  second line.
+- **The CPU's two loops go through a copy of the row** as well, 256
+  pixels at a time, as `gr_tluc8_span` since S11c: for whatever is
+  left to it, and for all of these bitmaps if the shader's check
+  fails. S11c's timing gives 27 ns a pixel for that way on the GPU's
+  memory against 563 in place.
+- On the PC (`tests/rastq`): the frames drawn directly are those of
+  the libraries of before the row bands, the new loops included; the
+  stand-in GPU has the new call, so the translucent bitmaps of the
+  general scenes go through it; and `test_tluc` draws translucent
+  bitmaps a pixel for a texel among its rectangles: no pixel differs
+  from the mappers', with the call and without it.
+- To expect: up to 8 ms a frame back there, and the long frames gone
+  if they are the bitmap. The place is heavy besides (130 to 250
+  calls a frame).
+
+The capture (`profile-step-s13.txt`, 610 seconds, 592 of them on
+level 3 around that place, the on-screen help on; the player asks where the
+stutter comes from, the invisible creature or the cameras):
+
+- **The shaders work**: `tlucbm=on tlucbm_check opaque=0 trans=0
+  table=0 twice=0`. `gpukinds=tlucbm` in 257 seconds, 1 to 3 a frame;
+  `gpuwhy=` all zeros in every second, `gpucpu=0.0/0.00`, one scene a
+  frame. The slowest second there is 47.9 fps, from 38.6.
+- **The place is the render at its price**: 250 to 310 calls a frame
+  in 380 to 550 pieces, `render3d` 15 to 17.5 ms. Of the 180 seconds
+  over 200 calls, 29% are under 57 fps. No part out of line: the
+  traversal 10 to 12.5 ms with the hand-over to the GPU in it (5 to
+  6: 2.2 to 2.9 to decide and cut, 2.0 to 2.4 to send), the view's
+  end 6.
+- **The cameras** (`view@render_hack_cameras`, a view more): 3.5 ms a
+  frame with one in sight, 76 seconds, at 60 fps at the median.
+- **The on-screen help's scan** (3.3 ms a frame, 4.4 to 7.5 in the
+  long frames) runs while the GPU draws (`gpuoverlap=3.4`): the wait
+  for the GPU is 0.4 to 0.6 ms with it and 3.5 without.
+- **22 stutters, 2.2 a minute**:
+  - 10 with `gpu_run()` at 8.4 to 11.1 ms. In 9 of them a stretch of
+    the music's synthesis, 5.6 to 6.75 ms long on core 1 or 2, begins
+    3.8 to 7.3 ms into the frame (`mcbf=`): while the list is being
+    cut by the three threads. Read, not measured: the audio thread,
+    on the workers' cores since S12b and far above them in priority,
+    interrupts a worker that has taken its share of the list, and
+    the main thread waits for that share (`gpu_cut_list`).
+  - 4 the music changing zone, 6.4 to 8 ms (`fade_into_location`), in
+    frames with nothing to spare; 4 clicks in the view; 2 keys in the
+    options panel; the lift.
+  - 2 with 23 ms in `other=`, outside every timer (t=150.29,
+    t=456.51), as S11's capture has once (21.8) and S12b's (22.6).
+
+#### S13b: a worker thread held up by the music
+
+Done; the capture is at the end of this section. The suspect is timed
+and the cure tried in the same capture: the profile build switches the cure off
+and on every 20 seconds (`var=0`, `var=1`).
+
+- **The timer** (`gpu_cut_list` in `rastq.c`): how long the main
+  thread waits for the workers' share once its own is done.
+  `cutwait=avg/max` in a second's line, the frame's in a stutter's.
+- **The cure on trial** (`worker_boost` in `rastqthr.c`): a worker on
+  a job that isn't waited for, which is that cutting and nothing
+  else, takes the audio thread's priority (64, the highest a
+  program's thread may have) for as long as the job lasts, about
+  2 ms, and its own (161) again after. At the same priority the audio
+  thread doesn't interrupt it: it waits those 2 ms of its 43, or takes
+  the other core. A worker that the audio thread already keeps from
+  its core when the job is handed out doesn't take a share at all,
+  as before. On in the normal build.
+- **The 23 ms**: the parts of the main loop and of the game's loop
+  that are in no phase have a note each (`resimage_poll`,
+  `MousePollProc`, `status_bio_update`, `ZoomDrawProc`,
+  `message_clear_check`, the help scan's two ends, `AnimRecur`,
+  `olh_overlay`, `loopmode_switch`). If the next one has no name
+  either, it is not the game's code.
+- The old pair of variants (the lists always shared, or by the rule
+  of step S2) is taken out of `rastq_gpu_sharing`: the rule has been
+  the game's since.
+- After the capture `VPROF_ALTERNATE` goes back to 0, and the cure
+  stays or goes by what the two sides show.
+
+The capture (`profile-step-s13b.txt`, 188 seconds in the game, 167 on
+level 3 in the heavy place; the player: "music & see-through are
+good"), by `var=`:
+
+| | `var=0`, as it was (99 s) | `var=1`, the cure (89 s) |
+|---|---|---|
+| seconds where the main thread waited over 1 ms for a worker (`cutwait=` max) | 76% | 0% |
+| over 3 ms | 45% | 0% |
+| the longest wait | 6.59 ms | 0.32 ms |
+| `gpu_run()`'s longest of a second, median | 7.6 ms | 5.5 ms |
+| seconds with a frame over 23 ms | 21% | 7% |
+| the longest frame of a second, median | 20.8 ms | 18.9 ms |
+| fps, median | 57.3 | 57.9 |
+
+- **The suspect was real**: without the cure the main thread waits
+  for a worker's share in three seconds of four, over 3 ms in nearly
+  half, as long as a stretch of the music lasts at the worst. In the
+  seconds whose lists are shared (153 of the 188) it is 89% and 54%.
+- **With the cure the wait is gone**, 0.3 ms at most, and the frames
+  over 23 ms with it for two thirds. The music is as it was to the
+  ear.
+- **The average speed there is the same**, 57 fps: the place's own
+  weight, not this.
+- 7 stutters, none of them a long hand-over: the lift and two frames
+  after it, four clicks in the view. No frame with time outside the
+  timers in these three minutes: the 23 ms has no name yet, and the
+  notes stay for when it comes back.
+- `VPROF_ALTERNATE` is back to 0: the cure is on in every build, all
+  the time.

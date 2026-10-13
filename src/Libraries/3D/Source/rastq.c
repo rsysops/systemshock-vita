@@ -86,6 +86,7 @@ typedef struct {
     uchar gpu_persp; // the vertices' w is the perspective divisor
     uchar gpu_carry; // u beyond the bitmap's width moves on to its next row
     uchar gpu_scan;  // GPU_SCAN_*: the lines the call's mapper draws
+    uchar gpu_tluc;  // a GPU_TMAP of a translucent bitmap
     uchar gpu_kind;  // RASTQ_GPU_KIND_*, for the counts
     uchar gpu_why;   // GPU_CPU: RASTQ_GPU_WHY_*
     // set by gpu_prepare when the list was cut ahead of the hand-over:
@@ -293,11 +294,6 @@ void rastq_gpu_frame(long long work_us) {
 }
 
 int rastq_gpu_sharing(void) {
-#if defined(__vita__) && defined(VITA_PROFILE)
-    // variant 0: always, as before there was a rule
-    if (vprof_variant == 0)
-        return 1;
-#endif
     return !rq.share_ruled || rq.sharing;
 }
 
@@ -618,6 +614,12 @@ static void test_ranges(void) {
 static uchar gpu_tables[RASTQ_GPU_TABLE_ROWS][256];
 static const uchar *gpu_table_from[RASTQ_GPU_TABLE_ROWS]; // what each added row is a copy of
 static const uchar *gpu_table_then[RASTQ_GPU_TABLE_ROWS]; // and the table that copy was passed through, if any
+// What a translucent bitmap's texel makes of the pixel under it: a row for
+// each texel, its translucency table or, where it has none, the texel all
+// along (gri_tluc8_lin_umap_loop). Made again when the tables change.
+static uchar gpu_matrix[256][256];
+static const uchar *gpu_matrix_from[256];
+static unsigned gpu_matrix_version;
 static int gpu_rows;
 static int gpu_colours; // the list has calls shaded between colours
 static long long gpu_lap_us;
@@ -764,7 +766,7 @@ static int gpu_per_family(const rastq_cmd *c) {
 
 // Says what the GPU does with a call, and with which table and addressing.
 static int gpu_classify(rastq_cmd *c) {
-    int type, family, shade, pow2, i;
+    int type, family, shade, pow2, tluc, i;
 
     if (c->kind == RQ_LINE || c->kind == RQ_POINT) {
         // as gri_flat8_wire_poly_uline takes its colour
@@ -846,7 +848,11 @@ static int gpu_classify(rastq_cmd *c) {
         return gpu_reversed(c) ? GPU_CULL : GPU_FLAT;
     }
 
-    if (c->bm.type == BMT_TLUC8)
+    // A translucent bitmap: the 2D library has the linear mapper for it and
+    // the scaler that one turns to, plain or through a colour table, and
+    // nothing lit (fl8ft.c). The rest is as for any bitmap.
+    tluc = c->bm.type == BMT_TLUC8;
+    if (tluc && (rq.gpu->tluc_tmap == NULL || c->bm.w != c->bm.row))
         return gpu_leave(c, RASTQ_GPU_WHY_TLUC_BITMAP);
     // Under the colour-table fill type, which the game sets for 3D objects
     // lit as a whole, every mapper is its colour-table one, with the fill's
@@ -854,7 +860,7 @@ static int gpu_classify(rastq_cmd *c) {
     // nothing.
     if (c->fill_type != FILL_NORM && c->fill_type != FILL_CLUT)
         return gpu_leave(c, RASTQ_GPU_WHY_FILL);
-    if (c->bm.type != BMT_FLAT8 || c->bm.w != c->bm.row)
+    if ((c->bm.type != BMT_FLAT8 && !tluc) || c->bm.w != c->bm.row)
         return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
     // The families the 3D library asks for, each with its mapper: plain,
     // lit and through a colour table, in that order, two entries apart.
@@ -870,6 +876,9 @@ static int gpu_classify(rastq_cmd *c) {
     else
         return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
     shade = type - family;
+    if (tluc && (family != GRC_BILIN || (c->fill_type != FILL_CLUT && shade == GRC_LIT_BILIN - GRC_BILIN)))
+        return gpu_leave(c, RASTQ_GPU_WHY_TLUC_BITMAP);
+    c->gpu_tluc = (uchar)tluc;
 
     c->gpu_flags = (c->bm.flags & BMF_TRANS) ? RASTQ_GPU_TRANS : 0;
     c->gpu_carry = 0;
@@ -941,6 +950,8 @@ static int gpu_classify(rastq_cmd *c) {
     } else {
         return gpu_leave(c, RASTQ_GPU_WHY_OTHER);
     }
+    if (tluc)
+        c->gpu_kind = RASTQ_GPU_KIND_TLUCBM;
     return gpu_reversed(c) ? GPU_CULL : GPU_TMAP;
 }
 
@@ -959,6 +970,16 @@ static void gpu_prepare(void) {
     for (i = 0; i < 256; i++)
         gpu_tables[RASTQ_GPU_PLAIN_ROW][i] = (uchar)i;
     gpu_rows = RASTQ_GPU_PLAIN_ROW + 1;
+    if (gpu_matrix_version == 0 || memcmp(gpu_matrix_from, tluc8tab, sizeof(gpu_matrix_from)) != 0) {
+        for (i = 0; i < 256; i++) {
+            if (tluc8tab[i] != NULL)
+                memcpy(gpu_matrix[i], tluc8tab[i], 256);
+            else
+                memset(gpu_matrix[i], i, 256);
+        }
+        memcpy(gpu_matrix_from, tluc8tab, sizeof(gpu_matrix_from));
+        gpu_matrix_version++;
+    }
     // a long list of a view the GPU draws, while frames are short of time
     // (rastq_gpu_frame)
     int long_list = rq.gpu_view && rq.threads > 1 && rq.count >= (unsigned)rq.gpu_cut_min;
@@ -1106,7 +1127,9 @@ static int gpu_put(gpu_sink *sink, const rastq_cmd *c, int put, int n, const ras
     gpu_piece *piece;
 
     if (sink == NULL)
-        return put == PUT_TMAP     ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
+        return put == PUT_TMAP && c->gpu_tluc
+                   ? rq.gpu->tluc_tmap(&c->bm, c->gpu_flags, n, v, &gpu_matrix[0][0], gpu_matrix_version)
+               : put == PUT_TMAP   ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
                : put == PUT_SHADED ? rq.gpu->shaded(n, v)
                : put == PUT_TLUC   ? rq.gpu->tluc(n, v)
                                    : rq.gpu->flat(n, v, c->gpu_row);
@@ -1644,8 +1667,20 @@ static void gpu_cut_list(void) {
     // what is left when it comes, or nothing.
     rastq_threads_kick(cut_job, rq.threads);
     cut_job(0);
+#ifdef VITA_PROFILE
+    long long waited = rastq_clock_us();
+#endif
     while (atomic_load(&cutting.finished) < cutting.count)
         rastq_threads_relax();
+#ifdef VITA_PROFILE
+    // what a worker had taken and not finished when the caller ran out
+    waited = rastq_clock_us() - waited;
+    if (!rq.gpu_check) {
+        rastq_stats.gpu_cut_wait_us += waited;
+        if (waited > rastq_stats.gpu_cut_wait_max_us)
+            rastq_stats.gpu_cut_wait_max_us = (unsigned)waited;
+    }
+#endif
     for (i = 0; i < RASTQ_THREADS; i++) {
         if (!rq.gpu_check) {
             rastq_stats.gpu_pieces += sinks[i].light_pieces;

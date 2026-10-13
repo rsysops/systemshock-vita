@@ -125,22 +125,22 @@ void game_loop(void) {
         loopLine(GL | 0x16, VPROF_RUN(VPROF_SIM, wares_update()));
 
         TRACE("%s: message_clear_check", __FUNCTION__);
-        loopLine(GL | 0x1D, message_clear_check()); // This could be done more cleverly with change flags...
+        loopLine(GL | 0x1D, VPROF_NOTE("message_clear_check", NULL, 0, 0, message_clear_check())); // This could be done more cleverly with change flags...
 
         if (localChanges) {
             TRACE("%s: render_run", __FUNCTION__);
             // with the GPU renderer the help scan runs in there, while the
             // GPU draws
-            olh_scan_render_begin();
+            VPROF_NOTE("olh_scan_render_begin", NULL, 0, 0, olh_scan_render_begin());
             loopLine(GL | 0x1A, VPROF_RUN(VPROF_RENDER3D, render_run()));
-            olh_scan_render_end();
+            VPROF_NOTE("olh_scan_render_end", NULL, 0, 0, olh_scan_render_end());
 
             TRACE("%s: status_vitals_update", __FUNCTION__);
             loopLine(GL | 0x17, VPROF_RUN(VPROF_UI2D, if (!full_game_3d) status_vitals_update(FALSE)));
             /*KLC - no longer needed
             if (_change_flag&ANIM_UPDATE)
             {
-                    loopLine(GL|0x19, AnimRecur());
+                    loopLine(GL|0x19, VPROF_NOTE("AnimRecur", NULL, 0, 0, AnimRecur()));
                     chg_unset_flg(ANIM_UPDATE);
             }
             */
@@ -171,7 +171,7 @@ void game_loop(void) {
         }
         if (!full_game_3d && olh_overlay_on) {
             TRACE("%s: olh_overlay", __FUNCTION__);
-            olh_overlay();
+            VPROF_NOTE("olh_overlay", NULL, 0, 0, olh_overlay());
         }
 
         TRACE("%s: physics_run", __FUNCTION__);

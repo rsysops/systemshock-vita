@@ -46,18 +46,18 @@ typedef enum {
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 
-// Variants of the code under test. Currently the sharing of the GPU's lists
-// with the worker threads (rastq_gpu_frame in rastq.h): 0 = always, as it
-// was, 1 = only while frames are short of time (docs/PERFORMANCE.md,
-// step S2).
+// Variants of the code under test. Currently the priority of a worker
+// thread while it cuts the GPU's list (worker_boost in rastqthr.c): 0 = its
+// own, as it was, 1 = the audio thread's (docs/PERFORMANCE.md, step S13b).
 // With VPROF_ALTERNATE set they are alternated every VPROF_WINDOWS_PER_VARIANT
 // 1 s windows, so that they can be compared within one session. Without it
 // the build stays on variant 1, which is what the game does.
 #define VPROF_VARIANT_COUNT 2
 #define VPROF_ALTERNATE 0
-// ten minutes, for when the battery's drain is what is compared: its gauge
-// moves a few mAh every 35 s. Frame times need only a few seconds.
-#define VPROF_WINDOWS_PER_VARIANT 600
+// Frame times need only a few seconds: step S13b took 20. (Ten minutes, 600,
+// for when the battery's drain is what is compared: its gauge moves a few
+// mAh every 35 s.)
+#define VPROF_WINDOWS_PER_VARIANT 20
 extern int vprof_variant;
 
 // Leaves the current frame out of the window's statistics.

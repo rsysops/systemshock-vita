@@ -163,6 +163,9 @@ typedef struct {
     int note_count;
     SceInt64 phase_us[VPROF_PHASE_COUNT];
     unsigned long long gpu_wait_us, gpu_submit_us, upload_us, texture_bytes, swap_wait_us;
+    unsigned long long gpu_cut_wait_us; // the frame's wait for the workers' share of the GPU's list
+    unsigned long long gpu_cpu_us; // the frame's calls of a GPU view that the CPU drew
+    unsigned gpu_cpu_calls;
     unsigned cmds, views;
     char place[40]; // where the player was (vprof_place)
 } vprof_spike_t;
@@ -577,6 +580,8 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     hudkeep_stats.text_hits = hudkeep_stats.text_misses = 0;
     hudkeep_stats.scaled_hits = hudkeep_stats.scaled_misses = 0;
     rastq_stats.gpu_prepare_us = 0;
+    rastq_stats.gpu_cut_wait_us = 0;
+    rastq_stats.gpu_cut_wait_max_us = 0;
     for (i = 0; i < RASTQ_THREADS; i++)
         rastq_stats.gpu_cut[i] = 0;
     for (i = 0; i < RASTQ_SOLO_REASONS; i++)
@@ -784,6 +789,9 @@ static void vprof_spike_add(SceInt64 now, SceInt64 elapsed) {
     for (i = 0; i < VPROF_PHASE_COUNT; i++)
         s->phase_us[i] = g_frame_phase_total_us[i];
     s->gpu_wait_us = rastq_stats.gpu_wait_us - g_rastq_at_frame_begin.gpu_wait_us;
+    s->gpu_cpu_us = rastq_stats.gpu_cpu_us - g_rastq_at_frame_begin.gpu_cpu_us;
+    s->gpu_cut_wait_us = rastq_stats.gpu_cut_wait_us - g_rastq_at_frame_begin.gpu_cut_wait_us;
+    s->gpu_cpu_calls = rastq_stats.gpu_cpu_calls - g_rastq_at_frame_begin.gpu_cpu_calls;
     s->gpu_submit_us = rastq_stats.gpu_submit_us - g_rastq_at_frame_begin.gpu_submit_us;
     s->upload_us = vgpu_counters.upload_us - g_vgpu_at_frame_begin.upload_us;
     s->texture_bytes = vgpu_counters.texture_bytes - g_vgpu_at_frame_begin.texture_bytes;
@@ -899,6 +907,8 @@ static void vprof_spikes_write(void) {
                 us_to_ms((SceInt64)s->gpu_wait_us), us_to_ms((SceInt64)s->gpu_submit_us),
                 us_to_ms((SceInt64)s->upload_us), (double)s->texture_bytes / 1024.0,
                 us_to_ms((SceInt64)s->swap_wait_us), s->cmds, s->views, s->place);
+        log_printf(" gpucpu=%u/%.2f cutwait=%.2f", s->gpu_cpu_calls, us_to_ms((SceInt64)s->gpu_cpu_us),
+                   us_to_ms((SceInt64)s->gpu_cut_wait_us));
         vprof_swap_write(&s->swap);
         {
             // the music's stretches during the frame: start+length@core, from the frame's start
@@ -958,7 +968,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "split=%d/%d/%d wcpu=%d/%d/%d leaks=%u | helpscan=%.2f/%.2f | "
                 "gpuscenes=%.2f gpupolys=%.1f gpusubmit=%.2f gpuwait=%.2f gpufallbacks=%u gpudiff=%llu/%llu "
                 "gpuculled=%.1f gpucpu=%.1f/%.2f gputex=%.1fKB swapwait=%.2f | "
-                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f,shaded:%.1f,line:%.1f,point:%.1f,tluc:%.1f gpupieces=%.1f "
+                "gpukinds=flat:%.1f,plain:%.1f,clut:%.1f,lit:%.1f,shaded:%.1f,line:%.1f,point:%.1f,tluc:%.1f,tlucbm:%.1f gpupieces=%.1f "
                 "gpuwhy=tlucbm:%.1f,spoly:%.1f,tlucpoly:%.1f,poly:%.1f,fill:%.1f,verts:%.1f,light:%.1f,clip:%.1f,"
                 "size:%.1f,other:%.1f | "
                 "gpuprepare=%.2f gpuupload=%.2f gpudraw=%.2f gpudraws=%.1f | "
@@ -975,7 +985,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
                 "applog=%u:%.2f applogmax=%08x:%.2f | at=%s | amap=%.2f/%.2f amaps=%d amapmax=%.2f | "
                 "lateswap=%d light=%d onmcb=%d/%d nearmcb=%d/%d prevmcb=%d/%d mcb0=%u mcbmax=%.2f vbllag=%.2f aprio=%d amask=%x mprio=%d "
-                "mmask=%x\n",
+                "mmask=%x cutwait=%.2f/%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -1034,6 +1044,7 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_LINE] / g_frame_samples,
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_POINT] / g_frame_samples,
                 (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUC] / g_frame_samples,
+                (double)rastq_stats.gpu_kinds[RASTQ_GPU_KIND_TLUCBM] / g_frame_samples,
                 (double)rastq_stats.gpu_pieces / g_frame_samples,
                 (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_TLUC_BITMAP] / g_frame_samples,
                 (double)rastq_stats.gpu_whys[RASTQ_GPU_WHY_SHADED_POLY] / g_frame_samples,
@@ -1106,7 +1117,9 @@ static void vprof_window_flush(SceInt64 now) {
                 g_swap_prev_late, g_swap_prev, __atomic_exchange_n(&g_mcb_on_main, 0, __ATOMIC_RELAXED),
                 us_to_ms((SceInt64)__atomic_exchange_n(&g_mcb_max_us, 0, __ATOMIC_RELAXED)),
                 us_to_ms((SceInt64)__atomic_exchange_n(&g_vbl_lag_max, 0, __ATOMIC_RELAXED)),
-                g_audio_prio, (unsigned)g_audio_mask, g_main_prio, (unsigned)g_main_mask);
+                g_audio_prio, (unsigned)g_audio_mask, g_main_prio, (unsigned)g_main_mask,
+                us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_us) / g_frame_samples,
+                us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_max_us));
         __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
         g_res_max_us = 0;
         g_res_max_id = 0;

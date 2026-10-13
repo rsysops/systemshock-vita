@@ -63,10 +63,11 @@ GPU renderer's (S1 and on), `docs/profiles-perf/`, as `profile-step-N.txt`,
 - **It draws as the game does**: on the GPU, or on three cores when
   the GPU can't be used. It can also switch between two ways of doing
   something under test, when `VPROF_ALTERNATE` is set to 1 in
-  `src/Libraries/H/vprof.h` (it is 0): at present the GPU's lists
-  always shared with the worker threads (`var=0`) against shared only
-  while frames are short of time (`var=1`, what the game does), ten
-  minutes each. The log says which was on (`var=`). That is what makes
+  `src/Libraries/H/vprof.h` (it is 0): at present a worker thread
+  keeping its own priority while it cuts the GPU's list (`var=0`, as
+  it was before step S13b) against taking the audio thread's (`var=1`,
+  what the game does), twenty seconds each. The log says which was on
+  (`var=`). That is what makes
   two ways comparable: same place, same moment, same capture.
 - **It writes its log from a thread of its own**, a few times a second.
   The main thread only builds the lines (`logwrite=`); the card is the
@@ -125,7 +126,10 @@ compiled and were tried) or
 each of the check's four bands for the last way tried, -1 if it wasn't
 drawn; and with `64KB tluc_fill us: in_place= copied=`, what the CPU
 takes to pass 64 KB of GPU memory through a translucency table, pixel
-by pixel in place and the 2D library's way since S11c. `gpu.txt` has
+by pixel in place and the 2D library's way since S11c. Last,
+`tlucbm=on` or `off (CPU)`: whether the GPU draws translucent bitmaps
+(step S13), with `tlucbm_check opaque= trans= table= twice=`, the wrong
+columns of each band of its check. `gpu.txt` has
 the compiler's words and the first wrong columns of each way. Then one
 line a second:
 
@@ -222,7 +226,7 @@ All zero in the seconds the CPU draws.
 |---|---|
 | `gpuscenes` | GPU passes; 1 is the aim, more means the frame was interrupted |
 | `gpupolys` | calls the GPU drew |
-| `gpukinds=` | of those: `flat`, `plain` texture, through a colour table (`clut`), `lit`, `shaded` between colours, `line`, `point`, and `tluc`, a translucent polygon (a force bridge) |
+| `gpukinds=` | of those: `flat`, `plain` texture, through a colour table (`clut`), `lit`, `shaded` between colours, `line`, `point`, `tluc`, a translucent polygon (a force bridge), and `tlucbm`, a translucent bitmap's texture map |
 | `gpupieces` | pieces the lit calls were cut into |
 | `gpuculled` | calls dropped for facing away |
 | `gpucpu=a/b` | calls of a GPU view the CPU drew, and the time it took |
@@ -255,6 +259,7 @@ All zero in the seconds the CPU draws.
 | `lateswap=`, `light=` | frames of this second whose work was short (under 14 ms, `light`) and whose hand-over's refresh was seen, and those of them that lasted over 23 ms all the same (`lateswap`; `late=` in S12's capture, where it is the second `late=` of the line): the main thread woke late from the hand-over. With the next six, at the end of the line (step S12) |
 | `onmcb=a/b` | of the `light` frames, those with the music's synthesis at work on the refresh their hand-over was for (b), and the late ones among them (a). `nearmcb=` the same with the music at work in the 4 ms before that refresh, `prevmcb=` on the refresh before the hand-over was asked for |
 | `mcb0` | the music's stretches of this second that ran on the core the main thread was last seen on. 0 since S12b, which keeps the audio thread on cores 1 and 2 |
+| `cutwait=avg/max` | what the main thread waited, a frame, for the worker threads' share of the GPU's list once its own was done (`gpu_cut_list`), and the longest wait of the second. A stutter's line has its frame's, after `gpucpu=`. Last in the line (step S13b) |
 | `mcbmax` | the longest stretch of the music's synthesis in this second, in ms: one call of the audio thread, 2048 samples |
 | `vbllag` | the most that the profiler's own thread, which sleeps on the screen's refresh at the highest priority, woke after one, in ms |
 | `aprio`, `amask`, `mprio`, `mmask` | the priority and the cores (a mask) of the audio thread and of the main thread; -1 until known |
@@ -336,6 +341,7 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `read_email`, `audiolog_play`, `inventory_draw_new_page`, `email_skip_lines`, `email_draw_text`, `make_email_cursor`, `inventory_clear`, `mfd_notify_func`, `play_vmail` and the like | what opening a mail or turning its page is made of (`src/GameSrc/email.c`) |
 | `amap_draw#zoom` | the level's map drawn, and its zoom. Inside `mfd@…` when the map is in a side panel, inside `fsmap_draw_map()` on the map's own screen |
 | `fsmap_interface_draw()`, `fsmap_draw_map()`, `fsmap_button_redraw()`, `fsmap_message_redraw()`, `fsmap_draw_screen(cf)` | the full-screen map's loop (`src/GameSrc/amaploop.c`, mode 8): the frame around the map, the map, its buttons, its message line, and the copy to the screen. All counted in `ui2d` |
+| `resimage_poll`, `loopmode_switch`, `MousePollProc`, `status_bio_update`, `ZoomDrawProc#0` and `#1`, `message_clear_check`, `olh_scan_render_begin`, `olh_scan_render_end`, `AnimRecur`, `olh_overlay` | the parts of the main loop and of the game's loop that belong to no phase, each by its function's name: what a frame's `other=` is made of, if it is the game's code at all (step S13b) |
 | `mfd@address#function/panel` | a side panel redrawn (`mfd_update_current_slot`): the panel function at that address, its number (hex, the `MFD_*_FUNC` of `mfdext.h`) and which panel, 0 left, 1 right |
 | `uiPoll`, `poll_mouse`, `process_motion_keys` | the three parts of `input_chk()` |
 
@@ -365,8 +371,10 @@ flavour that session ran. A
 stutter in a second that isn't logged (the screen changed) still gets
 its line, with the next second's.
 
-A stutter's line also carries the frame's hand-over to the screen
-(step S12), after `at=`: `vbl=` the refreshes the frame spanned,
+A stutter's line has, after `at=`, `gpucpu=calls/ms`: the calls of
+that frame's GPU views that the CPU drew, and their time (step S13; a
+second's `gpucpu=` is the average of its frames). It also carries the
+frame's hand-over to the screen (step S12): `vbl=` the refreshes the frame spanned,
 `swapat=` how many ms after a refresh the hand-over was asked for,
 `vbllag=` how late the refresh's thread woke for the refresh the
 hand-over was for, and `mcb=` the music's stretches of synthesis about

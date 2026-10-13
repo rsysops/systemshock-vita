@@ -10,6 +10,13 @@ textured vertex shader compiled: 368 bytes
 textured fragment shader compiled: 452 bytes
 transparent fragment shader compiled: 544 bytes
 texture units: bitmap 0, tables 1; transparent: bitmap 0, tables 1
+compiling the translucent bitmaps' shaders
+translucent bitmap fragment shader compiled: 564 bytes
+texture units: translucent bitmap: bitmap 0, tables 1, matrix 2
+translucent transparent bitmap fragment shader compiled: 656 bytes
+texture units: translucent bitmap, transparent: bitmap 0, tables 1, matrix 2
+drawing the translucent bitmap check
+translucent bitmap check drawn: 0 0 0 0 wrong
 compiling the shaded shaders
 shaded vertex shader compiled: 360 bytes
 shaded fragment shader compiled: 512 bytes
@@ -25,5 +32,5 @@ texture check drawn: 0 0 0 0 wrong
 drawing the colour check
 colour check drawn: 0 0 0 wrong
 timing memory
-gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 colour_check red=0 green=0 blue=0 (wrong columns of 256) | 512KB us: gpu_write=742 gpu_read=5257 ram_write=716 ram_read=1288 | tluc=on:0/1 tluc_check under=0 twice=0 kept=0 mixed=0 | 64KB tluc_fill us: in_place=37110 copied=1890
-3 canvases 960x544, 960 bytes a row, the first at 0x62c40000
+gpu: ready index_check mismatches=0/256 first_bad=-1 got=-1 undrawn_kept=1 | textures=on texture_check plain=0 table=0 light=0 wrap=0 colour_check red=0 green=0 blue=0 (wrong columns of 256) | 512KB us: gpu_write=735 gpu_read=5053 ram_write=386 ram_read=1404 | tluc=on:0/1 tluc_check under=0 twice=0 kept=0 mixed=0 | 64KB tluc_fill us: in_place=36942 copied=1726 | tlucbm=on tlucbm_check opaque=0 trans=0 table=0 twice=0
+3 canvases 960x544, 960 bytes a row, the first at 0x62c80000

@@ -15,9 +15,9 @@ Fixes:
 
 Performance:
 * FPS lock 30 option
-* Improve performance (GPU)
+* Improve performance (GPU) (ongoing)
 * Remove gpu.txt when no error
-* System Shock Enhanced shadow render
+* System Shock Enhanced shadow render as a mod
 
 User interface:
 * Add a message alert if the resource are absent
@@ -26,4 +26,3 @@ User interface:
 * Name field focus
 * Native resolution for the movies?
 * On help HUD is disable automatically
-

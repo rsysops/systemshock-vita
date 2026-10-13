@@ -34,6 +34,7 @@ enum {
     RASTQ_GPU_KIND_LINE,  // a line, in one colour or shaded
     RASTQ_GPU_KIND_POINT,
     RASTQ_GPU_KIND_TLUC,  // a translucent polygon: what is under it, through a table
+    RASTQ_GPU_KIND_TLUCBM, // a translucent bitmap's texture map
     RASTQ_GPU_KINDS
 };
 
@@ -98,6 +99,8 @@ typedef struct {
     unsigned gpu_lists_solo;            // the caller alone, the list being short
     unsigned gpu_solo_calls;            // calls in those
     unsigned gpu_lists_rested;          // of the caller's, those long enough to share
+    unsigned long long gpu_cut_wait_us; // the caller's wait for the workers' share of a shared list
+    unsigned gpu_cut_wait_max_us;       // and the longest
 #endif
 } rastq_stats_t;
 
@@ -193,6 +196,17 @@ typedef struct {
     // row plus a half). 0: no room left in this scene. NULL: it can't, and
     // the CPU draws those.
     int (*tluc)(int n, const rastq_gpu_vertex *v);
+    // A texture map of a translucent bitmap (BMT_TLUC8): as `tmap`, but what
+    // goes through the table row is not the texel. It is the entry of
+    // `matrix`, 256 rows of 256, in the texel's row at what the canvas holds
+    // there, as the calls before it in the scene left it: the pixel under
+    // the texel through the texel's translucency table, or the texel itself
+    // where it has none. A texel 0 still leaves the pixel alone under
+    // RASTQ_GPU_TRANS. `matrix` is valid until the scene ends, and `version`
+    // changes when its content does. 0: no room left in this scene. NULL:
+    // it can't, and the CPU draws those.
+    int (*tluc_tmap)(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, const uchar *matrix,
+                     unsigned version);
 } rastq_gpu;
 
 // Offers a GPU to the queue (NULL: none), and says whether to use it.
