@@ -103,7 +103,6 @@ extern uchar fullscrn_vitals;
 extern uchar fullscrn_icons;
 extern uchar map_notes_on;
 extern uchar audiolog_setting;
-extern uchar mouseLefty;
 extern char curr_alog_vol;
 
 errtype draw_difficulty_char(int char_num);

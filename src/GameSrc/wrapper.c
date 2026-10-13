@@ -75,9 +75,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define VIDEO_BUTTON         5
 #define RETURN_BUTTON        6
 #define QUIT_BUTTON          7
-#define AUDIO_OPT_BUTTON     8
-#define HEAD_RECENTER_BUTTON 10
-#define HEADSET_BUTTON       11
 
 #define MOUSE_DOWN (MOUSE_LDOWN | MOUSE_RDOWN | UI_MOUSE_LDOUBLE)
 #define MOUSE_UP   (MOUSE_LUP | MOUSE_RUP)
@@ -114,9 +111,7 @@ uchar save_verify_slorker(uchar butid);
 void free_options_cursor(void);
 
 void input_screen_init(void);
-void joystick_screen_init(void);
 void sound_screen_init(void);
-void soundopt_screen_init(void);
 void video_screen_init(void);
 
 uint multi_get_curval(uchar type, void *p);
@@ -142,7 +137,6 @@ enum { PAGE_LOAD, PAGE_SAVE, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, PAGE_VIDEO,
 
 #define PAGE_NONE -1           // main list: PgUp/PgDn do nothing there
 #define VITA_INPUT_BUTTON 8    // main-list button opening the Vita input screen
-#define JOYSTICK_BUTTON 3      // input-screen button opening the joystick screen
 #define OPANEL_SLIDER_STEP 5   // pixels a grabbed bar moves per Left/Right press (same as the mouse wheel)
 #define OPANEL_ALIGN_SLACK 8   // alignment tolerance, in doubled-centre units (4 px): bars sit lower in their slot than buttons
 #define FOCUS_BUTTON_COLOR (BUTTON_COLOR - 2) // focused widget: lighter green
@@ -1673,17 +1667,6 @@ void wrapper_pushbutton_func(uchar butid) {
     case VIDEO_BUTTON: // Input
         video_screen_init();
         break;
-    case HEAD_RECENTER_BUTTON: // Input
-    {
-        // extern uchar recenter_headset(ushort keycode, uint32_t context, intptr_t data);
-        // recenter_headset(0,0,0);
-    } break;
-    case HEADSET_BUTTON:
-        // headset_screen_init();
-        break;
-    case AUDIO_OPT_BUTTON:
-        soundopt_screen_init();
-        break;
     case OPTIONS_BUTTON: // Options
         options_screen_init();
         break;
@@ -1821,65 +1804,7 @@ void audiolog_dealfunc(short val) {
     QUESTVAR_SET(ALOG_OPT_QVAR, audiolog_setting);
 }
 
-char hack_digi_channels = 1;
-
-void digichan_dealfunc(short val) {
-    hack_digi_channels = val;
-    switch (hack_digi_channels) {
-    case 0:
-        cur_digi_channels = 2;
-        break;
-    case 1:
-        cur_digi_channels = 4;
-        break;
-    case 2:
-        cur_digi_channels = 8;
-        break;
-    }
-    QUESTVAR_SET(DIGI_CHANNELS_QVAR, hack_digi_channels);
-    // snd_set_digital_channels(cur_digi_channels);
-}
-
 #pragma enable_message(202)
-
-#define SLIDER_OFFSET_3 0
-void soundopt_screen_init() {
-    LGRect r;
-    char retkey;
-    int i = 0;
-
-    clear_obuttons();
-    opanel_screen_begin(soundopt_screen_init, sound_screen_init, PAGE_AUDIO, AUDIO_OPT_BUTTON);
-
-    standard_button_rect(&r, i);
-    retkey = tolower(get_temp_string(REF_STR_AilThreeText)[0]);
-    multi_init(i, retkey, REF_STR_AilThreeText, REF_STR_DigiChannelState, ID_NULL, sizeof(hack_digi_channels),
-               &hack_digi_channels, 3, digichan_dealfunc, &r);
-    i++;
-
-    standard_button_rect(&r, i);
-    retkey = tolower(get_temp_string(REF_STR_AilThreeText + 1)[0]);
-    // multi_init(i, retkey, REF_STR_AilThreeText+1, REF_STR_StereoReverseState, NULL,
-    //   sizeof(snd_stereo_reverse), &snd_stereo_reverse, 2, NULL, &r);
-    // i++;
-
-    standard_button_rect(&r, i);
-    retkey = tolower(get_temp_string(REF_STR_MusicText + 3)[0]);
-    multi_init(i, retkey, REF_STR_MusicText + 3, REF_STR_AudiologState, ID_NULL, sizeof(audiolog_setting),
-               &audiolog_setting, 3, audiolog_dealfunc, &r);
-    i++;
-
-    // (no MIDI player and no MIDI output: hidden settings, "midi-backend" and
-    // "midi-output" in the prefs file)
-
-    standard_button_rect(&r, 5);
-    retkey = tolower(get_temp_string(REF_STR_MusicText + 2)[0]);
-    pushbutton_init(RETURN_BUTTON, retkey, REF_STR_MusicText + 2, wrapper_pushbutton_func, &r);
-
-    // FIXME: Cannot pass a keycode with modifier flags as uchar
-    keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
-    opanel_redraw(TRUE);
-}
 
 void sound_screen_init(void) {
     LGRect r;
@@ -1917,9 +1842,11 @@ void sound_screen_init(void) {
     slider_init(2, REF_STR_MusicText + 4, sizeof(ushort), FALSE, &player_struct.questvars[ALOG_VOLUME_QVAR], 100,
                 sliderbase, recompute_audiolog_level, &r);
 
+    // Messages: text, speech or both
     standard_button_rect(&r, 2);
-    retkey = tolower(get_temp_string(REF_STR_AilThreeText + 2)[0]);
-    pushbutton_init(AUDIO_OPT_BUTTON, retkey, REF_STR_AilThreeText + 2, wrapper_pushbutton_func, &r);
+    retkey = tolower(get_temp_string(REF_STR_MusicText + 3)[0]);
+    multi_init(3, retkey, REF_STR_MusicText + 3, REF_STR_AudiologState, ID_NULL, sizeof(audiolog_setting),
+               &audiolog_setting, 3, audiolog_dealfunc, &r);
 
     standard_button_rect(&r, 5);
     retkey = tolower(get_temp_string(REF_STR_MusicText + 2)[0]);
@@ -1989,96 +1916,10 @@ void dclick_dealfunc(ushort dclick_qvar) {
     uiDoubleClickTime = QVAR_TO_DCLICK(dclick_qvar, 1);
 }
 
-void joysens_dealfunc(ushort joysens_qvar) {
-    extern fix inpJoystickSens;
-
-    inpJoystickSens = QVAR_TO_JOYSENS(joysens_qvar);
-}
-
-#pragma disable_message(202)
-void center_joy_go(uchar butid) {
-
-    // recenter_joystick(0,0,0);
-    joystick_screen_init();
-}
-#pragma enable_message(202)
-
-void center_joy_pushbutton_func(uchar butid) {
-    int i;
-    string_message_info(REF_STR_CenterJoyPrompt);
-
-    // take over this button, null the other buttons
-    // except for RETURN and QUIT;
-
-    for (i = 0; i < MAX_OPTION_BUTTONS; i++) {
-        if (i == butid)
-            keywidget_init(i, KEY_ENTER, center_joy_go);
-        else if (i != RETURN_BUTTON && i != QUIT_BUTTON)
-            OButtons[i].evmask = 0;
-    }
-}
-
-void mousehand_dealfunc(ushort lefty) {
-    // mouse_set_lefty(lefty);
-}
-
 #pragma disable_message(202)
 void olh_dealfunc(uchar olh) {
     toggle_olh_func(0, 0, 0);
 }
-#pragma enable_message(202)
-
-ushort wrap_joy_type = 0;
-void joystick_type_func(ushort new_joy_type) {
-    extern uchar joystick_count;
-    // joystick_count = joy_init(high_joy_flags | new_joy_type);
-    // config_set_single_value("joystick",CONFIG_INT_TYPE,(config_valtype)(high_joy_flags|new_joy_type));
-    joystick_screen_init();
-}
-
-void joystick_screen_init(void) {
-    LGRect r;
-    int i = 0;
-    char *keys;
-    extern uchar inp6d_headset;
-    uchar sliderbase;
-
-    extern uchar joystick_count;
-    keys = get_temp_string(REF_STR_KeyEquivs6);
-    clear_obuttons();
-    opanel_screen_begin(joystick_screen_init, input_screen_init, PAGE_INPUT, JOYSTICK_BUTTON);
-
-    standard_button_rect(&r, i);
-    multi_init(i, keys[i], REF_STR_JoystickType, REF_STR_JoystickTypes, ID_NULL, sizeof(wrap_joy_type),
-               &wrap_joy_type, 4, joystick_type_func, &r);
-    i++;
-
-    standard_button_rect(&r, i);
-    pushbutton_init(i, keys[i], REF_STR_CenterJoy, center_joy_pushbutton_func, &r);
-    if (!joystick_count && !inp6d_headset) {
-        dim_pushbutton(i);
-    }
-    i++;
-
-    if (joystick_count) {
-        standard_slider_rect(&r, i);
-        sliderbase = (r.lr.x - r.ul.x - 2) >> 1;
-        slider_init(i, REF_STR_JoystickSens, sizeof(ushort), FALSE, &player_struct.questvars[JOYSENS_QVAR], 256,
-                    sliderbase, joysens_dealfunc, &r);
-    }
-    i++;
-
-    standard_button_rect(&r, 5);
-    pushbutton_init(RETURN_BUTTON, keys[i], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
-
-    // FIXME: Cannot pass a keycode with modifier flags as uchar
-    keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
-
-    opanel_redraw(TRUE);
-}
-
-#pragma disable_message(202)
-void joystick_button_func(uchar butid) { joystick_screen_init(); }
 #pragma enable_message(202)
 
 void input_screen_init(void) {
@@ -2086,7 +1927,6 @@ void input_screen_init(void) {
     char *keys;
     int i = 0;
     uchar sliderbase;
-    extern uchar inp6d_headset;
 
     keys = get_temp_string(REF_STR_KeyEquivs1);
     clear_obuttons();
@@ -2097,20 +1937,10 @@ void input_screen_init(void) {
                &popup_cursors, 2, NULL, &r);
     i++;
 
-    standard_button_rect(&r, i);
-    multi_init(i, keys[1], REF_STR_OptionsText + 1, REF_STR_MouseHand, REF_STR_HandFeedback,
-               sizeof(player_struct.questvars[MOUSEHAND_QVAR]), &player_struct.questvars[MOUSEHAND_QVAR], 2,
-               mousehand_dealfunc, &r);
-    i++;
-
     standard_slider_rect(&r, i);
     sliderbase = ((r.lr.x - r.ul.x - 3) * (FIX_UNIT / 3)) / USHRT_MAX;
     slider_init(i, REF_STR_DoubleClick, sizeof(ushort), FALSE, &player_struct.questvars[DCLICK_QVAR], USHRT_MAX,
                 sliderbase, dclick_dealfunc, &r);
-    i++;
-
-    standard_button_rect(&r, i);
-    pushbutton_init(i, keys[2], REF_STR_Joystick, joystick_button_func, &r);
     i++;
 
     standard_button_rect(&r, i);
@@ -2139,7 +1969,6 @@ void vita_input_init(uchar butid) {
     char *keys;
     int i = 0;
     uchar sliderbase;
-    extern uchar inp6d_headset;
 
     keys = get_temp_string(REF_STR_KeyEquivs1);
     clear_obuttons();

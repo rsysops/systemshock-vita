@@ -63,7 +63,6 @@ uchar really_quit_key_func(ushort keycode, uint32_t context, intptr_t data) {
     return change_mode_func(keycode, context, SETUP_LOOP);
 }
 
-extern bool DoubleSize;
 
 uchar change_mode_func(ushort keycode, uint32_t context, intptr_t data) {
     int newm = (int)data;

@@ -136,7 +136,6 @@ HudLine hud_lines[] = {
 
 #define HUDLINE_BUFFER(i) (hudline_text[HUDLINE_TEXT(&hud_lines[i])])
 
-extern bool DoubleSize;
 
 // --------------
 //  PROTOTYPES
@@ -395,12 +394,6 @@ void hud_report_damage(ObjID target, byte dmglvl) {
 }
 
 void draw_target_box(short xl, short yl, short xh, short yh) {
-    if (DoubleSize) {
-        xl *= 2;
-        yl *= 2;
-        xh *= 2;
-        yh *= 2;
-    }
     short w = (xh - xl) / 5;
     short h = (yh - yl) / 5;
     gr_vline(xl, yl, yl + h);
@@ -455,10 +448,6 @@ void update_damage_report(struct _hudobj_data *dat, uchar reverse) {
                 extern uchar shadow_scale;
                 uchar old_scale = shadow_scale;
                 shadow_scale = FALSE;
-                if (DoubleSize) {
-                    x *= 2;
-                    y = 2 * y + 1; // Text needed to come down a bit.
-                }
                 draw_shadowed_string(buf, x, y, TRUE);
                 shadow_scale = old_scale;
             }

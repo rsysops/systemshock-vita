@@ -81,7 +81,6 @@ int boring_count;
 int mlimbs_boredom;
 uchar wait_flag;
 int next_mode, ai_cycle;
-int cur_digi_channels = 4;
 
 // extern int digifx_volume_shift(short x, short y, short z, short phi, short theta, short basevol);
 // extern int digifx_pan_shift(short x, short y, short z, short phi, short theta);

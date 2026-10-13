@@ -50,10 +50,8 @@ typedef struct {
 
     // Display Options
     short doVideoMode;
-    short doResolution; // 0 - High, 1 - Low
     short doDetail;     // 0 - Min, 1-Low, 2-High, 3-Max
     short doGamma;
-    bool doUseQD;
 
     bool gyroAiming;
     short gyroAimingSpeed;

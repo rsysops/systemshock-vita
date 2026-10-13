@@ -82,7 +82,6 @@ extern frc *svga_render_context;
 // DEFINES
 // -------
 
-extern bool DoubleSize;
 
 #define CFG_DCLICK_RATE_VAR "dclick_time"
 #define CFG_OOMPHOMETER "throw_oomph"
@@ -146,8 +145,6 @@ grs_bitmap motion_cursor_bitmaps[NUM_MOTION_CURSORS];
 int input_cursor_mode = INPUT_NORMAL_CURSOR;
 int throw_oomph = 5;
 
-uchar inp6d_headset = FALSE;
-fix inpJoystickSens = FIX_UNIT;
 
 // checking for game paused
 extern uchar game_paused;
@@ -158,8 +155,6 @@ LGPoint use_cursor_pos;
 
 void inp6d_chk(void);
 
-uchar joystick_count = 0;
-uchar recenter_joystick(ushort keycode, uint32_t context, intptr_t data);
 
 uchar change_gamma(ushort keycode, uint32_t context, intptr_t data);
 
@@ -381,8 +376,6 @@ void alloc_cursor_bitmaps(void)
 
 #include "frtypes.h"
 //extern bool gPlayingGame;
-extern bool DoubleSize;
-extern bool SkipLines;
 
 uchar MacDetailFunc(ushort keycode, uint32_t context, intptr_t data) {
     char msg[32];
@@ -789,11 +782,6 @@ uchar weapon_button_up = TRUE;
 
 void CalcMotionCurOffset(uchar cyber, LGRegion *reg, short *cx, short *cy, short *cw, short *ch, short *x, short *y)
 {
-  if (DoubleSize)
-  {
-    (*x) *= 2;
-    (*y) *= 2;
-  }
 
   if (!cyber)
   {
@@ -1000,10 +988,7 @@ void view3d_rightbutton_handler(uiEvent *ev, LGRegion *r, view3d_data *data) {
     extern uchar hack_takeover;
     LGPoint aimpos = ev->pos;
 
-    if (DoubleSize)                        // If double sizing, convert the y to 640x480, then
-        aimpos.y = SCONV_Y(aimpos.y) >> 1; // half it.  The x stays as is.
-    else
-        ss_point_convert(&(aimpos.x), &(aimpos.y), FALSE);
+    ss_point_convert(&(aimpos.x), &(aimpos.y), FALSE);
 
     // Don't do nuthin if we're in a hack camera
     if (hack_takeover)
@@ -1068,10 +1053,7 @@ void view3d_rightbutton_handler(uiEvent *ev, LGRegion *r, view3d_data *data) {
             short dropy = DROP_REGION_Y(r);
             short y = aimpos.y;
             //         if (convert_use_mode != 0)
-            if (DoubleSize)                  // If double sizing, convert the y to 640x480, then
-                dropy = SCONV_Y(dropy) >> 1; // half it.  The x stays as is.
-            else
-                dropy = SCONV_Y(dropy);
+            dropy = SCONV_Y(dropy);
             if (y >= dropy && data->lastright.y >= dropy) {
                 vel = 0;
             }
@@ -1451,10 +1433,7 @@ uchar view3d_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t v) {
 
     pt = evp;
 
-        if (DoubleSize)                  // If double sizing, convert the y to 640x480, then
-            evp.y = SCONV_Y(evp.y) >> 1; // half it.  The x stays as is.
-        else
-            ss_point_convert(&(evp.x), &(evp.y), FALSE);
+    ss_point_convert(&(evp.x), &(evp.y), FALSE);
 
     view3d_got_event = TRUE;
     pt.x += r->r->ul.x - r->abs_x;
@@ -1499,8 +1478,7 @@ uchar view3d_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t v) {
             use_frc = svga_render_context;
             rabsx = r->abs_x;
             rabsy = r->abs_y;
-            if (!DoubleSize)
-                ss_point_convert(&rabsx, &rabsy, FALSE);
+            ss_point_convert(&rabsx, &rabsy, FALSE);
     
             id = fr_get_at(use_frc, evp.x - rabsx, evp.y - rabsy, TRUE);
             if ((short)id > 0) {

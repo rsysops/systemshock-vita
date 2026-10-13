@@ -255,7 +255,6 @@ errtype interpret_qvars(void) {
     gamma_dealfunc(QUESTVAR_GET(GAMMACOR_QVAR));
 
     // dclick_dealfunc(QUESTVAR_GET(DCLICK_QVAR));
-    // joysens_dealfunc(QUESTVAR_GET(JOYSENS_QVAR));
 
     recompute_music_level(QUESTVAR_GET(MUSIC_VOLUME_QVAR));
     recompute_digifx_level(QUESTVAR_GET(SFX_VOLUME_QVAR));
@@ -266,9 +265,6 @@ errtype interpret_qvars(void) {
     map_notes_on = QUESTVAR_GET(AMAP_NOTES_QVAR);
     hud_color_bank = QUESTVAR_GET(HUDCOLOR_QVAR);
 
-    digichan_dealfunc(QUESTVAR_GET(DIGI_CHANNELS_QVAR));
-
-    // mouse_set_lefty(QUESTVAR_GET(MOUSEHAND_QVAR));
 
     language_change(QUESTVAR_GET(LANGUAGE_QVAR));
 

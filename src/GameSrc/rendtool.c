@@ -146,10 +146,6 @@ void game_fr_clip_start(uchar headnorth);
 // Note that I have fixed this so that the cursor does not flicker.
 // It just works.  Note its simplistic beauty.	I love this job.
 void rend_mouse_hide(void) {
-    extern bool DoubleSize;
-    extern grs_canvas gDoubleSizeOffCanvas;
-    extern bool view360_is_rendering;
-
     MouseLock++;
     if (MouseLock == 1 && CurrentCursor != NULL) {
         int cmd = CURSOR_DRAW;
@@ -169,16 +165,7 @@ void rend_mouse_hide(void) {
         mouselocked = 1;
         MouseLock++; // keep mouse locked while we blit
 
-        if (DoubleSize && !view360_is_rendering) // If double-sizing, then draw the cursor in the
-        {                                        // temporary doubled canvas.
-            CursorCanvas = &gDoubleSizeOffCanvas;
-            if (!full_game_3d) // In slot view, adjust the cursor position.
-            {
-                pos.x -= 28;
-                pos.y -= 29;
-            }
-        } else
-            CursorCanvas = &_fr->draw_canvas;
+        CursorCanvas = &_fr->draw_canvas;
         if (LastCursor)
             LastCursor->func(cmd, CursorRegion, LastCursor, pos);
         CursorCanvas = old_canvas;

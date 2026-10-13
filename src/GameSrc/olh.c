@@ -228,7 +228,6 @@ got_id:
 // ---------
 // EXTERNALS
 // ---------
-extern bool DoubleSize;
 
 //-----------------------------
 // olh_scan_objects()
@@ -287,10 +286,6 @@ LGPoint draw_olh_string(char *s, short xl, short yl) {
     gr_string_wrap(s, OLH_WRAP_WID);
     gr_string_size(s, &w, &h);
     ss_point_convert(&xl, &yl, TRUE);
-    if (DoubleSize) {
-        xl *= 2;
-        yl = yl * 2 + 1;
-    }
     x = SCREEN_VIEW_X - xl + SCREEN_VIEW_WIDTH - w - 1;
     y = SCREEN_VIEW_Y - yl + SCREEN_VIEW_HEIGHT - h - 1;
     draw_shadowed_string(s, x, y, TRUE);
@@ -347,10 +342,6 @@ void olh_do_callout(short xl, short yl) {
         LGPoint pos = olh_object.loc;
         pos.x = (int)(pos.x + 1) * SCAN_RATIO;
         pos.y = (int)(pos.y + 1) * SCAN_RATIO;
-        if (DoubleSize) {
-            pos.x *= 2;
-            pos.y *= 2;
-        }
         ss_int_line(spos.x - 1, spos.y - 1, pos.x, pos.y);
     }
     if (best_rect != -1) {

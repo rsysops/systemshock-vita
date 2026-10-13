@@ -60,8 +60,6 @@ uchar sfx_on = TRUE;
 //  Externs
 //--------------------
 extern int _fr_global_detail;
-extern bool DoubleSize;
-extern bool SkipLines;
 extern short mode_id;
 
 extern uchar curr_vol_lev;
@@ -77,7 +75,6 @@ static const char *PREF_MUSIC_VOL = "music-volume";
 static const char *PREF_SFX_VOL = "sfx-volume";
 static const char *PREF_ALOG_VOL = "alog-volume";
 static const char *PREF_VIDEOMODE = "video-mode";
-static const char *PREF_HALFRES = "half-resolution";
 static const char *PREF_DETAIL = "detail";
 static const char *PREF_ONSCR_HELP = "onscreen-help";
 static const char *PREF_GAMMA = "gamma";
@@ -104,7 +101,6 @@ void SetDefaultPrefs(void) {
     gShockPrefs.soMidiBackend = 0; // default to adlmidi
     gShockPrefs.soMidiOutput = 0; // default to zero
     gShockPrefs.soSoundFX = true;
-    gShockPrefs.doUseQD = false;
 
     // saved in prefs file
 
@@ -122,7 +118,6 @@ void SetDefaultPrefs(void) {
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;
     gShockPrefs.showCursor = false;
-    gShockPrefs.doResolution = 0; // High-res.
     gShockPrefs.doDetail = 3;     // Max detail.
     gShockPrefs.goOnScreenHelp = true;
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
@@ -207,8 +202,6 @@ int16_t LoadPrefs(void) {
             int mode = atoi(value);
             if (mode >= 0 && mode <= 4)
                 gShockPrefs.doVideoMode = mode;
-        } else if (strcasecmp(key, PREF_HALFRES) == 0) {
-            gShockPrefs.doResolution = is_true(value);
         } else if (strcasecmp(key, PREF_DETAIL) == 0) {
             int detail = atoi(value);
             if (detail >= 0 && detail <= 3)
@@ -288,7 +281,6 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_SFX_VOL, sfx_on ? curr_sfx_vol : 0);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_VOL, curr_alog_vol);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_VIDEOMODE, mode_id);
-    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_HALFRES, DoubleSize ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DETAIL, _fr_global_detail);
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
@@ -332,8 +324,6 @@ static void SetShockGlobals(void) {
     curr_alog_vol = gShockPrefs.soAudioLogVolume;
 
     mode_id = gShockPrefs.doVideoMode;
-    DoubleSize = (gShockPrefs.doResolution == 1); // Set this True for low-res.
-    SkipLines = gShockPrefs.doUseQD;
     _fr_global_detail = gShockPrefs.doDetail;
 }
 

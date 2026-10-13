@@ -181,7 +181,6 @@ errtype hack_camera_takeover(int hack_cam) {
     LGRect start = {{-5, -5}, {5, 5}};
     extern LGPoint use_cursor_pos;
     LGPoint ucp;
-    extern bool DoubleSize;
     extern LGRect mainview_rect;
     extern LGRect fscrn_rect;
     cams *cam = fr_camera_getdef();
@@ -192,8 +191,7 @@ errtype hack_camera_takeover(int hack_cam) {
 
     // do a wacky zoom thing
     ucp = use_cursor_pos;
-    if (!DoubleSize)
-        ss_point_convert(&(ucp.x), &(ucp.y), TRUE);
+    ss_point_convert(&(ucp.x), &(ucp.y), TRUE);
     RECT_MOVE(&start, ucp);
     zoom_rect(&start, (full_game_3d) ? &fscrn_rect : &mainview_rect);
 

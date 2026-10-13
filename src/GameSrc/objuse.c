@@ -102,14 +102,11 @@ void zoom_mfd(int mfd, bool shifted) {
     extern LGPoint use_cursor_pos;
     LGPoint ucp;
 
-    extern bool DoubleSize;
-
     if (!shifted)
         mouse_look_off();
 
     ucp = use_cursor_pos;
-    if (!DoubleSize)
-        ss_point_convert(&ucp.x, &ucp.y, TRUE);
+    ss_point_convert(&ucp.x, &ucp.y, TRUE);
     RECT_MOVE(&start, ucp);
     mfd_zoom_rect(&start, mfd);
 }

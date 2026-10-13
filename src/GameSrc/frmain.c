@@ -77,10 +77,9 @@ static int fr_rend_view(frc *view) {
             _fr->render_call(&_fr->draw_canvas.bm, _fr_curflags);
     } else { /* actually do the 3d thang */
         extern uchar _g3d_enable_blend;
-        extern bool DoubleSize;
         uchar save_blend_flag;
 
-        if ((_fr_curflags & FR_PICKUPM_MASK) || DoubleSize) {
+        if (_fr_curflags & FR_PICKUPM_MASK) {
             save_blend_flag = _g3d_enable_blend;
             _g3d_enable_blend = FALSE;
         }
@@ -123,7 +122,7 @@ static int fr_rend_view(frc *view) {
         // synchronous_update();            // And one for the road.
         audiolog_loop_callback();
 
-        if ((_fr_curflags & FR_PICKUPM_MASK) || DoubleSize) {
+        if (_fr_curflags & FR_PICKUPM_MASK) {
             _g3d_enable_blend = save_blend_flag;
         }
     }

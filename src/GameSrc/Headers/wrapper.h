@@ -68,8 +68,6 @@ void recompute_audiolog_level(ushort vol);
 void recompute_digifx_level(ushort vol);
 void recompute_music_level(ushort vol);
 
-void digichan_dealfunc(short val);
-
 void language_change(uchar lang);
 
 void wrapper_start(void (*init)(void));

@@ -39,5 +39,3 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define QVAR_TO_GAMMA(x)  (fix_mul((FIX_UNIT - fix_make(0, (x))), (FIX_UNIT - fix_make(0, (x)))) + FIX_UNIT / 2)
 
 #define QVAR_TO_DCLICK(v, t) ((((t) == 0) ? 30 : 100) * (USHRT_MAX + 3 * ((ulong)(v))) / (2 * USHRT_MAX))
-
-#define QVAR_TO_JOYSENS(x) ((FIX_UNIT * 3 * (x) / (256 * 2)) + (FIX_UNIT / 4))

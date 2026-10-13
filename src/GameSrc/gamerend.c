@@ -308,7 +308,6 @@ extern short mouse_attack_y;
 extern ulong next_fire_time;
 extern uchar overload_beam;
 extern uchar saveload_static;
-extern bool DoubleSize;
 
 byte beam_offset[NUM_BEAM_GUN] = {-12, -8, -4};
 #define DRAW_BEAM_LINE(c1, c2, c3, c4)                                                               \
@@ -319,20 +318,6 @@ byte beam_offset[NUM_BEAM_GUN] = {-12, -8, -4};
         ss_thick_fix_line(fix_make(a, 0), fix_make(b, 0), fix_make(deltax + (c3) + boff + beamx, 0), \
                           fix_make(deltay + (c4) + boff + 6, 0));                                    \
     }
-
-/*
-#define DRAW_BEAM_LINE(c1,c2,c3,c4) { \
-     a = mx+(c1);\
-     b = my+(c2);\
-     if (DoubleSize) \
-        gr_fix_line(fix_make(a,0),fix_make(b,0),fix_make(deltax+(c3)+boff,0), fix_make(deltay+22,0));\
-     else \
-     { \
-        ss_point_convert(&a,&b,TRUE);\
-        ss_thick_fix_line(fix_make(a,0),fix_make(b,0),fix_make(deltax+(c3)+boff,0),fix_make(deltay+(c4)+boff,0));\
-     } \
-}
-*/
 
 void gamesys_render_effects(void) {
     Ref temp;
@@ -358,10 +343,7 @@ void gamesys_render_effects(void) {
             {
                 mx = mouse_attack_x;
                 my = mouse_attack_y;
-                if (!DoubleSize)
-                    ss_point_convert(&mx, &my, TRUE);
-                else
-                    ui_mouse_get_xy(&mx, &my);
+                ss_point_convert(&mx, &my, TRUE);
             } else // Not showing a weapon
             {
                 ui_mouse_get_xy(&mx, &my);
@@ -386,10 +368,6 @@ void gamesys_render_effects(void) {
                                 if ((dat->id == beam_effect_id) && beam_effect_id) {
                                     mx = (dat->xl + dat->xh) / 2;
                                     my = (dat->yl + dat->yh) / 2;
-                                    if (DoubleSize) {
-                                        mx *= 2;
-                                        my *= 2;
-                                    }
                                     draw_beam = TRUE;
                                 }
                             }
@@ -554,14 +532,6 @@ int gamesys_draw_func(void *fake_dest_canvas, void *fake_dest_bm, int x, int y, 
             // Save off original state
             orig_bits = dest_bm->bits;
             orig_h = dest_bm->h;
-
-            // KLC - adjust x and y if in doublesize mode.
-            if (DoubleSize) {
-                x *= 2;
-                y *= 2;
-                if (y > 0)
-                    y++; // It's one off in slot view.
-            }
 
             // Note that all of this contrivance to keep vhold_shift in original
             // 320x200 coordinates is to avoid the wacky class of bugs of

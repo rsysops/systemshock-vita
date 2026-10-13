@@ -67,7 +67,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define MIN_ENERGY_WPN_THRESHOLD 20
 #define FATIGUE_ACCURACY_RATIO 400
 
-extern bool DoubleSize;
 
 // char ammo_type_letters[] = "stnths mphssb  ";
 
@@ -314,10 +313,7 @@ uchar player_fire_handtohand(LGPoint *p, ubyte slot, ObjID *what_hit, int gun_tr
             hand_pos.x = HAND2HANDX;
 
         hand_pos.y = (full_game_3d) ? FULLHAND2HANDY : HAND2HANDY;
-        if (DoubleSize)
-            hand_pos.y = SCONV_Y(hand_pos.y) >> 1;
-        else
-            ss_point_convert(&(hand_pos.x), &(hand_pos.y), FALSE);
+        ss_point_convert(&(hand_pos.x), &(hand_pos.y), FALSE);
         find_fire_vector(&hand_pos, &vector);
 
         // shift the origin point for the last attack which is right
@@ -856,11 +852,8 @@ uchar fire_player_weapon(LGPoint *pos, LGRegion *r, uchar pull) {
     if (player_struct.weapons[w].type == EMPTY_WEAPON_SLOT) return FALSE;
 
     region_abs_rect(r, r->r, &rc);
-    if (DoubleSize)
-        rc.lr.y = SCONV_Y(rc.lr.y) >> 1;
     cp = realpos;
-    if (!DoubleSize)
-        ss_mouse_convert(&(cp.x), &(cp.y), TRUE);
+    ss_mouse_convert(&(cp.x), &(cp.y), TRUE);
     if (!RECT_TEST_PT(&rc, cp)) {
         //realpos.x = r->abs_x + RectWidth(r->r) / 2;
         //realpos.y = r->abs_y + RectHeight(r->r) / 2;

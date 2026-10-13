@@ -160,6 +160,5 @@ extern uchar wait_flag;
 extern int next_mode, ai_cycle;
 extern uchar music_card, music_on;
 extern uchar /*sfx_card, */ sfx_on;
-extern int cur_digi_channels;
 
 #endif // __MUSICAI_H

@@ -82,7 +82,6 @@ ubyte mouseYshift = 1;
 */
 ubyte mouseMask = 0xFF; // mask of events to put in the queue.
 /*
-uchar  mouseLefty = FALSE; 				// is the user left-handed?
 */
 #define NUM_MOUSE_CALLBACKS 16
 mouse_callfunc mouseCall[NUM_MOUSE_CALLBACKS];
@@ -568,31 +567,6 @@ errtype mouse_extremes( short *xmin, short *ymin, short *xmax, short *ymax )
 
    return OK;
 }
-
-
-// ------------------------------------------------------
-//
-// mouse_set_lefty() sets mouse handedness
-
-#define SHIFTDIFF 1
-
-static short shifted_button_state(short bstate)
-{
-   short tmp = (bstate & MOUSE_RBUTTON) >> SHIFTDIFF;
-   tmp |= (bstate & MOUSE_LBUTTON) << SHIFTDIFF;
-   tmp |= bstate & MOUSE_CBUTTON;
-   return tmp;
-}
-
-errtype mouse_set_lefty(uchar lefty)
-{
-   if (lefty == mouseLefty) return ERR_NOEFFECT;
-   mouseInstantButts = shifted_button_state(mouseInstantButts);
-   mouseLefty = lefty;
-   return OK;
-}
-
-
 
 
 // ---------------------------------------------------

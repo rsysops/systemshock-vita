@@ -153,7 +153,5 @@ errtype mouse_constrain_xy(short xl, short yl, short xh, short yh);
 // Find the min and max "virtual" coordinates of the mouse position
 // errtype mouse_extremes(short *xmin, short *ymin, short *xmax, short *ymax);
 
-// Sets mouse handedness (true for left-handed)
-// errtype mouse_set_lefty(uchar lefty);
 
 #endif // _MOUSE_H

@@ -144,9 +144,9 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - **Bars** (gamma, volumes, look speeds): × grabs the focused bar (it turns
   yellow-green), Left/Right move it, and × or ○ release it. Changes apply live.
 - **Pages** (L / R): Load, Save, Audio, Input, Options, Video, Vita options,
-  wrapping. Save is skipped when saving isn't possible. Nested screens count
-  as their parent page (e.g. Audio options → Audio). L / R do nothing on the
-  main list.
+  wrapping. Save is skipped when saving isn't possible. A nested screen counts
+  as its parent page (the confirmation asked before a save is overwritten →
+  Save). L / R do nothing on the main list.
 - **Save slots**: × on a slot opens the on-screen keyboard to name the save;
   × again saves it.
 - **New Game screen**: Up/Down cycle Name → the four difficulty categories →
@@ -161,9 +161,9 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
   boxes are reworded for the Vita (touch, pad buttons, rear touch), in English,
   French and German, and all its labels are redrawn with the game font for the
   current resolution, so they're sharp in hi-res modes.
-- In the in-game menu, **Return** and ○ go back one screen (e.g. Audio
-  options → Audio → main list, focusing the entry you came from); START closes
-  the whole menu from any screen.
+- In the in-game menu, **Return** and ○ go back one screen (e.g. Audio →
+  main list, focusing the entry you came from); START closes the whole menu
+  from any screen.
 - The on-screen keyboard also opens automatically when entering the New Game
   screen, and when tapping the name field or a save slot.
 

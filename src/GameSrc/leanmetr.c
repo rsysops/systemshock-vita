@@ -554,8 +554,6 @@ void update_meters(uchar force) {
 }
 
 void zoom_to_lean_meter(void) {
-    extern bool DoubleSize;
-
     LGPoint pos;
     LGRect start = {{-5, -5}, {+5, +5}};
     LGRect end = {{0, 0}, {LEANOMETER_W, LEANOMETER_H}};
@@ -563,8 +561,7 @@ void zoom_to_lean_meter(void) {
     current_meter_region = PICK_METER_REGION(full_game_3d);
     RECT_MOVE(&end, MakePoint(LEANOMETER_X(), LEANOMETER_Y()));
     mouse_get_xy(&pos.x, &pos.y);
-    if (!DoubleSize)
-        ss_point_convert(&(pos.x), &(pos.y), TRUE);
+    ss_point_convert(&(pos.x), &(pos.y), TRUE);
     RECT_MOVE(&start, pos);
     zoom_rect(&start, &end);
 }

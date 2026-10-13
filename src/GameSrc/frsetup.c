@@ -157,8 +157,6 @@ void (*fr_rend_start)(void);
 grs_bitmap *(*fr_get_tmap)(void);
 
 // Set by machine type
-bool DoubleSize = false;
-bool SkipLines = false;
 
 int (*_fr_glob_draw_call)(void *dest_canvas, void *dest_bm, int x, int y, int flags) = NULL;
 void (*_fr_glob_horizon_call)(void *dest_bm, int flags) = NULL;
@@ -497,7 +495,7 @@ int fr_start_view(void) {
         if (_fr->draw_canvas.bm.bits != _fr->main_canvas.bm.bits) // the GPU drew it last time
             _fr->draw_canvas.bm.row = own_row;
         // (cyberspace, shaded between colours all over, only if the GPU does that)
-        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering && !DoubleSize &&
+        if (!(_fr_curflags & (FR_PICKUPM_MASK | FR_HACKCAM_MASK)) && !view360_is_rendering &&
             (!_frp.faces.cyber || vgpu_shades()) && rastq_gpu_next(_fr->draw_canvas.bm.h))
             gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, &gpu_row);
         if (gpu_bits != NULL) {
@@ -650,7 +648,6 @@ extern uchar view360_is_rendering;
 
 int fr_send_view(void) {
     uchar snd_frm = TRUE;
-    bool ok_to_double;
     // The GPU may still be drawing this view: rastq_end doesn't wait for
     // it, and until rastq_gpu_finish the canvas is the GPU's. (Not the help
     // scan's own view, which the CPU draws during that time.)
@@ -709,24 +706,10 @@ int fr_send_view(void) {
         _fr_ret;
     }
 
-    // Determine if it's okay to double (it's not okay when rendering the 360 view).
-    ok_to_double = (DoubleSize && !view360_is_rendering);
-
-    // If double sizing, double-size the rendered bitmap onto the intermediate buffer,
-    // before doing any overlays.  Don't do it if rendering the 360 view.
-    if (ok_to_double) {
-        gr_set_canvas(&gDoubleSizeOffCanvas);
-        if (full_game_3d)
-            FastFullscreenDouble2Canvas(&_fr->draw_canvas.bm, &gDoubleSizeOffCanvas, _fr->xwid, _fr->ywid);
-        else
-            FastSlotDouble2Canvas(&_fr->draw_canvas.bm, &gDoubleSizeOffCanvas, _fr->xwid, _fr->ywid);
-    }
-
     // Draw the overlays
     if (_fr->draw_call)
-        VPROF_RUN(VPROF_HUD, snd_frm = _fr->draw_call(grd_screen_canvas,
-                                                      (ok_to_double) ? &gDoubleSizeOffCanvas.bm : &_fr->draw_canvas.bm,
-                                                      _fr->xtop, _fr->ytop, _fr_curflags));
+        VPROF_RUN(VPROF_HUD, snd_frm = _fr->draw_call(grd_screen_canvas, &_fr->draw_canvas.bm, _fr->xtop, _fr->ytop,
+                                                      _fr_curflags));
 
     VPROF_MARK_BEGIN(VPROF_VIEWOUT);
     if (snd_frm) {
@@ -740,28 +723,19 @@ int fr_send_view(void) {
             if (view360_is_rendering)
                 gr_ubitmap(&_fr->draw_canvas.bm, _fr->xtop, _fr->ytop);
             else {
-                if (ok_to_double) // If double-sizing, just copy the already double-sized
-                {                 // scene from the temp offscreen canvas to the screen.
-                    if (full_game_3d)
-                        Fast_FullScreen_Copy(&gDoubleSizeOffCanvas.bm);
-                    else
-                        Fast_Slot_Copy(&gDoubleSizeOffCanvas.bm);
-                } else // For high-res, just copy from the draw canvas.
-                {
-                    if (full_game_3d) {
-                        // a view in the GPU's canvas can be shown from there
-                        if (!VitaShowView(_fr->draw_canvas.bm.bits, 0, 0, _fr->draw_canvas.bm.w,
-                                          _fr->draw_canvas.bm.h))
-                            Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
-                    } else {
-                        // the paneled view too, laid over the panels when
-                        // the frame is shown (see VitaShowView for when not)
-                        int slot_x, slot_y;
-                        Fast_Slot_Place(&slot_x, &slot_y);
-                        if (!VitaShowView(_fr->draw_canvas.bm.bits, slot_x, slot_y, _fr->draw_canvas.bm.w,
-                                          _fr->draw_canvas.bm.h))
-                            Fast_Slot_Copy(&_fr->draw_canvas.bm);
-                    }
+                // copy from the draw canvas
+                if (full_game_3d) {
+                    // a view in the GPU's canvas can be shown from there
+                    if (!VitaShowView(_fr->draw_canvas.bm.bits, 0, 0, _fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h))
+                        Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
+                } else {
+                    // the paneled view too, laid over the panels when
+                    // the frame is shown (see VitaShowView for when not)
+                    int slot_x, slot_y;
+                    Fast_Slot_Place(&slot_x, &slot_y);
+                    if (!VitaShowView(_fr->draw_canvas.bm.bits, slot_x, slot_y, _fr->draw_canvas.bm.w,
+                                      _fr->draw_canvas.bm.h))
+                        Fast_Slot_Copy(&_fr->draw_canvas.bm);
                 }
             }
         }
