@@ -354,9 +354,6 @@ uchar fv;
 // override get_temp_string() to support hard-coded custom strings without
 // providing an actual resource file
 
-#define MIDI_OUT_STR_SIZE 1024
-static char MIDI_STR_BUFFER[MIDI_OUT_STR_SIZE];
-
 // In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute.
 // Arrays rather than literals, since pushbutton_draw_func() wraps its label in place.
 static struct {
@@ -377,13 +374,6 @@ static struct {
     {REF_STR_Cursor, {"Cursor", "Curseur", "Mauszeiger"}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
-
-    {REF_STR_Seqer, {"Midi Player", "Lecteur MIDI", "MIDI-Player"}},
-    // ADLMIDI with either OPL3 emulator; the Vita has no native MIDI
-    {REF_STR_ADLMIDI, {"DOSBox OPL3", "DOSBox OPL3", "DOSBox OPL3"}},
-    {REF_STR_NativeMI, {"Nuked OPL3", "Nuked OPL3", "Nuked OPL3"}},
-
-    {REF_STR_MidiOut, {"Midi Output", "Sortie MIDI", "MIDI-Ausgang"}},
 };
 
 static char *_get_temp_string(int num) {
@@ -392,14 +382,6 @@ static char *_get_temp_string(int num) {
     for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++)
         if (custom_strings[i].num == num)
             return custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
-
-    if (num >= REF_STR_MidiOutX && num <= (REF_STR_MidiOutX | 0x0fffffff))
-    {
-        const unsigned int midiOutputIndex = (unsigned int)num - REF_STR_MidiOutX;
-        MIDI_STR_BUFFER[0] = '\0';
-        GetOutputNameXMI(midiOutputIndex, &MIDI_STR_BUFFER[0], MIDI_OUT_STR_SIZE);
-        return &MIDI_STR_BUFFER[0];
-    }
 
     return get_temp_string(num);
 }
@@ -1858,21 +1840,6 @@ void digichan_dealfunc(short val) {
     // snd_set_digital_channels(cur_digi_channels);
 }
 
-static void seqer_dealfunc(short val) {
-//    INFO("Selected MIDI device %d", val);
-    gShockPrefs.soMidiOutput = 0;
-    ReloadDecXMI(); // Reload Midi decoder
-    soundopt_screen_init();
-    (void)val;
-}
-
-static void midi_output_dealfunc(short val) {
-//    INFO("Selected MIDI output %d", val);
-    ReloadDecXMI(); // Reload Midi decoder
-    soundopt_screen_init();
-    (void)val;
-}
-
 #pragma enable_message(202)
 
 #define SLIDER_OFFSET_3 0
@@ -1902,34 +1869,8 @@ void soundopt_screen_init() {
                &audiolog_setting, 3, audiolog_dealfunc, &r);
     i++;
 
-    standard_button_rect(&r, i);
-    multi_init(i, 'p', REF_STR_Seqer, REF_STR_ADLMIDI, ID_NULL,
-               sizeof(gShockPrefs.soMidiBackend), &gShockPrefs.soMidiBackend, OPT_SEQ_Max, seqer_dealfunc, &r);
-    i++;
-/* standard button is too narrow, so use a slider instead
-    const unsigned int numMidiOutputs = GetOutputCountXMI();
-    INFO("numMidiOutputs=%d", numMidiOutputs);
-    standard_button_rect(&r, i);
-    multi_init(i, 'o', REF_STR_MidiOut, REF_STR_MidiOutX, ID_NULL,
-               sizeof(gShockPrefs.soMidiOutput), &gShockPrefs.soMidiOutput, numMidiOutputs, midi_output_dealfunc, &r);
-    i++;
-*/
-    unsigned int midiOutputCount = GetOutputCountXMI();
-    if (midiOutputCount > 1)
-    {
-        standard_slider_rect(&r, i);
-        r.lr.x += OPANEL_SLOT_W; // spans two slots
-        slider_init(i, REF_STR_MidiOutX + gShockPrefs.soMidiOutput, sizeof(gShockPrefs.soMidiOutput), FALSE, &gShockPrefs.soMidiOutput, midiOutputCount - 1,
-                    0, midi_output_dealfunc, &r);
-        i++;
-    }
-    else if (midiOutputCount == 1)
-    {
-        // just show a text label
-        standard_button_rect(&r, i);
-        textwidget_init(i, BUTTON_COLOR, REF_STR_MidiOutX, &r);
-        i++;
-    }
+    // (no MIDI player and no MIDI output: hidden settings, "midi-backend" and
+    // "midi-output" in the prefs file)
 
     standard_button_rect(&r, 5);
     retkey = tolower(get_temp_string(REF_STR_MusicText + 2)[0]);
@@ -2075,16 +2016,6 @@ void center_joy_pushbutton_func(uchar butid) {
         else if (i != RETURN_BUTTON && i != QUIT_BUTTON)
             OButtons[i].evmask = 0;
     }
-}
-
-void detail_dealfunc(uchar det) {
-
-    change_detail_level(det);
-    uiHideMouse(NULL);
-    opanel_render_view();
-    if (full_game_3d)
-        opanel_redraw(FALSE);
-    uiShowMouse(NULL);
 }
 
 void mousehand_dealfunc(ushort lefty) {
@@ -2272,13 +2203,8 @@ void video_screen_init(void) {
     opanel_screen_begin(video_screen_init, wrapper_init, PAGE_VIDEO, VIDEO_BUTTON);
     i = 0;
 
-    // (no video mode: the game runs in the Vita's own, 960x544)
-
-    // detail level
-    standard_button_rect(&r, i);
-    multi_init(i, keys[1], REF_STR_OptionsText + 4, REF_STR_DetailLvl, REF_STR_DetailLvlFeedback,
-               sizeof(_fr_global_detail), &_fr_global_detail, 4, detail_dealfunc, &r);
-    i++;
+    // (no video mode and no detail level: hidden settings, "video-mode" and
+    // "detail" in the prefs file; the game runs in the Vita's own 960x544)
 
     // gamma
     standard_slider_rect(&r, i);
