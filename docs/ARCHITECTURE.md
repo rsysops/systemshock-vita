@@ -73,7 +73,7 @@ There is **no dedicated platform tree**: the Vita code sits directly in the shar
 - **`src/Libraries/3D/Source/rastqthr.c`**, **`src/Libraries/LG/Source/lgslot.c`** — the rasterizer's worker threads and their per-thread slots, on SceKernel threads and semaphores.
 - **`src/GameSrc/vprof.c`** — the profiler's overlay and log, in the profile build only.
 - **`src/MacSrc/Prefs.c`**, **`src/GameSrc/wrapper.c`** — the Vita settings (gyro, look speeds, cursor) and their `Vita Options` menu page.
-- **`vita/vita.cmake`** — defines `VITA_APP_NAME` and `VITA_TITLEID` (`SHOK00001`), calls `vita_create_self` / `vita_create_vpk`, and bundles the `vita/sce_sys/` icon and LiveArea assets into the package.
+- **`vita/vita.cmake`** — defines `VITA_APP_NAME`, `VITA_TITLEID` and the package's name (`SHOK00001` and `systemshock.vpk` for the game; the profile build's two flavours have their own, so that all three install side by side), calls `vita_create_self` / `vita_create_vpk`, and bundles the `vita/sce_sys/` icon and LiveArea assets into the package.
 
 ## Rendering paths
 
@@ -100,7 +100,7 @@ Its options are `ENABLE_VITA_PROFILE`, which defines `VITA_PROFILE` for the prof
 
 It then adds `src/Libraries/`, defines the `MAC_SRC`/`GAME_SRC` file lists, and links the final `systemshock` executable against `GAME_LIB` and every library target.
 
-**Docker build**: `build.sh` builds a `systemshock-vita-vitasdk` image from `vita/Dockerfile` (`FROM vitasdk/vitasdk:2026.08`, which ships all required prebuilt libraries), then runs `cmake` + `make` inside the container against a bind-mounted workspace, producing `build/systemshock.vpk`. No local VitaSDK install is required for this path (a local VitaSDK setup is also possible but needs `VITASDK` set and a pacman symlink for `vdpm install`).
+**Docker build**: `build.sh` builds a `systemshock-vita-vitasdk` image from `vita/Dockerfile` (`FROM vitasdk/vitasdk:2026.08`, which ships all required prebuilt libraries), then runs `cmake` + `make` inside the container against a bind-mounted workspace, producing `build/systemshock.vpk` (`./build.sh profile` and `./build.sh profile checks`: `build-profile/systemshock-profile.vpk` and `build-profile-checks/systemshock-profile-checks.vpk`, see [PROFILING.md](PROFILING.md)). No local VitaSDK install is required for this path (a local VitaSDK setup is also possible but needs `VITASDK` set and a pacman symlink for `vdpm install`).
 
 ## Runtime data flow
 

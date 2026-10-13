@@ -1,5 +1,7 @@
 Controls:
+* Cameras have only 1 axis on movement?
 * Cyberspace controls are bad? Could add rear touchscreen controls as option?
+* Gyro controls 2 axes sensitivity options
 * Pass on the prefs.txt (all options)
 
 Documentation:
@@ -12,6 +14,8 @@ Features:
 
 Fixes:
 * Game crash on button / hack
+* Set Video mode = 960x544 by default
+* Set Messages = Both by default
 
 Performance:
 * FPS lock 30 option
@@ -26,3 +30,4 @@ User interface:
 * Name field focus
 * Native resolution for the movies?
 * On help HUD is disable automatically
+* Some interfaces are to small (digicode, lift)

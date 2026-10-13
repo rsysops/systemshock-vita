@@ -6,18 +6,22 @@ cd "$(dirname "$0")"
 IMAGE_TAG="systemshock-vita-vitasdk"
 
 BUILD_DIR="build"
+VPK_NAME="systemshock"
 PROFILE_FLAG="OFF"
 CHECKS_FLAG="OFF"
 
 # "profile": the game with its timers, for measuring.
 # "profile checks": the same with the self-checks and the frame dumps, which
 # hitch and so are kept out of the build that measures.
+# Each is a package and an app of its own (vita/vita.cmake).
 if [[ "${1:-}" == "profile" ]]; then
     BUILD_DIR="build-profile"
+    VPK_NAME="systemshock-profile"
     PROFILE_FLAG="ON"
     shift
     if [[ "${1:-}" == "checks" ]]; then
         BUILD_DIR="build-profile-checks"
+        VPK_NAME="systemshock-profile-checks"
         CHECKS_FLAG="ON"
         shift
     fi
@@ -49,4 +53,4 @@ docker run --rm \
         make -j"$(nproc)"
     '
 
-echo "Build complete: $BUILD_DIR/systemshock.vpk"
+echo "Build complete: $BUILD_DIR/$VPK_NAME.vpk"

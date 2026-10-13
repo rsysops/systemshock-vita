@@ -318,11 +318,24 @@ static const char tlucbm_fragment_source[] =
     "    return float4(shade, shade, shade, 255.0f);\n"
     "}\n";
 
-static int log_started;
+// ---- gpu.txt -----------------------------------------------------------------
+//
+// How the start-up went, a line a stage, and what goes wrong after it. The
+// profile builds write each line as it comes, opening and closing the file,
+// so that a stage that takes the game down is the file's last line. The
+// game's own build keeps the lines in memory and writes nothing as long as
+// nothing is wrong: at the first error (gpu_err) it writes what it has kept,
+// and from then on every line as it comes.
 
-static void gpu_log(const char *format, ...) {
+static int log_started; // the file is this run's: lines are added to it
+#ifndef VITA_PROFILE
+static char log_kept[6144];
+static size_t log_kept_len;
+static int log_failed; // an error has been logged: the file is being written
+#endif
+
+static void log_write(const char *text, size_t length) {
     char path[256];
-    va_list args;
     FILE *f;
 
     snprintf(path, sizeof(path), "%sgpu.txt", VITA_PATH);
@@ -330,15 +343,61 @@ static void gpu_log(const char *format, ...) {
     if (f == NULL)
         return;
     log_started = 1;
-    va_start(args, format);
-    vfprintf(f, format, args);
-    va_end(args);
-    fputc('\n', f);
+    fwrite(text, 1, length, f);
     fclose(f);
 }
 
+static void log_line(int error, const char *format, va_list args) {
+    char line[1024];
+    int length = vsnprintf(line, sizeof(line) - 1, format, args);
+
+    if (length < 0)
+        return;
+    if (length > (int)sizeof(line) - 2)
+        length = (int)sizeof(line) - 2;
+    line[length++] = '\n';
+#ifdef VITA_PROFILE
+    (void)error;
+    log_write(line, (size_t)length);
+#else
+    if (error && !log_failed) {
+        log_failed = 1;
+        if (log_kept_len != 0)
+            log_write(log_kept, log_kept_len);
+        log_kept_len = 0;
+    }
+    if (log_failed)
+        log_write(line, (size_t)length);
+    else if (log_kept_len + (size_t)length <= sizeof(log_kept)) {
+        // (a line that doesn't fit is left out: a start-up is a third of this)
+        memcpy(log_kept + log_kept_len, line, (size_t)length);
+        log_kept_len += (size_t)length;
+    }
+#endif
+}
+
+static void gpu_log(const char *format, ...) {
+    va_list args;
+
+    va_start(args, format);
+    log_line(0, format, args);
+    va_end(args);
+}
+
+// Something wrong: what makes the game's own build write the file.
+static void gpu_err(const char *format, ...) {
+    va_list args;
+
+    va_start(args, format);
+    log_line(1, format, args);
+    va_end(args);
+}
+
 static void shark_log(const char *msg, shark_log_level level, int line) {
-    gpu_log("  shader compiler (%d) line %d: %s", (int)level, line, msg);
+    if (level == SHARK_LOG_ERROR)
+        gpu_err("  shader compiler (%d) line %d: %s", (int)level, line, msg);
+    else
+        gpu_log("  shader compiler (%d) line %d: %s", (int)level, line, msg);
 }
 
 // ---- memory the GPU can reach --------------------------------------------
@@ -359,7 +418,7 @@ static void *vgpu_alloc(size_t bytes) {
         return NULL;
     uid = sceKernelAllocMemBlock("vgpu", SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW, size, NULL);
     if (uid < 0) {
-        gpu_log("alloc of %u bytes failed: 0x%08x", (unsigned)size, (unsigned)uid);
+        gpu_err("alloc of %u bytes failed: 0x%08x", (unsigned)size, (unsigned)uid);
         return NULL;
     }
     if (sceKernelGetMemBlockBase(uid, &base) < 0 || base == NULL) {
@@ -368,7 +427,7 @@ static void *vgpu_alloc(size_t bytes) {
     }
     err = sceGxmMapMemory(base, size, SCE_GXM_MEMORY_ATTRIB_RW);
     if (err < 0) {
-        gpu_log("map of %u bytes failed: 0x%08x", (unsigned)size, (unsigned)err);
+        gpu_err("map of %u bytes failed: 0x%08x", (unsigned)size, (unsigned)err);
         sceKernelFreeMemBlock(uid);
         return NULL;
     }
@@ -473,7 +532,7 @@ static gpu_target *target_for(int w, int h) {
     params.driverMemBlock = -1;
     err = sceGxmCreateRenderTarget(&params, &t->target);
     if (err < 0) {
-        gpu_log("render target %dx%d failed: 0x%08x", w, h, (unsigned)err);
+        gpu_err("render target %dx%d failed: 0x%08x", w, h, (unsigned)err);
         t->target = NULL;
         return NULL;
     }
@@ -487,7 +546,7 @@ static gpu_target *target_for(int w, int h) {
     err = sceGxmDepthStencilSurfaceInit(&t->depth_stencil, SCE_GXM_DEPTH_STENCIL_FORMAT_S8D24,
                                         SCE_GXM_DEPTH_STENCIL_SURFACE_TILED, aligned_w, t->depth, NULL);
     if (err < 0) {
-        gpu_log("depth surface failed: 0x%08x", (unsigned)err);
+        gpu_err("depth surface failed: 0x%08x", (unsigned)err);
         drop_target(t);
         return NULL;
     }
@@ -500,7 +559,7 @@ static gpu_target *target_for(int w, int h) {
 
 static void refused(const char *why, const uchar *bits, int w, int h, int row, int err) {
     if (refusals_logged++ < 5)
-        gpu_log("refused a %dx%d canvas at %p, %d bytes a row: %s (0x%08x)", w, h, (const void *)bits, row, why,
+        gpu_err("refused a %dx%d canvas at %p, %d bytes a row: %s (0x%08x)", w, h, (const void *)bits, row, why,
                 (unsigned)err);
 }
 
@@ -553,7 +612,7 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     err = sceGxmBeginScene(context, 0, t->target, NULL, NULL, NULL, &scene_color, &t->depth_stencil);
     if (err < 0) {
         if (begin_errors_logged++ < 5)
-            gpu_log("begin scene failed: 0x%08x", (unsigned)err);
+            gpu_err("begin scene failed: 0x%08x", (unsigned)err);
         return 0;
     }
     sceGxmSetCullMode(context, SCE_GXM_CULL_NONE);
@@ -890,7 +949,7 @@ static SceGxmProgram *compile(const char *source, shark_type type, const char *w
     SceGxmProgram *copy = NULL;
 
     if (program == NULL) {
-        gpu_log("%s shader did not compile", what);
+        gpu_err("%s shader did not compile", what);
     } else {
         copy = malloc(size);
         if (copy != NULL)
@@ -935,13 +994,13 @@ static int make_programs(const char *what, const char *vertex_source, const char
         if (vertex == NULL)
             return 0;
         if ((err = sceGxmShaderPatcherRegisterProgram(patcher, vertex, &last_vertex_id)) < 0) {
-            gpu_log("registering the %s shader failed: 0x%08x", name, (unsigned)err);
+            gpu_err("registering the %s shader failed: 0x%08x", name, (unsigned)err);
             return 0;
         }
         for (i = 0; i < count; i++) {
             const SceGxmProgramParameter *parameter = sceGxmProgramFindParameterByName(vertex, names[i]);
             if (parameter == NULL) {
-                gpu_log("%s shader: no parameter %s", name, names[i]);
+                gpu_err("%s shader: no parameter %s", name, names[i]);
                 return 0;
             }
             attribute(&attributes[i], parameter, offsets[i], sizes[i]);
@@ -951,7 +1010,7 @@ static int make_programs(const char *what, const char *vertex_source, const char
         err = sceGxmShaderPatcherCreateVertexProgram(patcher, last_vertex_id, attributes, count, &stream, 1,
                                                      vertex_program);
         if (err < 0) {
-            gpu_log("%s program failed: 0x%08x", name, (unsigned)err);
+            gpu_err("%s program failed: 0x%08x", name, (unsigned)err);
             *vertex_program = NULL;
             return 0;
         }
@@ -963,13 +1022,13 @@ static int make_programs(const char *what, const char *vertex_source, const char
     if (fragment == NULL)
         return 0;
     if ((err = sceGxmShaderPatcherRegisterProgram(patcher, fragment, &fragment_id)) < 0) {
-        gpu_log("registering the %s shader failed: 0x%08x", name, (unsigned)err);
+        gpu_err("registering the %s shader failed: 0x%08x", name, (unsigned)err);
         return 0;
     }
     err = sceGxmShaderPatcherCreateFragmentProgram(patcher, fragment_id, SCE_GXM_OUTPUT_REGISTER_FORMAT_UCHAR4,
                                                    SCE_GXM_MULTISAMPLE_NONE, NULL, last_vertex, fragment_program);
     if (err < 0) {
-        gpu_log("%s program failed: 0x%08x", name, (unsigned)err);
+        gpu_err("%s program failed: 0x%08x", name, (unsigned)err);
         *fragment_program = NULL;
         return 0;
     }
@@ -1109,7 +1168,7 @@ static int make_textures(void) {
     matrix_pixels = vgpu_alloc(256 * 256);
     texture_heap = vgpu_alloc(TEXTURE_HEAP_BYTES);
     if (tables_pixels == NULL || colours_pixels == NULL || matrix_pixels == NULL || texture_heap == NULL) {
-        gpu_log("no memory for the tables and the bitmaps");
+        gpu_err("no memory for the tables and the bitmaps");
         return 0;
     }
     memset(colours_pixels, 0, COLOURS_W * COLOURS_H);
@@ -1291,7 +1350,7 @@ static int texture_check(int bad[CHECK_BANDS]) {
                                             : tiles[x & 15];
             if (row[x] != want) {
                 if (bad[band]++ == 0)
-                    gpu_log("texture check, band %d: column %d holds %d, not %d", band, x, row[x], want);
+                    gpu_err("texture check, band %d: column %d holds %d, not %d", band, x, row[x], want);
             }
         }
     }
@@ -1352,7 +1411,7 @@ static int colour_check(int bad[COLOUR_BANDS]) {
             want = table[fifth[0] | (fifth[1] << 5) | (fifth[2] << 10)];
             if (row[x] != want) {
                 if (bad[band]++ == 0)
-                    gpu_log("colour check, band %d: column %d holds %d, not %d", band, x, row[x], want);
+                    gpu_err("colour check, band %d: column %d holds %d, not %d", band, x, row[x], want);
             }
         }
     }
@@ -1452,7 +1511,7 @@ static int tluc_check(int bad[TLUC_BANDS]) {
             if (row[x] != want) {
                 // a few of them: they tell how the pixel reached the shader
                 if (bad[band]++ < 4)
-                    gpu_log("translucency check, way %d, band %d: column %d holds %d, not %d", tluc_way, band, x,
+                    gpu_err("translucency check, way %d, band %d: column %d holds %d, not %d", tluc_way, band, x,
                             row[x], want);
             }
         }
@@ -1547,7 +1606,7 @@ static int tlucbm_check(int bad[TLUCBM_BANDS]) {
                 want = texel == 0 ? x : matrix[texel * 256 + once];
             if (row[x] != want) {
                 if (bad[band]++ < 4)
-                    gpu_log("translucent bitmap check, band %d: column %d holds %d, not %d (texel %d)", band, x,
+                    gpu_err("translucent bitmap check, band %d: column %d holds %d, not %d (texel %d)", band, x,
                             row[x], want, texel);
             }
         }
@@ -1618,7 +1677,7 @@ void vgpu_init(void) {
     err = shark_init(SHACCCG_PATH);
     if (err < 0) {
         no_compiler = 1;
-        gpu_log("no shader compiler: 0x%08x (is %s there?)", (unsigned)err, SHACCCG_PATH);
+        gpu_err("no shader compiler: 0x%08x (is %s there?)", (unsigned)err, SHACCCG_PATH);
         snprintf(report, sizeof(report), "gpu: no shader compiler (0x%08x)", (unsigned)err);
         return;
     }
@@ -1640,7 +1699,10 @@ void vgpu_init(void) {
 
     gpu_log("drawing the index check");
     bad = index_check(&first_bad, &got, &kept);
-    gpu_log("index check drawn: %d wrong", bad);
+    if (bad != 0)
+        gpu_err("index check drawn: %d wrong", bad);
+    else
+        gpu_log("index check drawn: %d wrong", bad);
 
     // Without the textured shaders everything is drawn in flat colours, as
     // in the first GPU builds.
@@ -1722,7 +1784,11 @@ void vgpu_init(void) {
              tluc_way >= 0 ? "on" : "off (CPU)", tluc_way, tluc_made, tluc_bad[0], tluc_bad[1], tluc_bad[2],
              tluc_bad[3], fill_in_place, fill_copied, tlucbm_on ? "on" : "off (CPU)", tlucbm_bad[0], tlucbm_bad[1],
              tlucbm_bad[2], tlucbm_bad[3]);
-    gpu_log("%s", report);
+    // anything less than everything on is something wrong
+    if (bad != 0 || !kept || !textured || !shades || tluc_way < 0 || !tlucbm_on)
+        gpu_err("%s", report);
+    else
+        gpu_log("%s", report);
     // Flat colours were for finding out whether the GPU path could work at
     // all: as a renderer it is the textured shaders or nothing.
     if (bad < 0 || !textured) {

@@ -12,9 +12,13 @@ in the order it was done. Three parts:
    stutters a minute down to 0.6 between two of its captures, and the steps
    still to take.
 
-The captures each part rests on are in `docs/profiles-cpu/`,
-`docs/profiles-gpu/` and `docs/profiles-perf/`. How to build the profiler
-and read its log is in [PROFILING.md](PROFILING.md).
+The captures each part rests on were in `docs/profiles-cpu/`,
+`docs/profiles-gpu/` and `docs/profiles-perf/`, under the names the
+steps give them. They are no longer kept in the tree: they are in the
+repository's history, up to the merge of the smoothness work into `dev`
+(commit `1eb33db0`), and `git show 1eb33db0:docs/profiles-perf/...`
+brings one back. How to build the profiler and read its log is in
+[PROFILING.md](PROFILING.md).
 
 ## Contents
 

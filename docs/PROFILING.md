@@ -19,10 +19,14 @@ the normal build in three ways:
 
 It comes in two flavours:
 
-| command | folder | for |
-|---|---|---|
-| `./build.sh profile` | `build-profile/` | measuring: the game with its timers and nothing else |
-| `./build.sh profile checks` | `build-profile-checks/` | work on the drawing code: the same with the self-checks and the frame dumps, which hitch three times a second and so are kept out of the first |
+| command | package | app on the Vita | for |
+|---|---|---|---|
+| `./build.sh profile` | `build-profile/systemshock-profile.vpk` | System Shock Profile (`SHOK00002`) | measuring: the game with its timers and nothing else |
+| `./build.sh profile checks` | `build-profile-checks/systemshock-profile-checks.vpk` | System Shock Checks (`SHOK00003`) | work on the drawing code: the same with the self-checks and the frame dumps, which hitch three times a second and so are kept out of the first |
+
+Each is an app of its own, next to the game (`build/systemshock.vpk`,
+System Shock, `SHOK00001`): the three can be installed at once
+(`vita/vita.cmake`).
 
 In the normal build every timer compiles to nothing: `VPROF_RUN(phase,
 code)` is just `code`. Nothing of the profiler ships in it.
@@ -30,12 +34,14 @@ code)` is just `code`. Nothing of the profiler ships in it.
 ## Quick start
 
 1. **Build.** `./build.sh profile` gives
-   `build-profile/systemshock.vpk` (`./build.sh profile checks`:
-   `build-profile-checks/systemshock.vpk`). The normal build goes to
-   `build/`, so none of them share anything.
-2. **Install.** The package has the normal build's title
-   (`SHOK00001`), so it replaces it. Saves and settings are in
-   `ux0:data/systemshock/` and are kept.
+   `build-profile/systemshock-profile.vpk` (`./build.sh profile
+   checks`: `build-profile-checks/systemshock-profile-checks.vpk`). The
+   normal build goes to `build/`, so none of them share anything.
+2. **Install.** The package installs as an app of its own and leaves
+   the game where it is. All three read and write the same folder,
+   `ux0:data/systemshock/`: the game's files, the saves and the
+   settings are shared, and so are the two flavours' `profile.txt`,
+   `gpu.txt` and `gpudumps`.
 3. **Clear the old capture.** In `ux0:data/systemshock/`, delete
    `profile.txt` and the `gpudumps` folder. The log is appended to,
    never cleared; without this the new capture follows the old one in
@@ -50,13 +56,17 @@ code)` is just `code`. Nothing of the profiler ships in it.
    | file | what |
    |---|---|
    | `profile.txt` | the log: one line per second of play |
-   | `gpu.txt` | how the GPU renderer's start-up went; rewritten at every start |
+   | `gpu.txt` | how the GPU renderer's start-up went; rewritten at every start of a profile build. The game's own build keeps those lines in memory and writes the file only if something goes wrong (a shader that doesn't compile, a check with a wrong pixel, a scene the GPU refuses), with all that came before: a `gpu.txt` dated from a run of the game is an error's |
    | `gpudumps/` | pairs of frames the two renderers drew differently, if any |
 
-Captures are kept in the repository next to the doc that uses them:
-`docs/profiles-cpu/`, `docs/profiles-gpu/` and, for the steps after the
-GPU renderer's (S1 and on), `docs/profiles-perf/`, as `profile-step-N.txt`,
-`gpudumps-step-N/` and the latest `gpu.txt`.
+Captures go next to the doc that uses them: `docs/profiles-cpu/`,
+`docs/profiles-gpu/` and, for the steps after the GPU renderer's (S1
+and on), `docs/profiles-perf/`, as `profile-step-N.txt`,
+`gpudumps-step-N/` and the latest `gpu.txt`. Git ignores those three
+folders: a capture is there to be read, not kept. Those of the steps
+written up in [PERFORMANCE.md](PERFORMANCE.md) were kept until the
+smoothness work was merged, and are in the repository's history up to
+commit `1eb33db0`.
 
 ## What it changes in the game
 
@@ -470,7 +480,7 @@ written.
 | check | when | what it compares | where the result is |
 |---|---|---|---|
 | division | at start-up | the fast fixed-point division against the exact one, a million cases | first line of the session in `profile.txt` |
-| GPU shaders | at start-up, in every build | known patterns drawn by each pair of shaders against what they must give | `gpu.txt`, and the session's second line |
+| GPU shaders | at start-up, in every build | known patterns drawn by each pair of shaders against what they must give | `gpu.txt` (in the game's own build only when one fails), and the session's second line |
 | CPU replay | one view in 63, when the CPU draws | the recorded calls replayed against the same calls drawn directly; and each thread kept to its rows | `check=`, `leaks=` |
 | GPU picture | one view in 63, when the GPU draws | the GPU's picture against the CPU's | `gpudiff=`, and the dumps |
 | kept HUD pictures | one text in 64, one bitmap in 2,039 | the copy against a fresh drawing | `hudcheck=` |
