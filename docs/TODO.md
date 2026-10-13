@@ -14,8 +14,6 @@ Features:
 
 Fixes:
 * Game crash on button / hack
-* Set Video mode = 960x544 by default
-* Set Messages = Both by default
 
 Performance:
 * FPS lock 30 option

@@ -127,7 +127,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.goOnScreenHelp = true;
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
     gShockPrefs.goMsgLength = 0; // Normal
-    audiolog_setting = 1;
+    audiolog_setting = 2; // Messages: both, the text and the speech
 
     SetShockGlobals();
 }

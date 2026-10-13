@@ -80,7 +80,7 @@ static bool alog_drained; // no block is left, and the stream has been flushed
 static SDL_atomic_t alog_hooked;
 
 int curr_alog = -1;
-uchar audiolog_setting = 1;
+uchar audiolog_setting = 2; // 0: text, 1: speech, 2: both (as SetDefaultPrefs sets it)
 char secret_pending_hack;
 
 char *bark_files[] = {"res/data/citbark.res", "res/data/frnbark.res", "res/data/gerbark.res"};
