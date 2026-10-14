@@ -95,18 +95,14 @@ extern char comments[NUM_SAVE_SLOTS + 1][SAVE_COMMENT_LEN];
     }
 
 enum TEMP_STR_ {
-    REF_STR_MousLook = 0x11000000,
-    REF_STR_MousNorm,
-    REF_STR_MousInv,
-
-    REF_STR_VitaOptions = 0x11000010,
-    REF_STR_GyroAiming,
+    REF_STR_GyroAiming = 0x11000010,
     REF_STR_GyroOff,
     REF_STR_GyroOn,
     REF_STR_GyroLookSpeed,
     REF_STR_ControllerLookSpeed,
 
     REF_STR_Cursor,
+    REF_STR_LoadConfirm,
 
     REF_STR_Help = 0x11000020, // the options panel's pad hints
 };

@@ -35,9 +35,9 @@ event, shown in the last column.
 | Previous / next page on left or right MFD | Rear touch: swipe up / down on the left or right half | Press `T` to switch to rear touch, then drag vertically | — |
 | Aiming (on by default) | Gyro | Not available from the keyboard (needs a host controller with motion sensors) | Mouse-look delta |
 
-Gyro aiming, analog/gyro look speed and the cursor in menus can be changed from
-the **Vita Options** entry in the game menu. The same page holds the
-**Renderer** setting (see [ARCHITECTURE.md](ARCHITECTURE.md#rendering-paths)).
+Gyro aiming, analog/gyro look speed and the cursor in menus can be changed on
+the **Input** page of the game menu. Inverting the vertical look (Mouselook) is
+not in the menu: set `invert-mousey yes` in the prefs file.
 
 Tuning values, all in `sdl_events.c`:
 
@@ -130,12 +130,12 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 | Show the help / controls screen | △ | `V` | — | `F1` |
 | Toggle music | □ | `Z` | — | `F2` |
 | Retype the character name (New Game) | × on the Name row | `X` | `Enter` | — |
-| Move the cursor (only with **Vita Options → Cursor** enabled) | Right stick | `I` `J` `K` `L` | mouse | mouse |
+| Move the cursor (only with **Input → Menu Cursor** enabled) | Right stick | `I` `J` `K` `L` | mouse | mouse |
 
 - **Cursor**: hidden by default in menus (main menu, in-game options menu, help
   screen), and the right stick doesn't move it there, so it can't move the
   focus. Touch still focuses and selects the entry under the finger. In game
-  the cursor is unaffected. **Vita Options → Cursor → Enabled** shows it in
+  the cursor is unaffected. **Input → Menu Cursor → Enabled** shows it in
   menus again (`vita-cursor` in the prefs file; see `VitaMenuCursorHidden()` in
   `sdl_events.c`).
 - **Focus follows the cursor** (cursor enabled): moving the cursor (right stick
@@ -143,10 +143,12 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - **Focus** (in-game menu): the focused control is drawn in a lighter green.
 - **Bars** (gamma, volumes, look speeds): × grabs the focused bar (it turns
   yellow-green), Left/Right move it, and × or ○ release it. Changes apply live.
-- **Pages** (L / R): Load, Save, Audio, Input, Options, Video, Vita options,
-  wrapping. Save is skipped when saving isn't possible. A nested screen counts
-  as its parent page (the confirmation asked before a save is overwritten →
-  Save). L / R do nothing on the main list.
+- **Pages** (L / R): Save, Load, Audio, Input, Options, wrapping. Save is
+  skipped when saving isn't possible. A confirmation counts as the page that
+  asked (loading a slot → Load). L / R do nothing on the main list.
+- **Confirmations** (Quit, loading a save, saving with a damaged object
+  system): No is on top and has the focus, Yes below it. No and ○ go back to
+  the screen that asked.
 - **Save slots**: × on a slot opens the on-screen keyboard to name the save;
   × again saves it.
 - **New Game screen**: Up/Down cycle Name → the four difficulty categories →
@@ -161,9 +163,9 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
   boxes are reworded for the Vita (touch, pad buttons, rear touch), in English,
   French and German, and all its labels are redrawn with the game font for the
   current resolution, so they're sharp in hi-res modes.
-- In the in-game menu, **Return** and ○ go back one screen (e.g. Audio →
-  main list, focusing the entry you came from); START closes the whole menu
-  from any screen.
+- In the in-game menu, ○ goes back one screen (e.g. Audio → main list,
+  focusing the entry you came from) and closes the menu from the main list;
+  START closes the whole menu from any screen.
 - The on-screen keyboard also opens automatically when entering the New Game
   screen, and when tapping the name field or a save slot.
 

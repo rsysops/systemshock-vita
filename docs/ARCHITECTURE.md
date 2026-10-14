@@ -72,7 +72,7 @@ There is **no dedicated platform tree**: the Vita code sits directly in the shar
 - **`src/MacSrc/SDLSound.c`** — sound effects through SDL_mixer. A background thread decodes all of them once, starting when the game starts (`snd_preload()`), so that none is decoded on the main thread when it is first played; one played before the thread got to it still is.
 - **`src/Libraries/3D/Source/rastqthr.c`**, **`src/Libraries/LG/Source/lgslot.c`** — the rasterizer's worker threads and their per-thread slots, on SceKernel threads and semaphores.
 - **`src/GameSrc/vprof.c`** — the profiler's overlay and log, in the profile build only.
-- **`src/MacSrc/Prefs.c`**, **`src/GameSrc/wrapper.c`** — the Vita settings (gyro, look speeds, cursor) and their `Vita Options` menu page.
+- **`src/MacSrc/Prefs.c`**, **`src/GameSrc/wrapper.c`** — the Vita settings (gyro, look speeds, menu cursor), on the in-game menu's Input page.
 - **`vita/vita.cmake`** — defines `VITA_APP_NAME`, `VITA_TITLEID` and the package's name (`SHOK00001` and `systemshock.vpk` for the game; the profile build's two flavours have their own, so that all three install side by side), calls `vita_create_self` / `vita_create_vpk`, and bundles the `vita/sce_sys/` icon and LiveArea assets into the package.
 
 ## Rendering paths

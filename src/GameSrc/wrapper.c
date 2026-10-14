@@ -72,8 +72,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define AUDIO_BUTTON         2
 #define INPUT_BUTTON         3
 #define OPTIONS_BUTTON       4
-#define VIDEO_BUTTON         5
-#define RETURN_BUTTON        6
 #define QUIT_BUTTON          7
 
 #define MOUSE_DOWN (MOUSE_LDOWN | MOUSE_RDOWN | UI_MOUSE_LDOUBLE)
@@ -87,7 +85,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define STATUS_WIDTH  312
 
 #include "sdl_events.h"
-void vita_input_init(uchar butid);
 
 LGCursor option_cursor;
 grs_bitmap option_cursor_bmap;
@@ -112,7 +109,6 @@ void free_options_cursor(void);
 
 void input_screen_init(void);
 void sound_screen_init(void);
-void video_screen_init(void);
 
 uint multi_get_curval(uchar type, void *p);
 void multi_set_curval(uchar type, void *p, uint val, void *deal);
@@ -126,17 +122,14 @@ void wrapper_init(void);
 void load_screen_init(void);
 void save_screen_init(void);
 
-// screen the Return button goes back to; NULL on the top-level screen, where it closes the panel
+// screen Back (circle) goes back to; NULL on the top-level screen, where it closes the panel
 static void (*wrapper_return_screen)(void) = NULL;
 
 // Keyboard / D-pad navigation: one focused widget per screen, moved with the arrow keys or by
 // hovering it with the cursor; Enter activates it, Home goes back, PgUp/PgDn switch page.
-enum { PAGE_LOAD, PAGE_SAVE, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, PAGE_VIDEO,
-       PAGE_VITA,
-       NUM_PAGES };
+enum { PAGE_SAVE, PAGE_LOAD, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, NUM_PAGES };
 
 #define PAGE_NONE -1           // main list: PgUp/PgDn do nothing there
-#define VITA_INPUT_BUTTON 8    // main-list button opening the Vita input screen
 #define OPANEL_SLIDER_STEP 5   // pixels a grabbed bar moves per Left/Right press (same as the mouse wheel)
 #define OPANEL_ALIGN_SLACK 8   // alignment tolerance, in doubled-centre units (4 px): bars sit lower in their slot than buttons
 #define FOCUS_BUTTON_COLOR (BUTTON_COLOR - 2) // focused widget: lighter green
@@ -151,6 +144,7 @@ static int opanel_page = PAGE_NONE;        // top-level page the current screen 
 static uchar opanel_entry_button = 0;      // parent's button that opened this screen, focused again on Back
 static int opanel_focus = -1;              // focused button, -1 = not chosen yet
 static int opanel_prev_focus = -1;         // focus before the last clear_obuttons(), kept on a same-screen re-init
+static uchar (*opanel_verify_no)(uchar) = NULL; // a confirmation's "No", which Back also answers
 static int opanel_queued_focus = -1;       // focus the next screen should start on
 static uchar opanel_slider_editing = FALSE; // focused bar grabbed with Enter: Left/Right move it
 static int opanel_save_armed_line = -1;    // save slot whose name keyboard was opened by Enter; next Enter saves
@@ -352,20 +346,16 @@ uchar fv;
 // Arrays rather than literals, since pushbutton_draw_func() wraps its label in place.
 static struct {
     int num;
-    char text[3][16];
+    char text[3][32];
 } custom_strings[] = {
-    {REF_STR_MousLook, {"Mouselook", "Vue souris", "Mausblick"}},
-    {REF_STR_MousNorm, {"Normal", "Normale", "Normal"}},
-    {REF_STR_MousInv, {"Inverted", "Invers\x82" "e", "Invertiert"}},
-
-    // the German is too wide for one line, and wrapping only breaks at spaces
-    {REF_STR_VitaOptions, {"Vita Options", "Options Vita", "Vita-\nOptionen"}},
     {REF_STR_GyroAiming, {"Gyro Aiming", "Vis\x82" "e gyro", "Gyro-Zielen"}},
     {REF_STR_GyroOn, {"Enabled", "Activ\x82" "e", "An"}},
     {REF_STR_GyroOff, {"Disabled", "D\x82sactiv\x82" "e", "Aus"}},
     {REF_STR_ControllerLookSpeed, {"Look Speed", "Vitesse vue", "Blicktempo"}},
     {REF_STR_GyroLookSpeed, {"Gyro Speed", "Vitesse gyro", "Gyro-Tempo"}},
-    {REF_STR_Cursor, {"Cursor", "Curseur", "Mauszeiger"}},
+    {REF_STR_Cursor, {"Menu Cursor", "Curseur menus", "Men\x81-Cursor"}},
+    // the message line of the confirmation before loading a save
+    {REF_STR_LoadConfirm, {"Load this save?", "Charger cette sauvegarde ?", "Diesen Spielstand laden?"}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 };
@@ -1019,8 +1009,6 @@ void textlist_init(uchar butid, char *text, uchar numblocks, uchar blocksiz, uch
 void wrapper_pushbutton_func(uchar butid);
 uchar can_save();
 
-static void vita_input_screen(void) { vita_input_init(VITA_INPUT_BUTTON); }
-
 // Every screen init calls this right after clear_obuttons(): it records where Back goes
 // (parent, focusing entry_button there) and which page L/R switch from.
 static void opanel_screen_begin(void (*self)(void), void (*parent)(void), int page, uchar entry_button) {
@@ -1032,6 +1020,7 @@ static void opanel_screen_begin(void (*self)(void), void (*parent)(void), int pa
     wrapper_return_screen = parent;
     opanel_page = page;
     opanel_entry_button = entry_button;
+    opanel_verify_no = NULL;
 }
 
 static uchar opanel_focusable(int b) {
@@ -1216,7 +1205,7 @@ static void opanel_leave_textlist(void) {
         textlist_cleanup(&OButtons[opanel_focus].user.textlist_st);
 }
 
-// back one screen, like the Return button; closes the panel from the main list
+// back one screen; closes the panel from the main list
 static void opanel_go_back(void) {
     opanel_leave_textlist();
     if (wrapper_return_screen) {
@@ -1243,12 +1232,6 @@ static void opanel_open_page(int page) {
         break;
     case PAGE_OPTIONS:
         wrapper_pushbutton_func(OPTIONS_BUTTON);
-        break;
-    case PAGE_VIDEO:
-        wrapper_pushbutton_func(VIDEO_BUTTON);
-        break;
-    case PAGE_VITA:
-        vita_input_screen();
         break;
     }
 }
@@ -1425,6 +1408,8 @@ static uchar opanel_nav_key(uiEvent *ev, int key) {
         if (b >= 0 && opanel_slider_editing) {
             opanel_slider_editing = FALSE;
             draw_button(b);
+        } else if (opanel_verify_no) {
+            opanel_verify_no(0); // answers No, which goes back
         } else {
             opanel_go_back();
         }
@@ -1664,14 +1649,8 @@ void wrapper_pushbutton_func(uchar butid) {
     case INPUT_BUTTON: // Input
         input_screen_init();
         break;
-    case VIDEO_BUTTON: // Input
-        video_screen_init();
-        break;
     case OPTIONS_BUTTON: // Options
         options_screen_init();
-        break;
-    case RETURN_BUTTON: // Return
-        opanel_go_back(); // back to the parent screen, or close from the main list
         break;
     case QUIT_BUTTON: // Quit
         verify_screen_init(quit_verify_pushbutton_handler, quit_verify_slorker);
@@ -1681,6 +1660,9 @@ void wrapper_pushbutton_func(uchar butid) {
     return;
 }
 
+// the main list's buttons, slot by slot
+static const uchar main_list[] = {SAVE_BUTTON, LOAD_BUTTON, AUDIO_BUTTON, INPUT_BUTTON, OPTIONS_BUTTON, QUIT_BUTTON};
+
 void wrapper_init(void) {
     LGRect r;
     int i;
@@ -1689,17 +1671,15 @@ void wrapper_init(void) {
     keyequivs = get_temp_string(REF_STR_KeyEquivs0);
 
     clear_obuttons();
-    opanel_screen_begin(wrapper_init, NULL, PAGE_NONE, 0); // top level: Return closes the panel
-    for (i = 0; i < 8; i++) {
-        // Return sits centre right, like on every submenu: it swaps slots with Video
-        int slot = (i == VIDEO_BUTTON) ? RETURN_BUTTON : (i == RETURN_BUTTON) ? VIDEO_BUTTON : i;
+    opanel_screen_begin(wrapper_init, NULL, PAGE_NONE, 0); // top level: Back closes the panel
+    // two rows: Save, Load, Audio / Input, Options, Quit (each button keeps its id, and so its
+    // label, REF_STR_WrapperText + id)
+    for (i = 0; i < (int)(sizeof(main_list) / sizeof(main_list[0])); i++) {
+        uchar id = main_list[i];
 
-        standard_button_rect(&r, slot);
-        pushbutton_init(i, keyequivs[i], REF_STR_WrapperText + i, wrapper_pushbutton_func, &r);
+        standard_button_rect(&r, i);
+        pushbutton_init(id, keyequivs[id], REF_STR_WrapperText + id, wrapper_pushbutton_func, &r);
     }
-
-    standard_button_rect(&r, 8);
-    pushbutton_init(8, 'v', REF_STR_VitaOptions, vita_input_init, &r);
 
     opanel_redraw(TRUE);
 }
@@ -1712,7 +1692,8 @@ void wrapper_init(void) {
 void quit_verify_pushbutton_handler(uchar butid) { really_quit_key_func(0, 0, 0); }
 
 uchar quit_verify_slorker(uchar butid) {
-    wrapper_panel_close(TRUE);
+    message_info("");
+    opanel_go_back();
     return TRUE;
 }
 
@@ -1720,7 +1701,8 @@ void save_verify_pushbutton_handler(uchar butid) { do_savegame_guts(savegame_ver
 
 uchar save_verify_slorker(uchar butid) {
     strcpy(comments[savegame_verify], comments[NUM_SAVE_SLOTS]);
-    wrapper_panel_close(TRUE);
+    opanel_go_back();
+    string_message_info(REF_STR_SaveSlot);
     return TRUE;
 }
 #pragma enable_message(202)
@@ -1734,13 +1716,15 @@ void verify_screen_init(void (*verify)(uchar butid), slorker slork) {
     clear_obuttons();
     opanel_screen_begin(NULL, parent, page, opanel_prev_focus < 0 ? 0 : opanel_prev_focus);
 
+    // No above Yes, so the focus lands on No
     standard_button_rect(&r, 1);
-    pushbutton_init(0, tolower(get_temp_string(REF_STR_VerifyText)[0]), REF_STR_VerifyText, verify, &r);
-
-    standard_button_rect(&r, 4);
     pushbutton_init(1, tolower(get_temp_string(REF_STR_VerifyText + 1)[0]), (REF_STR_VerifyText + 1), (void (*)(uchar))slork, &r);
 
+    standard_button_rect(&r, 4);
+    pushbutton_init(0, tolower(get_temp_string(REF_STR_VerifyText)[0]), REF_STR_VerifyText, verify, &r);
+
     slork_init(2, slork);
+    opanel_verify_no = slork;
 
     opanel_redraw(TRUE);
 }
@@ -1809,26 +1793,26 @@ void audiolog_dealfunc(short val) {
 void sound_screen_init(void) {
     LGRect r;
     uchar sliderbase;
-    char retkey;
 
     clear_obuttons();
     opanel_screen_begin(sound_screen_init, wrapper_init, PAGE_AUDIO, AUDIO_BUTTON);
 
+    // one bar per row, each the full width of the page
+    standard_slider_rect(&r, 0);
+    r.lr.x += 2 * OPANEL_SLOT_W; // spans three slots
+    sliderbase = r.lr.x - r.ul.x - 2;
     if (music_card) {
-        standard_slider_rect(&r, 0);
-        r.lr.x += OPANEL_SLOT_W; // spans two slots
-        sliderbase = r.lr.x - r.ul.x - 2;
         slider_init(0, REF_STR_MusicText, sizeof(ushort), TRUE, &player_struct.questvars[MUSIC_VOLUME_QVAR], 100,
                     sliderbase, recompute_music_level, &r);
     } else {
         standard_button_rect(&r, 0);
-        r.lr.x += OPANEL_SLOT_W; // spans two slots
+        r.lr.x += 2 * OPANEL_SLOT_W;
         textwidget_init(0, BUTTON_COLOR, REF_STR_MusicFeedbackText + 2, &r);
     }
 
     if (digi_gain) {
         standard_slider_rect(&r, 3);
-        r.lr.x += OPANEL_SLOT_W; // spans two slots
+        r.lr.x += 2 * OPANEL_SLOT_W;
         slider_init(1, REF_STR_MusicText + 1, sizeof(ushort), FALSE, &player_struct.questvars[SFX_VOLUME_QVAR], 100,
                     sliderbase, recompute_digifx_level, &r);
     } else {
@@ -1838,19 +1822,9 @@ void sound_screen_init(void) {
     }
 
     standard_slider_rect(&r, 6);
-    r.lr.x += OPANEL_SLOT_W; // spans two slots
+    r.lr.x += 2 * OPANEL_SLOT_W;
     slider_init(2, REF_STR_MusicText + 4, sizeof(ushort), FALSE, &player_struct.questvars[ALOG_VOLUME_QVAR], 100,
                 sliderbase, recompute_audiolog_level, &r);
-
-    // Messages: text, speech or both
-    standard_button_rect(&r, 2);
-    retkey = tolower(get_temp_string(REF_STR_MusicText + 3)[0]);
-    multi_init(3, retkey, REF_STR_MusicText + 3, REF_STR_AudiologState, ID_NULL, sizeof(audiolog_setting),
-               &audiolog_setting, 3, audiolog_dealfunc, &r);
-
-    standard_button_rect(&r, 5);
-    retkey = tolower(get_temp_string(REF_STR_MusicText + 2)[0]);
-    pushbutton_init(RETURN_BUTTON, retkey, REF_STR_MusicText + 2, wrapper_pushbutton_func, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
@@ -1934,41 +1908,6 @@ void olh_dealfunc(uchar olh) {
 }
 #pragma enable_message(202)
 
-void input_screen_init(void) {
-    LGRect r;
-    char *keys;
-    int i = 0;
-    uchar sliderbase;
-
-    keys = get_temp_string(REF_STR_KeyEquivs1);
-    clear_obuttons();
-    opanel_screen_begin(input_screen_init, wrapper_init, PAGE_INPUT, INPUT_BUTTON);
-
-    standard_button_rect(&r, i);
-    multi_init(i, keys[0], REF_STR_OptionsText + 0, REF_STR_OffonText, REF_STR_PopupCursFeedback, sizeof(popup_cursors),
-               &popup_cursors, 2, NULL, &r);
-    i++;
-
-    standard_slider_rect(&r, i);
-    sliderbase = ((r.lr.x - r.ul.x - 3) * DCLICK_DEFAULT) / USHRT_MAX;
-    slider_init(i, REF_STR_DoubleClick, sizeof(ushort), FALSE, &gShockPrefs.goDoubleClick, USHRT_MAX, sliderbase,
-                dclick_dealfunc, &r);
-    i++;
-
-    standard_button_rect(&r, i);
-    multi_init(i, keys[3], REF_STR_MousLook, REF_STR_MousNorm, ID_NULL,
-               sizeof(gShockPrefs.goInvertMouseY), &gShockPrefs.goInvertMouseY, 2, NULL, &r);
-    i++;
-
-    standard_button_rect(&r, 5);
-    pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
-
-    // FIXME: Cannot pass a keycode with modifier flags as uchar
-    keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
-
-    opanel_redraw(TRUE);
-}
-
 // draw or erase the cursor right away (see VitaMenuCursorHidden() in sdl_events.c)
 static void cursor_dealfunc(uchar unused) {
     uiHideMouse(NULL);
@@ -1976,44 +1915,46 @@ static void cursor_dealfunc(uchar unused) {
     (void)unused;
 }
 
-void vita_input_init(uchar butid) {
+void input_screen_init(void) {
     LGRect r;
     char *keys;
-    int i = 0;
     uchar sliderbase;
 
     keys = get_temp_string(REF_STR_KeyEquivs1);
     clear_obuttons();
-    opanel_screen_begin(vita_input_screen, wrapper_init, PAGE_VITA, VITA_INPUT_BUTTON);
+    opanel_screen_begin(input_screen_init, wrapper_init, PAGE_INPUT, INPUT_BUTTON);
 
-    // gyro aiming
-    standard_button_rect(&r, i);
-    multi_init(i, keys[0], REF_STR_GyroAiming, REF_STR_GyroOff, ID_NULL,
-                sizeof(gShockPrefs.gyroAiming), &gShockPrefs.gyroAiming, 2, NULL, &r);
-    i++;
+    // (no Mouselook: a hidden setting, "invert-mousey" in the prefs file)
 
+    // row 1: the switches
+    standard_button_rect(&r, 0);
+    multi_init(0, keys[3], REF_STR_GyroAiming, REF_STR_GyroOff, ID_NULL,
+               sizeof(gShockPrefs.gyroAiming), &gShockPrefs.gyroAiming, 2, NULL, &r);
+
+    // the cursor in menus
+    standard_button_rect(&r, 1);
+    multi_init(1, keys[1], REF_STR_Cursor, REF_STR_GyroOff, ID_NULL,
+               sizeof(gShockPrefs.showCursor), &gShockPrefs.showCursor, 2, cursor_dealfunc, &r);
+
+    standard_button_rect(&r, 2);
+    multi_init(2, keys[0], REF_STR_OptionsText + 0, REF_STR_OffonText, REF_STR_PopupCursFeedback, sizeof(popup_cursors),
+               &popup_cursors, 2, NULL, &r);
+
+    // row 2: the bars
+    standard_slider_rect(&r, 3);
     sliderbase = ((r.lr.x - r.ul.x - 1) * 5 / 15);
-
-    standard_slider_rect(&r, i);
-    slider_init(i, REF_STR_GyroLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.gyroAimingSpeed, 15,
+    slider_init(3, REF_STR_GyroLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.gyroAimingSpeed, 15,
                 sliderbase, NULL, &r);
-    i++;
 
+    standard_slider_rect(&r, 4);
     sliderbase = ((r.lr.x - r.ul.x - 1) * 10 / 25);
-
-    standard_slider_rect(&r, i);
-    slider_init(i, REF_STR_ControllerLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.controllerAimingSpeed, 25,
+    slider_init(4, REF_STR_ControllerLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.controllerAimingSpeed, 25,
                 sliderbase, NULL, &r);
-    i++;
 
-    // cursor in menus
-    standard_button_rect(&r, i);
-    multi_init(i, keys[1], REF_STR_Cursor, REF_STR_GyroOff, ID_NULL,
-                sizeof(gShockPrefs.showCursor), &gShockPrefs.showCursor, 2, cursor_dealfunc, &r);
-    i++;
-
-    standard_button_rect(&r, 5);
-    pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
+    standard_slider_rect(&r, 5);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * DCLICK_DEFAULT) / USHRT_MAX;
+    slider_init(5, REF_STR_DoubleClick, sizeof(ushort), FALSE, &gShockPrefs.goDoubleClick, USHRT_MAX, sliderbase,
+                dclick_dealfunc, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
@@ -2032,42 +1973,10 @@ void gamma_slider_dealfunc(ushort gamma_qvar) {
     uiShowMouse(NULL);
 }
 
-void video_screen_init(void) {
-    LGRect r;
-    int i;
-    char *keys;
-    extern short mode_id;
-    uchar sliderbase;
-
-    keys = get_temp_string(REF_STR_KeyEquivs3);
-    clear_obuttons();
-    opanel_screen_begin(video_screen_init, wrapper_init, PAGE_VIDEO, VIDEO_BUTTON);
-    i = 0;
-
-    // (no video mode and no detail level: hidden settings, "video-mode" and
-    // "detail" in the prefs file; the game runs in the Vita's own 960x544)
-
-    // gamma
-    standard_slider_rect(&r, i);
-    sliderbase = ((r.lr.x - r.ul.x - 1) * 29 / 100);
-    slider_init(i, REF_STR_OptionsText + 3, sizeof(ushort), TRUE, &(gShockPrefs.doGamma), 100,
-                sliderbase, gamma_slider_dealfunc, &r);
-    i++;
-
-    // return (fixed at position 5)
-    standard_button_rect(&r, 5);
-    pushbutton_init(RETURN_BUTTON, keys[3], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
-
-    // FIXME: Cannot pass a keycode with modifier flags as uchar
-    keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
-
-    opanel_redraw(TRUE);
-}
-
 void options_screen_init(void) {
     LGRect r;
     char *keys;
-    int i = 0;
+    uchar sliderbase;
 
     keys = get_temp_string(REF_STR_KeyEquivs2);
     clear_obuttons();
@@ -2077,30 +1986,29 @@ void options_screen_init(void) {
 
     olh_temp = olh_active;
 
-    // okay, I admit it, we're going to tweak these "standard"
-    // button rects a little bit.
-
+    // row 1: how logs and e-mails are given, and the language
+    // Messages: text, speech or both
     standard_button_rect(&r, 0);
-    multi_init(i, keys[i], REF_STR_OptionsText + 2, REF_STR_TerseText, REF_STR_TerseFeedback,
-               sizeof(gShockPrefs.goMsgLength), &(gShockPrefs.goMsgLength), 2, NULL, &r);
-    i++;
-
-    i++;
+    multi_init(0, tolower(get_temp_string(REF_STR_MusicText + 3)[0]), REF_STR_MusicText + 3, REF_STR_AudiologState,
+               ID_NULL, sizeof(audiolog_setting), &audiolog_setting, 3, audiolog_dealfunc, &r);
 
     standard_button_rect(&r, 1);
-    multi_init(i, keys[i], REF_STR_OnlineHelp, REF_STR_OffonText, ID_NULL, sizeof(olh_temp), &olh_temp, 2,
-               olh_dealfunc, &r);
-    i++;
-
-    i++;
+    multi_init(1, keys[0], REF_STR_OptionsText + 2, REF_STR_TerseText, REF_STR_TerseFeedback,
+               sizeof(gShockPrefs.goMsgLength), &(gShockPrefs.goMsgLength), 2, NULL, &r);
 
     standard_button_rect(&r, 2);
-    multi_init(i, keys[i], REF_STR_Language, REF_STR_Languages, ID_NULL, sizeof(which_lang), &which_lang, 3,
+    multi_init(2, keys[4], REF_STR_Language, REF_STR_Languages, ID_NULL, sizeof(which_lang), &which_lang, 3,
                language_dealfunc, &r);
-    i++;
 
-    standard_button_rect(&r, 5);
-    pushbutton_init(RETURN_BUTTON, keys[i], REF_STR_OptionsText + 5, wrapper_pushbutton_func, &r);
+    // row 2: the screen
+    standard_button_rect(&r, 3);
+    multi_init(3, keys[2], REF_STR_OnlineHelp, REF_STR_OffonText, ID_NULL, sizeof(olh_temp), &olh_temp, 2,
+               olh_dealfunc, &r);
+
+    standard_slider_rect(&r, 4);
+    sliderbase = ((r.lr.x - r.ul.x - 1) * 29 / 100);
+    slider_init(4, REF_STR_OptionsText + 3, sizeof(ushort), TRUE, &(gShockPrefs.doGamma), 100,
+                sliderbase, gamma_slider_dealfunc, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
@@ -2135,6 +2043,28 @@ void load_dealfunc(uchar butid, uchar index) {
     // spoof_mouse_event();
     wrapper_panel_close(TRUE);
 }
+
+// the slot waiting for the answer to "Load this save?"; -1 once answered
+static char load_verify_slot = -1;
+
+static void load_verify_yes(uchar butid) {
+    message_info("");
+    load_dealfunc(butid, load_verify_slot);
+    load_verify_slot = -1;
+}
+
+// No: back to the slots, on the one chosen
+static uchar load_verify_no(uchar butid) {
+    opanel_go_back();
+    string_message_info(REF_STR_LoadSlot);
+    return TRUE;
+}
+
+static void load_slot_chosen(uchar butid, uchar index) {
+    load_verify_slot = index;
+    verify_screen_init(load_verify_yes, load_verify_no);
+    message_info(get_temp_string(REF_STR_LoadConfirm));
+}
 #pragma enable_message(202)
 
 void load_screen_init(void) {
@@ -2144,7 +2074,11 @@ void load_screen_init(void) {
     opanel_screen_begin(load_screen_init, wrapper_init, PAGE_LOAD, LOAD_BUTTON);
 
     textlist_init(0, *comments, NUM_SAVE_SLOTS, SAVE_COMMENT_LEN, FALSE, 0, valid_save, valid_save, REF_STR_UnusedSave,
-                  BUTTON_COLOR, WHITE, BUTTON_COLOR + 2, 0, load_dealfunc, NULL);
+                  BUTTON_COLOR, WHITE, BUTTON_COLOR + 2, 0, load_slot_chosen, NULL);
+    if (load_verify_slot >= 0) { // back from the confirmation: the chosen slot stays current
+        OButtons[0].user.textlist_st.currstring = load_verify_slot;
+        load_verify_slot = -1;
+    }
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
