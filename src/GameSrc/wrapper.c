@@ -1911,9 +1911,21 @@ void language_dealfunc(uchar lang) {
     opanel_redraw(FALSE);
 }
 
-void dclick_dealfunc(ushort dclick_qvar) {
-    uiDoubleClickDelay = QVAR_TO_DCLICK(dclick_qvar, 0);
-    uiDoubleClickTime = QVAR_TO_DCLICK(dclick_qvar, 1);
+// The double-click bar (0 to USHRT_MAX) to one of the UI's two timings, in
+// ticks of 1/280 s: the wait before a single click is acted on
+// (uiDoubleClickDelay, counted in fives) and how long a first click is
+// remembered after its release (uiDoubleClickTime). The bar's default
+// (DCLICK_DEFAULT) gives the timing the game has always started with; its
+// left end half of it, its right end three times.
+static ushort dclick_scale(ushort at_default, ushort bar) {
+    if (bar <= DCLICK_DEFAULT)
+        return at_default / 2 + (ushort)((ulong)(at_default - at_default / 2) * bar / DCLICK_DEFAULT);
+    return at_default + (ushort)(2UL * at_default * (bar - DCLICK_DEFAULT) / (USHRT_MAX - DCLICK_DEFAULT));
+}
+
+void dclick_dealfunc(ushort bar) {
+    uiDoubleClickDelay = dclick_scale(8, bar); // 0.14 s at the default
+    uiDoubleClickTime = dclick_scale(45, bar); // 0.16 s
 }
 
 #pragma disable_message(202)
@@ -1938,9 +1950,9 @@ void input_screen_init(void) {
     i++;
 
     standard_slider_rect(&r, i);
-    sliderbase = ((r.lr.x - r.ul.x - 3) * (FIX_UNIT / 3)) / USHRT_MAX;
-    slider_init(i, REF_STR_DoubleClick, sizeof(ushort), FALSE, &player_struct.questvars[DCLICK_QVAR], USHRT_MAX,
-                sliderbase, dclick_dealfunc, &r);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * DCLICK_DEFAULT) / USHRT_MAX;
+    slider_init(i, REF_STR_DoubleClick, sizeof(ushort), FALSE, &gShockPrefs.goDoubleClick, USHRT_MAX, sliderbase,
+                dclick_dealfunc, &r);
     i++;
 
     standard_button_rect(&r, i);

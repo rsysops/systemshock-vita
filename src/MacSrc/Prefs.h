@@ -57,7 +57,13 @@ typedef struct {
     short gyroAimingSpeed;
     short controllerAimingSpeed;
     bool showCursor; // draw the cursor in menus and let the right stick move it there
+
+    // The Input page's double-click bar, 0 to USHRT_MAX (see dclick_dealfunc)
+    ushort goDoubleClick;
 } ShockPrefs;
+
+// The double-click bar's default: a third along, where its marker is
+#define DCLICK_DEFAULT (65536 / 3)
 
 //--------------------
 //  Globals

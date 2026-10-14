@@ -78,6 +78,7 @@ static const char *PREF_VIDEOMODE = "video-mode";
 static const char *PREF_DETAIL = "detail";
 static const char *PREF_ONSCR_HELP = "onscreen-help";
 static const char *PREF_GAMMA = "gamma";
+static const char *PREF_DOUBLE_CLICK = "double-click";
 static const char *PREF_MSG_LENGTH = "message-length";
 static const char *PREF_ALOG_SETTING = "alog-setting";
 static const char *PREF_MIDI_BACKEND = "midi-backend";
@@ -121,6 +122,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.doDetail = 3;     // Max detail.
     gShockPrefs.goOnScreenHelp = true;
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
+    gShockPrefs.goDoubleClick = DCLICK_DEFAULT;
     gShockPrefs.goMsgLength = 0; // Normal
     audiolog_setting = 2; // Messages: both, the text and the speech
 
@@ -215,6 +217,10 @@ int16_t LoadPrefs(void) {
             if (gamma > 100)
                 gamma = 100;
             gShockPrefs.doGamma = gamma;
+        } else if (strcasecmp(key, PREF_DOUBLE_CLICK) == 0) {
+            int dclick = atoi(value);
+            if (dclick >= 0 && dclick <= USHRT_MAX)
+                gShockPrefs.goDoubleClick = (ushort)dclick;
         } else if (strcasecmp(key, PREF_MSG_LENGTH) == 0) {
             int ml = atoi(value);
             if (ml >= 0 && ml <= 1)
@@ -284,6 +290,7 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DETAIL, _fr_global_detail);
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DOUBLE_CLICK, gShockPrefs.goDoubleClick);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_SETTING, audiolog_setting);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_BACKEND, gShockPrefs.soMidiBackend);

@@ -448,8 +448,9 @@ uchar MacHelpFunc(ushort keycode, uint32_t context, intptr_t data) {
 //most of original init_input() is now either commented out or done elsewhere, so do what's left here
 //and comment out original function below
 void init_input(void) {
-    uiDoubleClickDelay = 8;
-    uiDoubleClickTime = 45;
+    extern void dclick_dealfunc(ushort bar);
+
+    dclick_dealfunc(gShockPrefs.goDoubleClick); // the double-click's timings, as set
     uiDoubleClicksOn[MOUSE_LBUTTON] = TRUE; // turn on left double clicks
     uiAltDoubleClick = TRUE;
 

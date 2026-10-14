@@ -254,8 +254,6 @@ errtype interpret_qvars(void) {
 
     gamma_dealfunc(QUESTVAR_GET(GAMMACOR_QVAR));
 
-    // dclick_dealfunc(QUESTVAR_GET(DCLICK_QVAR));
-
     recompute_music_level(QUESTVAR_GET(MUSIC_VOLUME_QVAR));
     recompute_digifx_level(QUESTVAR_GET(SFX_VOLUME_QVAR));
     recompute_audiolog_level(QUESTVAR_GET(ALOG_VOLUME_QVAR));

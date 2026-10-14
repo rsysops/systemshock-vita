@@ -974,7 +974,6 @@ void go_and_start_the_game_already(void) {
     QUESTVAR_SET(AMAP_NOTES_QVAR, map_notes_on);
     QUESTVAR_SET(HUDCOLOR_QVAR, hud_color_bank);
     QUESTVAR_SET(SCREENMODE_QVAR, 3);
-    QUESTVAR_SET(DCLICK_QVAR, FIX_UNIT / 3);
 
     for (i = 0; i < 4; i++)
         QUESTVAR_SET(diff_qvars[i], player_struct.difficulty[i]);

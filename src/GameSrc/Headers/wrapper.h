@@ -64,6 +64,7 @@ uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data);
 
 errtype make_options_cursor(void);
 
+void dclick_dealfunc(ushort bar);
 void recompute_audiolog_level(ushort vol);
 void recompute_digifx_level(ushort vol);
 void recompute_music_level(ushort vol);
