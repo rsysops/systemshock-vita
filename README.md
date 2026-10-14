@@ -6,6 +6,8 @@ Data files from System Shock are required. This port was only tested with `Syste
 
 To install the data files, you'll have to create the `ux0:data/systemshock/res/` folder on your PS Vita and copy `DATA` and `SOUND` folders from the installed System Shock folder there.
 
+The game checks for these files when it starts: if some are missing, it says which ones in a message and goes back to the LiveArea.
+
 The game draws its 3D view with the GPU, which needs the shader compiler module `libshacccg.suprx` in `ur0:data/` (the same file many Vita ports ask for). Without it the game draws on the CPU, which is slower, and says so in a message when it starts.
 
 ## Building
