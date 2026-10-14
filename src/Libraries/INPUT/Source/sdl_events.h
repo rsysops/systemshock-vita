@@ -25,5 +25,7 @@ void pump_events(void);
 void set_mouse_chaos(short dx, short dy);
 
 void VitaStartTextInput(int emulate_every_frame);
+// Whether the on-screen keyboard is open, or gave its text less than `ms` ago
+int VitaTextInputRecent(unsigned ms);
 
 #endif

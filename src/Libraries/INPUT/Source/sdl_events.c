@@ -211,6 +211,7 @@ bool isRunning = false;
 // hacky way of dealing with Vita text input
 char vita_input_text[VITA_TEXT_BUFFER_SIZE];
 int vita_text_input_active;
+static Uint32 vita_text_input_closed_at; // SDL_GetTicks() when the keyboard gave its text; 0: never
 int per_frame_keydown_emulation = 0;
 int text_input_active = 0;
 int current_char_position = 0;
@@ -485,6 +486,11 @@ void VitaStartTextInput(int emulate_every_frame)
     SDL_StartTextInput();
     vita_text_input_active = 1;
     per_frame_keydown_emulation = emulate_every_frame;
+}
+
+int VitaTextInputRecent(unsigned ms)
+{
+    return vita_text_input_active || (vita_text_input_closed_at != 0 && SDL_GetTicks() - vita_text_input_closed_at < ms);
 }
 
 static void toggleFullScreen() {
@@ -1377,6 +1383,7 @@ void pump_events(void) {
                 text_input_active = 1;
                 strncpy(vita_input_text, ev.text.text, VITA_TEXT_BUFFER_SIZE);
                 vita_text_input_active = 0;
+                vita_text_input_closed_at = SDL_GetTicks();
 
                 if (per_frame_keydown_emulation) {
                     return;

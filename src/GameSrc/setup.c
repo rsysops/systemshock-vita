@@ -186,6 +186,12 @@ errtype draw_username(int color, char *string);
 char curr_diff = 0;
 uchar start_selected = FALSE;
 uchar name_selected = FALSE;
+// The on-screen keyboard was opened for the name, and the Enter it can send as
+// it closes (SDL's Vita keyboard does, on its own Enter key) hasn't come yet.
+// With the focus on Name, that Enter would open the keyboard again.
+static uchar name_enter_pending = FALSE;
+// how long after the keyboard closes an Enter on Name is taken for its own
+#define NAME_ENTER_WAIT_MS 1000
 
 short diff_titles_x[] = {DIFF_TITLE1_X1, DIFF_TITLE2_X1, DIFF_TITLE3_X1, DIFF_TITLE4_X1};
 short diff_titles_y[] = {DIFF_TITLE1_Y1, DIFF_TITLE2_Y1, DIFF_TITLE3_Y1, DIFF_TITLE4_Y1};
@@ -207,14 +213,16 @@ errtype difficulty_draw(uchar full) {
     int i;
 
     if (setup_mode != SETUP_DIFFICULTY) {
-        // fresh visit to this screen: don't carry stale category/Start focus or name over from last time
+        // fresh visit to this screen: don't carry stale category/Start focus or name over from
+        // last time; the focus starts on Name, whose keyboard opens at once
         start_selected = FALSE;
-        name_selected = FALSE;
+        name_selected = TRUE;
         curr_diff = 0;
         player_struct.name[0] = 0;
 
         // game start text input
         VitaStartTextInput(1);
+        name_enter_pending = TRUE;
     }
 
     uiHideMouse(NULL);
@@ -293,12 +301,12 @@ static void difficulty_rename(void) {
     player_struct.name[0] = 0;
     draw_username(NORMAL_ENTRY_COLOR, player_struct.name);
     VitaStartTextInput(1);
+    name_enter_pending = TRUE;
 
-    // move on to the first category, so the Enter the keyboard can send when it closes
-    // doesn't land on the name row and reopen it
-    name_selected = FALSE;
+    // the focus stays on Name (see name_enter_pending for the Enter the keyboard
+    // can send when it closes)
+    name_selected = TRUE;
     start_selected = FALSE;
-    curr_diff = 0;
     difficulty_draw(FALSE);
 }
 
@@ -1120,6 +1128,7 @@ uchar intro_mouse_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
             break;
 
         case SETUP_DIFFICULTY:
+            name_enter_pending = FALSE;
             diff_changed = FALSE;
             // given that these are all rectangles, i bet you could just get mouse pos and divide, eh?
             for (i = 0; i < 16; i++) {
@@ -1242,6 +1251,7 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 n = NUM_DIFF_CATEGORIES - 2; // note sneaky -2 for fallthrough
             case '+':
             case KEY_RIGHT:
+                name_enter_pending = FALSE;
                 n++; // n now NDC-1 or 1
                 if (!start_selected && !name_selected) {
                     old_diff = player_struct.difficulty[curr_diff];
@@ -1257,15 +1267,23 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
 
             case KEY_UP:
             case (KEY_TAB | KB_FLAG_SHIFT):
+                name_enter_pending = FALSE;
                 difficulty_focus_set((difficulty_focus_get() + DIFF_FOCUS_COUNT - 1) % DIFF_FOCUS_COUNT);
                 break;
             case KEY_DOWN:
             case KEY_TAB:
+                name_enter_pending = FALSE;
                 difficulty_focus_set((difficulty_focus_get() + 1) % DIFF_FOCUS_COUNT);
                 break;
 
             case KEY_ENTER:
                 if (name_selected) {
+                    // the keyboard's own Enter, as it closes: taken once, and not as a
+                    // request to open it again
+                    if (name_enter_pending && VitaTextInputRecent(NAME_ENTER_WAIT_MS)) {
+                        name_enter_pending = FALSE;
+                        break;
+                    }
                     difficulty_rename();
                     break;
                 }
@@ -1276,6 +1294,7 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 break;
 
             case KEY_ESC:
+                name_enter_pending = FALSE;
                 journey_draw(0);
                 break;
 
