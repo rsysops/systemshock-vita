@@ -249,8 +249,11 @@ void EmulateTextInput()
 
     current_key_down = current_key_down ? 0 : 1;
 
-    if (vita_input_text[current_char_position] == '\0' || current_char_position >= VITA_TEXT_BUFFER_SIZE) {
+    if (current_char_position >= VITA_TEXT_BUFFER_SIZE || vita_input_text[current_char_position] == '\0') {
         current_char_position = 0;
+        // the save slots' mode only sends key-ups and so can end on 0, which
+        // would make the next text's first character a key-up alone
+        current_key_down = 1;
         text_input_active = 0;
     }
 }
@@ -486,6 +489,10 @@ void VitaStartTextInput(int emulate_every_frame)
     SDL_StartTextInput();
     vita_text_input_active = 1;
     per_frame_keydown_emulation = emulate_every_frame;
+    // each keyboard's text starts afresh, whatever the last one left
+    text_input_active = 0;
+    current_char_position = 0;
+    current_key_down = 1;
 }
 
 int VitaTextInputRecent(unsigned ms)
