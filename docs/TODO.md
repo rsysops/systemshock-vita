@@ -23,6 +23,5 @@ Performance:
 * System Shock Enhanced shadow render as a mod
 
 User interface:
-* Add a message alert if the resource are absent
 * How audio log autoplay works?
 * Some interfaces are to small (digicode, lift)
