@@ -1380,8 +1380,9 @@ static void opanel_show_help(void) {
 }
 
 // Arrows, Enter, Home (back), PgUp/PgDn (page), F1 (help) and F2 (music) are handled here
-// before the widgets see them: the slot list would swallow them and the verify screen's
-// slorker closes the panel.
+// before the widgets see them: the slot list would swallow them, and the verify screen's
+// slorker takes any key as No. So is Esc (START) on the verify screen, which would only
+// go back there; elsewhere it closes the panel further on.
 static uchar opanel_nav_key(uiEvent *ev, int key) {
     int b = opanel_focus;
 
@@ -1415,6 +1416,15 @@ static uchar opanel_nav_key(uiEvent *ev, int key) {
         } else {
             opanel_go_back();
         }
+        return TRUE;
+
+    case KEY_ESC:
+        if (!opanel_verify_no)
+            return FALSE;
+        // No first, which undoes what the confirmation holds, then the whole panel
+        // (unless No closed it already: a confirmation with nothing to go back to)
+        opanel_verify_no(0);
+        wrapper_panel_close(TRUE);
         return TRUE;
 
     case KEY_PGUP:
