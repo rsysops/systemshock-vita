@@ -48,6 +48,8 @@ Gyro aiming is active by default. You can turn it off or adjust analog/gyro look
 
 Once you have the data reader, new e-mails and audio logs play as soon as they arrive. Set `Log autoplay` to Off on the `Options` page of the game menu for the original behaviour, where they wait until you tap the sender's face in the MFD (or pick them in the log list).
 
+When you save, the keyboard opens on a name such as `Save 3 (Medical)`: the next number and the floor you're on. Press Enter to keep it, or edit it. Set `Save Templ.` to Off on the `Options` page to have it open on the slot's own name instead. Closing the keyboard without a change leaves the slot's name as it was.
+
 The cursor is hidden in menus by default (they're navigated with the D-pad; touch still works). Enable `Menu Cursor` on the `Input` page to show it there again.
 
 In the main menu and the in-game menu, move with the D-Pad or left stick, select with ×, go back with ○ and switch the in-game menu page with L1/R1. In the in-game menu, △ shows the help / controls screen and □ toggles the music. START starts the game from the New Game screen and closes the in-game menu. See [docs/KEYMAPS.md](docs/KEYMAPS.md) for details.

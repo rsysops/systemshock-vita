@@ -192,6 +192,8 @@ uchar name_selected = FALSE;
 static uchar name_enter_pending = FALSE;
 // how long after the keyboard closes an Enter on Name is taken for its own
 #define NAME_ENTER_WAIT_MS 1000
+// the last name typed this session, which the keyboard opens on
+static char last_name[sizeof(player_struct.name)];
 
 short diff_titles_x[] = {DIFF_TITLE1_X1, DIFF_TITLE2_X1, DIFF_TITLE3_X1, DIFF_TITLE4_X1};
 short diff_titles_y[] = {DIFF_TITLE1_Y1, DIFF_TITLE2_Y1, DIFF_TITLE3_Y1, DIFF_TITLE4_Y1};
@@ -221,7 +223,7 @@ errtype difficulty_draw(uchar full) {
         player_struct.name[0] = 0;
 
         // game start text input
-        VitaStartTextInput(1);
+        VitaStartTextInput(1, last_name, 1, sizeof(player_struct.name) - 1);
         name_enter_pending = TRUE;
     }
 
@@ -295,12 +297,12 @@ void flash_username(void) {
     uiShowMouse(&name_rect);
 }
 
-// clear the name and reopen the on-screen keyboard to retype it
+// clear the name and reopen the on-screen keyboard on it, to edit or retype it
 static void difficulty_rename(void) {
     draw_username(0, player_struct.name); // erase the currently-displayed name first
     player_struct.name[0] = 0;
     draw_username(NORMAL_ENTRY_COLOR, player_struct.name);
-    VitaStartTextInput(1);
+    VitaStartTextInput(1, last_name, 1, sizeof(player_struct.name) - 1);
     name_enter_pending = TRUE;
 
     // the focus stays on Name (see name_enter_pending for the Enter the keyboard
@@ -1302,7 +1304,7 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 draw_username(0, player_struct.name);
                 n = strlen(player_struct.name);
                 short c = ev->cooked_key_data.code;
-                if (kb_isprint(c) && (n < sizeof(player_struct.name)) &&
+                if (kb_isprint(c) && (n + 1 < sizeof(player_struct.name)) &&
                     (((c & 0xff) >= 128 && (c & 0xff) <= 155) || ((c & 0xff) >= 160 && (c & 0xff) <= 165) ||
                      strchr(valid_char_string, c & 0xFF) != NULL)) {
                     player_struct.name[n] = (c & 0xFF);
@@ -1310,6 +1312,7 @@ uchar intro_key_handler(uiEvent *ev, LGRegion *r, intptr_t user_data) {
                 }
                 if (((c & 0xFF) == KEY_BS) && (n > 0))
                     player_struct.name[n - 1] = '\0';
+                strcpy(last_name, player_struct.name);
                 draw_username(NORMAL_ENTRY_COLOR, player_struct.name);
             } break;
             }

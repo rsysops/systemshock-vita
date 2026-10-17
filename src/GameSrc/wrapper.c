@@ -342,7 +342,7 @@ uchar fv;
 // override get_temp_string() to support hard-coded custom strings without
 // providing an actual resource file
 
-// In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute.
+// In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute, \x8a e grave.
 // Arrays rather than literals, since pushbutton_draw_func() wraps its label in place.
 static struct {
     int num;
@@ -360,6 +360,7 @@ static struct {
     {REF_STR_QuitConfirm, {"", "Quitter la partie ?", "Spiel beenden?"}},
     // the buttons fit about 12 characters: the label isn't wrapped
     {REF_STR_AutoplayLogs, {"Log autoplay", "Lect. journ.", "Log autoplay"}},
+    {REF_STR_SaveTemplate, {"Save Templ.", "Mod\x8a" "le Sauv.", "Namensvorl."}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 };
@@ -780,6 +781,57 @@ void slork_init(uchar butid, slorker slork) {
 
 char *textlist_string(opt_textlist_state *st, int ind) { return (st->text + ind * (st->blocksiz)); }
 
+// A save's name, offered when saving: "Save N (Medical)", N one more than
+// the highest such number among the slots' names, in any of the languages
+// (and the "Save #N" of the first builds). In plain ASCII: the keyboard
+// gives the game nothing else. Cyberspace, where nothing is saved, has no
+// floor name.
+static const char *const save_word[3] = {"Save", "Sauvegarde", "Spielstand"};
+static const char *const floor_names[3][14] = {
+    {"Reactor", "Medical", "Research", "Maintenance", "Storage", "Flight", "Executive", "Engineering", "Security",
+     "Bridge", NULL, "Delta Grove", "Alpha Grove", "Beta Grove"},
+    {"Reacteur", "Medical", "Recherche", "Maintenance", "Stockage", "Hangar", "Direction", "Ingenierie", "Securite",
+     "Passerelle", NULL, "Serre Delta", "Serre Alpha", "Serre Beta"},
+    {"Reaktor", "Medizin", "Forschung", "Wartung", "Lager", "Flugdeck", "Verwaltung", "Technik", "Sicherheit",
+     "Bruecke", NULL, "Garten Delta", "Garten Alpha", "Garten Beta"},
+};
+
+static void save_name_template(char *buf, size_t size) {
+    extern uchar valid_save;
+    int lang = (which_lang >= 0 && which_lang < 3) ? which_lang : 0;
+    int i, top = 0;
+    const char *floor = NULL;
+
+    for (i = 0; i < NUM_SAVE_SLOTS * 3; i++) {
+        const char *name = comments[i / 3], *word = save_word[i % 3];
+        size_t len = strlen(word);
+
+        if (!(valid_save & (1 << (i / 3))) || strncmp(name, word, len) != 0 || name[len] != ' ')
+            continue;
+        name += len + 1 + (name[len + 1] == '#');
+        if (isdigit((unsigned char)name[0]) && atoi(name) > top)
+            top = atoi(name);
+    }
+    if (player_struct.level >= 0 && player_struct.level < 14)
+        floor = floor_names[lang][player_struct.level];
+    if (floor != NULL)
+        snprintf(buf, size, "%s %d (%s)", save_word[lang], top + 1, floor);
+    else
+        snprintf(buf, size, "%s %d", save_word[lang], top + 1);
+}
+
+// The keyboard for a save slot's name: it opens on the template, or the name
+// the slot has. Closed unchanged, the slot keeps its name.
+static void textlist_keyboard(opt_textlist_state *st, int line) {
+    char name[SAVE_COMMENT_LEN];
+
+    if (gShockPrefs.goSaveTemplate)
+        save_name_template(name, sizeof(name));
+    else
+        strcpy(name, (st->initmask & (1 << line)) ? textlist_string(st, line) : "");
+    VitaStartTextInput(0, name, 1, st->blocksiz - 1);
+}
+
 void textlist_draw_line(opt_textlist_state *st, int line, uchar butid) {
     short w, h;
     LGRect scrrect;
@@ -882,7 +934,7 @@ uchar textlist_handler(uiEvent *ev, uchar butid) {
                     st->dealfunc(butid, st->currstring);
             } else if (!st->modified) {
                 // savegame text input
-                VitaStartTextInput(0);
+                textlist_keyboard(st, line);
                 string_message_info(st->selectprompt);
                 if (st->selectprompt)
                     textlist_select_line(st, butid, line, FALSE);
@@ -1184,7 +1236,7 @@ static void opanel_textlist_enter(int b) {
         // first press on a save slot: open the name keyboard, like tapping the slot does;
         // the next press saves, with the new name or the old one if nothing was typed
         opanel_save_armed_line = cur;
-        VitaStartTextInput(0);
+        textlist_keyboard(st, cur);
         string_message_info(st->selectprompt);
         textlist_select_line(st, b, cur, FALSE);
         return;
@@ -2035,6 +2087,11 @@ void options_screen_init(void) {
     standard_button_rect(&r, 5);
     multi_init(5, tolower(get_temp_string(REF_STR_AutoplayLogs)[0]), REF_STR_AutoplayLogs, REF_STR_OffonText, ID_NULL,
                sizeof(gShockPrefs.goAutoplayLogs), &gShockPrefs.goAutoplayLogs, 2, NULL, &r);
+
+    // row 3: a save is offered "Save N (floor)" as its name (see save_name_template)
+    standard_button_rect(&r, 6);
+    multi_init(6, tolower(get_temp_string(REF_STR_SaveTemplate)[0]), REF_STR_SaveTemplate, REF_STR_OffonText, ID_NULL,
+               sizeof(gShockPrefs.goSaveTemplate), &gShockPrefs.goSaveTemplate, 2, NULL, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);

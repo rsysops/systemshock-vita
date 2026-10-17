@@ -29,6 +29,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <stdlib.h>
 #include <SDL.h>
 #include <3d.h>
+#include <psp2/ime_dialog.h>
 
 extern SDL_Window *window;
 extern SDL_Renderer *renderer;
@@ -484,8 +485,41 @@ void HandleControllerAxisEvent(SDL_ControllerAxisEvent motion)
 	}
 }
 
-void VitaStartTextInput(int emulate_every_frame)
+// The Vita's keyboard, opened here and not by SDL, whose keyboard can't start
+// on a text. What SDL did once it closes, VitaPollKeyboard does.
+static int vita_ime_open, vita_ime_min, vita_ime_max;
+static SceWChar16 vita_ime_initial[VITA_TEXT_BUFFER_SIZE];
+static SceWChar16 vita_ime_text[SCE_IME_DIALOG_MAX_TEXT_LENGTH + 1];
+
+static void VitaOpenKeyboard(void)
 {
+    static SceWChar16 no_title[1];
+    SceImeDialogParam param;
+
+    memset(vita_ime_text, 0, sizeof(vita_ime_text));
+    // as SDL had it, but for the text it starts on, how long it may get and
+    // its letters: plain ASCII, all the game takes
+    sceImeDialogParamInit(&param);
+    param.supportedLanguages = 0;
+    param.languagesForced = SCE_FALSE;
+    param.type = SCE_IME_TYPE_BASIC_LATIN;
+    param.option = 0;
+    param.textBoxMode = SCE_IME_DIALOG_TEXTBOX_MODE_WITH_CLEAR;
+    param.maxTextLength = vita_ime_max;
+    param.title = no_title;
+    param.initialText = vita_ime_initial;
+    param.inputTextBuffer = vita_ime_text;
+    vita_ime_open = sceImeDialogInit(&param) >= 0;
+    if (!vita_ime_open)
+        vita_text_input_active = 0;
+}
+
+void VitaStartTextInput(int emulate_every_frame, const char *initial, int min_length, int max_length)
+{
+    int i;
+
+    // SDL lets the text events through, without a keyboard of its own
+    SDL_SetHint(SDL_HINT_ENABLE_SCREEN_KEYBOARD, "0");
     SDL_StartTextInput();
     vita_text_input_active = 1;
     per_frame_keydown_emulation = emulate_every_frame;
@@ -493,6 +527,66 @@ void VitaStartTextInput(int emulate_every_frame)
     text_input_active = 0;
     current_char_position = 0;
     current_key_down = 1;
+    if (vita_ime_open)
+        return;
+
+    vita_ime_max = max_length < 1 ? 1 : max_length > VITA_TEXT_BUFFER_SIZE - 1 ? VITA_TEXT_BUFFER_SIZE - 1 : max_length;
+    vita_ime_min = min_length > vita_ime_max ? vita_ime_max : min_length;
+    for (i = 0; initial[i] != '\0' && i < vita_ime_max; i++)
+        vita_ime_initial[i] = (unsigned char)initial[i];
+    vita_ime_initial[i] = 0;
+    VitaOpenKeyboard();
+}
+
+// The keyboard closed: its text goes to the game as SDL's text event, then
+// Enter if it was closed with its Enter. Enter on too short a text opens the
+// keyboard again, on what it was opened with. A save slot's keyboard closed
+// on the text it was opened with types nothing, and the slot's name stays.
+static void VitaPollKeyboard(void)
+{
+    SceImeDialogResult result;
+    SDL_Event ev;
+    char text[VITA_TEXT_BUFFER_SIZE];
+    int i, n = 0, same = 1;
+
+    if (!vita_ime_open || sceImeDialogGetStatus() != SCE_COMMON_DIALOG_STATUS_FINISHED)
+        return;
+    memset(&result, 0, sizeof(result));
+    sceImeDialogGetResult(&result);
+    sceImeDialogTerm();
+    vita_ime_open = 0;
+
+    for (i = 0; vita_ime_text[i] != 0 && n < VITA_TEXT_BUFFER_SIZE - 1; i++)
+        if (vita_ime_text[i] < 0x80)
+            text[n++] = (char)vita_ime_text[i];
+    text[n] = '\0';
+    if (result.button == SCE_IME_DIALOG_BUTTON_ENTER && n < vita_ime_min) {
+        VitaOpenKeyboard();
+        return;
+    }
+    for (i = 0; same && (vita_ime_initial[i] != 0 || i < n); i++)
+        same = i < n && vita_ime_initial[i] == (unsigned char)text[i];
+
+    if (n > 0 && (result.button == SCE_IME_DIALOG_BUTTON_ENTER || !same || per_frame_keydown_emulation)) {
+        memset(&ev, 0, sizeof(ev));
+        ev.type = SDL_TEXTINPUT;
+        SDL_strlcpy(ev.text.text, text, sizeof(ev.text.text));
+        SDL_PushEvent(&ev); // ends the keyboard's wait (see SDL_TEXTINPUT)
+    } else {
+        vita_text_input_active = 0;
+        vita_text_input_closed_at = SDL_GetTicks();
+    }
+    if (result.button == SCE_IME_DIALOG_BUTTON_ENTER) {
+        memset(&ev, 0, sizeof(ev));
+        ev.type = SDL_KEYDOWN;
+        ev.key.state = SDL_PRESSED;
+        ev.key.keysym.sym = SDLK_RETURN;
+        ev.key.keysym.scancode = SDL_SCANCODE_RETURN;
+        SDL_PushEvent(&ev);
+        ev.type = SDL_KEYUP;
+        ev.key.state = SDL_RELEASED;
+        SDL_PushEvent(&ev);
+    }
 }
 
 int VitaTextInputRecent(unsigned ms)
@@ -1235,6 +1329,7 @@ void HandleTouchEvent(SDL_TouchFingerEvent event)
 void pump_events(void) {
     SDL_Event ev;
 
+    VitaPollKeyboard();
     while (SDL_PollEvent(&ev)) {
         switch (ev.type) {
         case SDL_QUIT:
@@ -1386,8 +1481,14 @@ void pump_events(void) {
         } break;
 
         case SDL_TEXTINPUT: {
+            // the on-screen keyboard's text (VitaPollKeyboard), and not a key
+            // the pad holds, which comes this way too
+            bool from_keyboard = vita_text_input_active;
+
             if (vita_text_input_active) {
-                text_input_active = 1;
+                // New Game's name is typed a letter a frame (EmulateTextInput);
+                // a save slot's, here and now
+                text_input_active = per_frame_keydown_emulation;
                 strncpy(vita_input_text, ev.text.text, VITA_TEXT_BUFFER_SIZE);
                 vita_text_input_active = 0;
                 vita_text_input_closed_at = SDL_GetTicks();
@@ -1426,7 +1527,17 @@ void pump_events(void) {
                 keyEvent.state = KBS_DOWN;
                 addKBevent(&keyEvent);
 
-                sshockKeyStates[c] = keyEvent.modifiers | KB_MOD_PRESSED;
+                if (from_keyboard) {
+                    // Typed, not held: released at once. The keyboard's Enter can
+                    // close the menu in this same pass, and a letter still down
+                    // would be the game's movement key (a saved name's d, e and
+                    // spaces walked, leaned and jumped the player). The pad's
+                    // keys stay down until it lets them go.
+                    keyEvent.state = KBS_UP;
+                    addKBevent(&keyEvent);
+                } else {
+                    sshockKeyStates[c] = keyEvent.modifiers | KB_MOD_PRESSED;
+                }
             }
         } break;
 
