@@ -15,7 +15,7 @@ Features:
 * Quick save?
 
 Fixes:
-* Game crash on button / hack
+* None
 
 Performance:
 * FPS lock 30 option
