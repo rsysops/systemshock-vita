@@ -356,6 +356,8 @@ static struct {
     {REF_STR_Cursor, {"Menu Cursor", "Curseur menus", "Men\x81-Cursor"}},
     // the message line of the confirmation before loading a save
     {REF_STR_LoadConfirm, {"Load this save?", "Charger cette sauvegarde ?", "Diesen Spielstand laden?"}},
+    // and before quitting: an empty text is the game's own (in English, "Do you really want to exit?")
+    {REF_STR_QuitConfirm, {"", "Quitter la partie ?", "Spiel beenden?"}},
     // the buttons fit about 12 characters: the label isn't wrapped
     {REF_STR_AutoplayLogs, {"Log autoplay", "Lect. journ.", "Log autoplay"}},
 
@@ -365,9 +367,14 @@ static struct {
 static char *_get_temp_string(int num) {
     int i;
 
-    for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++)
-        if (custom_strings[i].num == num)
-            return custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
+    for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++) {
+        if (custom_strings[i].num == num) {
+            char *text = custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
+            if (text[0] != '\0')
+                return text;
+            break;
+        }
+    }
 
     return get_temp_string(num);
 }
@@ -1666,7 +1673,7 @@ void wrapper_pushbutton_func(uchar butid) {
         break;
     case QUIT_BUTTON: // Quit
         verify_screen_init(quit_verify_pushbutton_handler, quit_verify_slorker);
-        string_message_info(REF_STR_QuitConfirm);
+        message_info(get_temp_string(REF_STR_QuitConfirm));
         break;
     }
     return;
@@ -2320,7 +2327,7 @@ uchar saveload_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
 
 uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data) {
     wrapper_start(quit_verify_init);
-    string_message_info(REF_STR_QuitConfirm);
+    message_info(get_temp_string(REF_STR_QuitConfirm));
     return (TRUE);
 }
 #pragma enable_message(202)
