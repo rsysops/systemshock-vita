@@ -2118,6 +2118,12 @@ void load_screen_init(void) {
 
 void save_dealfunc(uchar butid, uchar index) {
     if (!ObjSysOkay()) {
+        opt_textlist_state *st = &OButtons[butid].user.textlist_st;
+
+        // No puts back the name kept aside: the one typed over, or this one if
+        // none was (× saves a slot under its name without any typing)
+        if (st->index < 0 || st->currstring != index)
+            strcpy(comments[NUM_SAVE_SLOTS], comments[index]);
         string_message_info(REF_STR_ObjSysBad);
         savegame_verify = index;
         verify_screen_init(save_verify_pushbutton_handler, save_verify_slorker);
