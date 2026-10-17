@@ -515,7 +515,9 @@ errtype hud_update(uchar redraw_whole, frc *context) {
     fauxrend_context *fc = (fauxrend_context *)context;
     short y = Y_MARGIN;
     short x = X_MARGIN;
-    short xwid = fc->xwid;
+    // the compass's width, in the 320x200 points the HUD draws in: the view's
+    // width is in screen pixels (804 in the paneled view at 960x544)
+    short xwid = INV_SCONV_X(fc->xwid);
     short a, b, c, d;
     STORE_CLIP(a, b, c, d);
     safe_set_cliprect(0, 0, fc->xwid, fc->ywid);

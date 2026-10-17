@@ -5,6 +5,7 @@ Controls:
 * Gyro controls 2 axes sensitivity options
 * Pass on the prefs.txt (all options)
 * Refactor keybinds.txt to have the Vita inputs instead of PC keyboard
+* Option: Enable touchscreen = None, Front, Rear, Both
 
 Documentation:
 * Explain the changes from the parent project + screenshots in README
@@ -15,7 +16,7 @@ Features:
 * Quick save?
 
 Fixes:
-* None
+* Crash when hibernated Vita?
 
 Performance:
 * FPS lock 30 option
@@ -24,4 +25,3 @@ Performance:
 
 User interface:
 * How audio log autoplay works?
-* Some interfaces are to small (digicode, lift)
