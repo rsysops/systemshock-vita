@@ -78,6 +78,7 @@ static const char *PREF_ALOG_VOL = "alog-volume";
 static const char *PREF_VIDEOMODE = "video-mode";
 static const char *PREF_DETAIL = "detail";
 static const char *PREF_ONSCR_HELP = "onscreen-help";
+static const char *PREF_POPUP_CURSORS = "popup-cursors";
 static const char *PREF_GAMMA = "gamma";
 static const char *PREF_DOUBLE_CLICK = "double-click";
 static const char *PREF_MSG_LENGTH = "message-length";
@@ -219,6 +220,8 @@ int16_t LoadPrefs(void) {
                 gShockPrefs.doDetail = detail;
         } else if (strcasecmp(key, PREF_ONSCR_HELP) == 0) {
             gShockPrefs.goOnScreenHelp = is_true(value);
+        } else if (strcasecmp(key, PREF_POPUP_CURSORS) == 0) {
+            gShockPrefs.goPopupLabels = is_true(value);
         } else if (strcasecmp(key, PREF_GAMMA) == 0) {
             int gamma = atoi(value);
             if (gamma < 10)
@@ -301,6 +304,7 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_VIDEOMODE, mode_id);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DETAIL, _fr_global_detail);
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_POPUP_CURSORS, popup_cursors ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DOUBLE_CLICK, gShockPrefs.goDoubleClick);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
