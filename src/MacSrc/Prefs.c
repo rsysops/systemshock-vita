@@ -72,6 +72,7 @@ static const char *PREF_LANGUAGE = "language";
 static const char *PREF_CAPTUREMOUSE = "capture-mouse";
 static const char *PREF_INVERTMOUSEY = "invert-mousey";
 static const char *PREF_MUSIC_VOL = "music-volume";
+static const char *PREF_MUSIC = "music";
 static const char *PREF_SFX_VOL = "sfx-volume";
 static const char *PREF_ALOG_VOL = "alog-volume";
 static const char *PREF_VIDEOMODE = "video-mode";
@@ -189,9 +190,15 @@ int16_t LoadPrefs(void) {
         } else if (strcasecmp(key, PREF_MUSIC_VOL) == 0) {
             int vol = atoi(value);
             if (vol >= 0 && vol <= 100) {
-                gShockPrefs.soBackMusic = vol > 0;
+                // the music plays unless this or "music" turns it off, in
+                // either order (files from before "music" don't have it)
+                if (vol == 0)
+                    gShockPrefs.soBackMusic = false;
                 gShockPrefs.soMusicVolume = vol;
             }
+        } else if (strcasecmp(key, PREF_MUSIC) == 0) {
+            if (!is_true(value))
+                gShockPrefs.soBackMusic = false;
         } else if (strcasecmp(key, PREF_SFX_VOL) == 0) {
             int vol = atoi(value);
             if (vol >= 0 && vol <= 100) {
@@ -288,6 +295,7 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_CAPTUREMOUSE, gShockPrefs.goCaptureMouse ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_INVERTMOUSEY, gShockPrefs.goInvertMouseY ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MUSIC_VOL, curr_vol_lev);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_MUSIC, gShockPrefs.soBackMusic ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_SFX_VOL, sfx_on ? curr_sfx_vol : 0);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_VOL, curr_alog_vol);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_VIDEOMODE, mode_id);

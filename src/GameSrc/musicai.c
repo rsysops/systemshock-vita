@@ -631,10 +631,8 @@ errtype music_init() {
         {
             music_on = mlimbs_on = TRUE;
             mlimbs_AI_init();
-        } else // else turn off the music globals and prefs
-        {
-            gShockPrefs.soBackMusic = FALSE;
-            SavePrefs();
+        } else // else turn off the music globals, for this session only:
+        {      // the prefs keep the player's choice
             music_on = mlimbs_on = FALSE;
         }
         //	}

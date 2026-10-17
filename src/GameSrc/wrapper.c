@@ -1753,6 +1753,8 @@ void recompute_music_level(ushort vol) {
         }
         // mlimbs_change_master_volume(curr_vol_lev);
     }
+    // as □ does: what the bar turned on or off is kept for the next launch
+    gShockPrefs.soBackMusic = music_on;
     MacTuneUpdateVolume();
 }
 
