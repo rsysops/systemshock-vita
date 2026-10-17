@@ -1121,18 +1121,31 @@ typedef struct {
 
 static gpu_sink sinks[RASTQ_THREADS];
 
+// Of the call being handed to the scene: the pieces the scene took, and the
+// first pieces it leaves out, the scene before having taken them (gpu_run)
+static unsigned gpu_put_taken, gpu_put_skip;
+
 // A piece of a call: to the GPU (sink NULL; 0 if the scene has no room for
 // it), or into a sink (0 if that is full).
 static int gpu_put(gpu_sink *sink, const rastq_cmd *c, int put, int n, const rastq_gpu_vertex *v) {
     gpu_piece *piece;
 
-    if (sink == NULL)
-        return put == PUT_TMAP && c->gpu_tluc
-                   ? rq.gpu->tluc_tmap(&c->bm, c->gpu_flags, n, v, &gpu_matrix[0][0], gpu_matrix_version)
-               : put == PUT_TMAP   ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
-               : put == PUT_SHADED ? rq.gpu->shaded(n, v)
-               : put == PUT_TLUC   ? rq.gpu->tluc(n, v)
-                                   : rq.gpu->flat(n, v, c->gpu_row);
+    if (sink == NULL) {
+        int taken;
+
+        if (gpu_put_skip != 0) {
+            gpu_put_skip--;
+            return 1;
+        }
+        taken = put == PUT_TMAP && c->gpu_tluc
+                    ? rq.gpu->tluc_tmap(&c->bm, c->gpu_flags, n, v, &gpu_matrix[0][0], gpu_matrix_version)
+                : put == PUT_TMAP   ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
+                : put == PUT_SHADED ? rq.gpu->shaded(n, v)
+                : put == PUT_TLUC   ? rq.gpu->tluc(n, v)
+                                    : rq.gpu->flat(n, v, c->gpu_row);
+        gpu_put_taken += taken != 0;
+        return taken;
+    }
     if (sink->piece_count == SINK_PIECES || sink->vert_count + n > SINK_VERTS)
         return 0;
     piece = &sink->pieces[sink->piece_count++];
@@ -1731,14 +1744,25 @@ static int gpu_run(void) {
         if (c->gpu != GPU_CPU && !dead) {
             if (!in_scene && !(in_scene = gpu_scene_begin()))
                 dead = 1;
+            gpu_put_taken = 0;
             if (in_scene && !(sent = gpu_hand(c))) {
-                // the scene is full: the call opens the next one
+                // The scene is full: it is drawn with what it took of the
+                // call, and the next one goes on from there, so that no
+                // piece is drawn twice (a translucent one would show it).
+                // A call's pieces come out the same each time, and share
+                // its texture: what an empty scene has no room for is that,
+                // and then the full one took none of them either.
+                unsigned taken = gpu_put_taken;
+
                 gpu_scene_end(1);
                 in_scene = gpu_scene_begin();
-                if (!in_scene)
+                if (!in_scene) {
                     dead = 1;
-                else
+                } else {
+                    gpu_put_skip = taken;
                     sent = gpu_hand(c);
+                    gpu_put_skip = 0;
+                }
             }
         }
         if (sent) {
