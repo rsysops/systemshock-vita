@@ -42,7 +42,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "mainloop.h"
 #include "rastq.h"
 #include "setup.h"
-#include "shockolate_version.h"
 #include "status.h"
 #include "version.h"
 #include "vprof.h"

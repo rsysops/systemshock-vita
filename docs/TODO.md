@@ -7,8 +7,10 @@ Controls:
 * Refactor keybinds.txt to have the Vita inputs instead of PC keyboard
 * Running
 * Option: Enable touchscreen = None, Front, Rear, Both
+* Cumulative jumps (like Mario), is this normal?
 
 Documentation:
+* Bump to 1.0
 * Explain the changes from the parent project + screenshots in README
 
 Features:
@@ -17,6 +19,7 @@ Features:
 * Quick save?
 
 Fixes:
+* Audio mixing
 * Crash when hibernated Vita?
 
 Performance:
@@ -25,4 +28,7 @@ Performance:
 * System Shock Enhanced shadow render as a mod
 
 User interface:
-* 
+* Options => On / On / An
+* Options "Curseur menus" too large
+* Traduction "Guide"?
+* Ajouter un tooltip pour les options?
