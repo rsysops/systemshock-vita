@@ -17,6 +17,11 @@ option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log" OFF)
 add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
 option(ENABLE_VITA_PROFILE_CHECKS "Enable the profile build's self-checks and frame dumps" OFF)
 add_feature_info(ENABLE_VITA_PROFILE_CHECKS ENABLE_VITA_PROFILE_CHECKS "Enable VITA_PROFILE_CHECKS self-checks")
+# the self-checks are the profile build's: they report through its profiler
+if(ENABLE_VITA_PROFILE_CHECKS AND NOT ENABLE_VITA_PROFILE)
+	message(STATUS "ENABLE_VITA_PROFILE_CHECKS turns ENABLE_VITA_PROFILE on")
+	set(ENABLE_VITA_PROFILE ON CACHE BOOL "Enable on-device profiler overlay/log" FORCE)
+endif()
 
 add_compile_options(-fsigned-char -fno-strict-aliasing)
 
