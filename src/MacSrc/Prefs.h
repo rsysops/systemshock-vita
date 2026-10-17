@@ -36,6 +36,7 @@ typedef struct {
     bool goPopupLabels;
     bool goOnScreenHelp;
     short goLanguage; // 0 - English, 1 - French, 2 - German
+    bool goAutoplayLogs; // a new e-mail or log plays on arrival (see select_email)
     bool goCaptureMouse;
     bool goInvertMouseY;
 

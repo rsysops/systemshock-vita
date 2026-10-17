@@ -1273,6 +1273,13 @@ uchar find_winning_move_from(gridFlowPuzzle *gfpz, gridFlowPuzzle *solved, LGPoi
 uchar find_winning_move(gridFlowPuzzle *gfpz, gridFlowPuzzle *solved, int depth, LGPoint *move, uchar breadth_first,
                         ulong timeout) {
     int d;
+    // The puzzle lives in the packed player struct, at an odd address, and the
+    // search copies it whole (multi-word loads, which fault there on the Vita):
+    // search an aligned copy. The search only reads the puzzle it is given.
+    gridFlowPuzzle start;
+
+    memcpy(&start, (const void *)gfpz, sizeof(start));
+    gfpz = &start;
 
     if (breadth_first) {
         // brain-damaged breadth-first search by successively deep

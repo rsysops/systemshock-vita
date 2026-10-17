@@ -356,6 +356,8 @@ static struct {
     {REF_STR_Cursor, {"Menu Cursor", "Curseur menus", "Men\x81-Cursor"}},
     // the message line of the confirmation before loading a save
     {REF_STR_LoadConfirm, {"Load this save?", "Charger cette sauvegarde ?", "Diesen Spielstand laden?"}},
+    // the buttons fit about 12 characters: the label isn't wrapped
+    {REF_STR_AutoplayLogs, {"Log autoplay", "Lect. journ.", "Log autoplay"}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 };
@@ -2000,7 +2002,7 @@ void options_screen_init(void) {
     multi_init(2, keys[4], REF_STR_Language, REF_STR_Languages, ID_NULL, sizeof(which_lang), &which_lang, 3,
                language_dealfunc, &r);
 
-    // row 2: the screen
+    // row 2: the screen, and auto-play
     standard_button_rect(&r, 3);
     multi_init(3, keys[2], REF_STR_OnlineHelp, REF_STR_OffonText, ID_NULL, sizeof(olh_temp), &olh_temp, 2,
                olh_dealfunc, &r);
@@ -2009,6 +2011,11 @@ void options_screen_init(void) {
     sliderbase = ((r.lr.x - r.ul.x - 1) * 29 / 100);
     slider_init(4, REF_STR_OptionsText + 3, sizeof(ushort), TRUE, &(gShockPrefs.doGamma), 100,
                 sliderbase, gamma_slider_dealfunc, &r);
+
+    // a new e-mail or log plays on arrival (see select_email in email.c)
+    standard_button_rect(&r, 5);
+    multi_init(5, tolower(get_temp_string(REF_STR_AutoplayLogs)[0]), REF_STR_AutoplayLogs, REF_STR_OffonText, ID_NULL,
+               sizeof(gShockPrefs.goAutoplayLogs), &gShockPrefs.goAutoplayLogs, 2, NULL, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);

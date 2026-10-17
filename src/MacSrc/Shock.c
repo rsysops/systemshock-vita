@@ -53,6 +53,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vita2d.h>
 #include "VitaGpu.h"
 #include <psp2/kernel/processmgr.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 int _newlib_heap_size_user = 256 * 1024 * 1024;
@@ -173,7 +174,8 @@ void SetRenderRect(int width, int height)
 }
 
 // Shows the system's message box over the screen as it is, and waits for the
-// player to close it.
+// player to close it. Before InitSDL, with only vita2d set up, over a black
+// screen.
 static void VitaAlert(const char *text)
 {
     SceMsgDialogUserMessageParam message;
@@ -189,19 +191,81 @@ static void VitaAlert(const char *text)
 
     if (sceMsgDialogInit(&param) < 0)
         return;
-    while (sceMsgDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_RUNNING)
-        SDLDraw();
+    while (sceMsgDialogGetStatus() == SCE_COMMON_DIALOG_STATUS_RUNNING) {
+        if (texBuffer != NULL) {
+            SDLDraw();
+        } else {
+            vita2d_start_drawing();
+            vita2d_clear_screen();
+            vita2d_end_drawing();
+            vita2d_common_dialog_update();
+            vita2d_swap_buffers();
+        }
+    }
     sceMsgDialogTerm();
 
     // the press or the tap that closed the box isn't for the game
-    SDL_PumpEvents();
-    SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+    if (texBuffer != NULL) {
+        SDL_PumpEvents();
+        SDL_FlushEvents(SDL_FIRSTEVENT, SDL_LASTEVENT);
+    }
+}
+
+// The files of System Shock: Classic Edition (the CD version) the game reads
+// in English, from VITA_PATH. The French and German ones aren't checked.
+static const char *const requiredData[] = {
+    // start-up
+    "res/data/cybstrng.res", "res/data/gamepal.res", "res/data/gamescr.res", "res/data/mfdart.res",
+    "res/data/obj3d.res", "res/data/citmat.res", "res/data/digifx.res", "res/data/splshpal.res",
+    "res/data/splash.res", "res/data/objprop.dat", "res/data/textprop.dat", "res/data/objart.res",
+    "res/data/objart2.res", "res/data/objart3.res", "res/data/handart.res", "res/data/sideart.res",
+    "res/data/texture.res",
+    // a game (logs, speech and the SVGA cutscenes are only on the CD)
+    "res/data/archive.dat", "res/data/intro.res", "res/data/vidmail.res", "res/data/citalog.res",
+    "res/data/citbark.res", "res/data/svgaintr.res", "res/data/svgadeth.res", "res/data/svgaend.res",
+    // music, for the default player (and the SOUND folder)
+    "res/sound/thm0.bin", "res/sound/sblaster/thm0.xmi",
+};
+
+// Without the game's data there is nothing to run: say what is missing and
+// go back to the LiveArea. Runs first, before the game opens anything.
+static void VitaCheckData(void)
+{
+    char text[512], path[128];
+    struct stat st;
+    int at, missing = 0;
+
+    at = snprintf(text, sizeof(text),
+                  "System Shock's data files are missing.\n\n"
+                  "This port needs the data of System Shock: Classic Edition. "
+                  "Copy its DATA and SOUND folders into %sres/.\n\n"
+                  "Missing:",
+                  VITA_PATH);
+    for (int i = 0; i < (int)(sizeof(requiredData) / sizeof(requiredData[0])); i++) {
+        snprintf(path, sizeof(path), "%s%s", VITA_PATH, requiredData[i]);
+        if (stat(path, &st) == 0)
+            continue;
+        if (missing < 3)
+            at += snprintf(text + at, sizeof(text) - at, "%s %s", missing ? "," : "", requiredData[i]);
+        missing++;
+    }
+    if (missing == 0)
+        return;
+    if (missing > 3)
+        snprintf(text + at, sizeof(text) - at, " and %d more", missing - 3);
+
+    vita2d_init();
+    VitaAlert(text);
+    vita2d_fini();
+    sceKernelExitProcess(0);
 }
 
 //------------------------------------------------------------------------------------
 //		Main function.
 //------------------------------------------------------------------------------------
 int main(int argc, char **argv) {
+    VitaCheckData();
+
     if (chdir(VITA_PATH) != 0)
     {
         sceClibPrintf("Unable to chdir!\n");

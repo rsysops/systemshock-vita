@@ -6,6 +6,8 @@ Data files from System Shock are required. This port was only tested with `Syste
 
 To install the data files, you'll have to create the `ux0:data/systemshock/res/` folder on your PS Vita and copy `DATA` and `SOUND` folders from the installed System Shock folder there.
 
+The game checks for these files when it starts: if some are missing, it says which ones in a message and goes back to the LiveArea.
+
 The game draws its 3D view with the GPU, which needs the shader compiler module `libshacccg.suprx` in `ur0:data/` (the same file many Vita ports ask for). Without it the game draws on the CPU, which is slower, and says so in a message when it starts.
 
 ## Building
@@ -43,6 +45,8 @@ make
 - Front touchpad - Mouse emulation
 
 Gyro aiming is active by default. You can turn it off or adjust analog/gyro look speed on the `Input` page of the game menu.
+
+Once you have the data reader, new e-mails and audio logs play as soon as they arrive. Set `Log autoplay` to Off on the `Options` page of the game menu for the original behaviour, where they wait until you tap the sender's face in the MFD (or pick them in the log list).
 
 The cursor is hidden in menus by default (they're navigated with the D-pad; touch still works). Enable `Menu Cursor` on the `Input` page to show it there again.
 

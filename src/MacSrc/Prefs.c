@@ -81,6 +81,7 @@ static const char *PREF_GAMMA = "gamma";
 static const char *PREF_DOUBLE_CLICK = "double-click";
 static const char *PREF_MSG_LENGTH = "message-length";
 static const char *PREF_ALOG_SETTING = "alog-setting";
+static const char *PREF_AUTOPLAY_LOGS = "autoplay-logs";
 static const char *PREF_MIDI_BACKEND = "midi-backend";
 static const char *PREF_MIDI_OUTPUT = "midi-output";
 static const char *VITA_GYRO = "vita-gyro";
@@ -124,6 +125,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
     gShockPrefs.goDoubleClick = DCLICK_DEFAULT;
     gShockPrefs.goMsgLength = 0; // Normal
+    gShockPrefs.goAutoplayLogs = true;
     audiolog_setting = 2; // Messages: both, the text and the speech
 
     SetShockGlobals();
@@ -229,6 +231,8 @@ int16_t LoadPrefs(void) {
             int as = atoi(value);
             if (as >= 0 && as <= 2)
                 audiolog_setting = as;
+        } else if (strcasecmp(key, PREF_AUTOPLAY_LOGS) == 0) {
+            gShockPrefs.goAutoplayLogs = is_true(value);
         } else if (strcasecmp(key, PREF_MIDI_BACKEND) == 0) {
             int mb = atoi(value);
             if (mb >= 0 && mb < OPT_SEQ_Max)
@@ -293,6 +297,7 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DOUBLE_CLICK, gShockPrefs.goDoubleClick);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_SETTING, audiolog_setting);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_AUTOPLAY_LOGS, gShockPrefs.goAutoplayLogs ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_BACKEND, gShockPrefs.soMidiBackend);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_OUTPUT, gShockPrefs.soMidiOutput);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_GYRO, gShockPrefs.gyroAiming);
