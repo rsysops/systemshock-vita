@@ -5,6 +5,7 @@ Controls:
 * Gyro controls 2 axes sensitivity options
 * Pass on the prefs.txt (all options)
 * Refactor keybinds.txt to have the Vita inputs instead of PC keyboard
+* Running
 * Option: Enable touchscreen = None, Front, Rear, Both
 
 Documentation:
@@ -24,4 +25,4 @@ Performance:
 * System Shock Enhanced shadow render as a mod
 
 User interface:
-* How audio log autoplay works?
+* 
