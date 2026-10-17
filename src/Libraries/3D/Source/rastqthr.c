@@ -263,9 +263,13 @@ static int worker_create(worker_t *w) {
     worker_priority = main_priority() + 1;
     id = sceKernelCreateThread("rastq_worker", worker_entry, worker_priority, WORKER_STACK_BYTES, 0,
                                masks[w->slot - 1], NULL);
-    if (id < 0)
-        return 0;
-    return sceKernelStartThread(id, sizeof(w), &w) >= 0;
+    if (id >= 0 && sceKernelStartThread(id, sizeof(w), &w) >= 0)
+        return 1;
+    // nothing kept of a worker that can't start: it may be tried again
+    if (id >= 0)
+        sceKernelDeleteThread(id);
+    sceKernelDeleteSema(w->wake);
+    return 0;
 }
 
 void rastq_threads_pin_main(int pin) {
@@ -295,6 +299,8 @@ static int worker_create(worker_t *w) {
     pthread_attr_destroy(&attr);
     if (ok)
         pthread_detach(thread);
+    else
+        sem_destroy(&w->wake);
     return ok;
 }
 
@@ -305,6 +311,10 @@ void rastq_threads_pin_main(int pin) { (void)pin; }
 int rastq_threads_start(int threads) {
     if (threads > RASTQ_MAX_THREADS)
         threads = RASTQ_MAX_THREADS;
+    // A worker added during a job the caller didn't wait for would never
+    // answer it, and the caller would wait for that answer forever.
+    if (worker_count < threads - 1)
+        rastq_threads_settle();
     while (worker_count < threads - 1) {
         worker_t *w = &workers[worker_count];
 

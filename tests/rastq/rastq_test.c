@@ -32,6 +32,12 @@
 #include "rastq.h"
 #include "tmapfcn.h"
 #include "tmpalloc.h"
+#ifndef RASTQ_REFERENCE
+#include <signal.h>
+#include <stdatomic.h>
+#include <unistd.h>
+#include "rastqthr.h"
+#endif
 
 // What the 2D library expects from the game
 intptr_t *gScreenAddress;
@@ -1469,6 +1475,50 @@ static int test_tluc(void) {
 // The rule that shares the GPU's lists with the workers only while frames
 // are short of time (rastq_gpu_frame), fed made-up frames. Returns the
 // number of failures.
+// A worker added while a job the caller didn't wait for is under way: it
+// never answers that job, so settling it must come first, or the caller
+// waits for an answer forever. Run before anything else starts the threads.
+static atomic_int growth_started;
+
+static void growth_job(int slot) {
+    long long until = rastq_clock_us() + 50000;
+
+    (void)slot;
+    atomic_store(&growth_started, 1);
+    while (rastq_clock_us() < until)
+        rastq_threads_relax();
+}
+
+static void growth_hung(int sig) {
+    static const char text[] = "threads: adding a worker during a job hung\nFAILED\n";
+
+    (void)sig;
+    if (write(1, text, sizeof(text) - 1) < 0)
+        _exit(2);
+    _exit(1);
+}
+
+static int test_thread_growth(void) {
+    int threads;
+
+    signal(SIGALRM, growth_hung);
+    alarm(10);
+    if (rastq_threads_start(2) != 2) {
+        alarm(0);
+        printf("threads: no worker could be started\n");
+        return 1;
+    }
+    rastq_threads_kick(growth_job, 2);
+    while (!atomic_load(&growth_started))
+        rastq_threads_relax();
+    threads = rastq_threads_start(3);
+    rastq_threads_settle();
+    alarm(0);
+    signal(SIGALRM, SIG_DFL);
+    printf("threads: a worker added during a job, %d threads, settled\n", threads);
+    return threads != 3;
+}
+
 static int test_sharing(void) {
     // work times that leave this much of the screen's time, in microseconds
     const long long easy = RASTQ_FRAME_US - 4200, between = RASTQ_FRAME_US - 2400, tight = RASTQ_FRAME_US - 1000;
@@ -1588,6 +1638,7 @@ int main(int argc, char **argv) {
 
 #ifndef RASTQ_REFERENCE
     if (!hash_only) {
+        bad += test_thread_growth();
         bad += test_overlays();
         bad += test_marks();
         bad += test_tluc();
