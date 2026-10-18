@@ -14,9 +14,9 @@ At runtime the game requires the original System Shock data files (`DATA`/`SOUND
 | `build.sh` | Vita build entry point (Docker) |
 | `src/` | All engine and game source (see below) |
 | `vita/` | Vita packaging/build glue: `Dockerfile`, `vita.cmake`, `segment-gap.ld` (linker script), `sce_sys/` (icon/LiveArea assets) |
-| `tests/` | PC harnesses that compile parts of the libraries natively: `fix_div/` (fixed-point division), `rastq/` (rasterizer queue) and `alog/` (audio logs read from their file) |
+| `tests/` | PC harnesses that compile parts of the libraries natively: `fix_div/` (fixed-point division), `rastq/` (rasterizer queue), `alog/` (audio logs read from their file), `filecopy/` (copying a save), `hudkeep/` (the HUD's kept pictures), `resimage/` (art files read from memory) and `respack/` (packing a resource file) |
 | `docs/` | This file, the key mappings, the profiling guide and the performance findings |
-| `build/`, `build-profile/` | Out-of-tree CMake build output of the default and profile builds (git-ignored) |
+| `build/`, `build-profile/`, `build-profile-checks/` | Out-of-tree CMake build output of the default build and the two profile flavours (git-ignored) |
 
 ## Source tree (`src/`)
 
@@ -64,7 +64,7 @@ Each row with sources is its own CMake target, defined in `src/Libraries/CMakeLi
 
 ## Vita porting layer
 
-There is **no dedicated platform tree**: the Vita code sits directly in the shared files, unconditionally, with no `VITA` switch. The only exception is the handful of files the PC tests in `tests/` also compile (`lgslot.c`, `fix.c`, `mode.c`, `rastq.c`, `rastqthr.c`, `vprof.h`, and the vendored `log.c`): they keep a PC branch, chosen with the compiler's built-in `__vita__`. The main concentrations of Vita code are:
+There is **no dedicated platform tree**: the Vita code sits directly in the shared files, unconditionally, with no `VITA` switch. The only exception is the handful of files the PC tests in `tests/` also compile (`lgslot.c`, `lgslot.h`, `fix.c`, `mode.c`, `rastq.c`, `rastqthr.c`, `vprof.h`, and the vendored `log.c`): they keep a PC branch, chosen with the compiler's built-in `__vita__`. The main concentrations of Vita code are:
 
 - **`src/MacSrc/Shock.c`** — `main()` prologue (`chdir` into `VITA_PATH`, CPU/GPU clock settings); the heap size (`_newlib_heap_size_user`) and `sceClibMem*`-based `memcpy`/`memset`/`memmove`/`memcmp`; `InitVita2D()` / `ResizeVita2D()`, which create the screen's paletted texture (`SCE_GXM_TEXTURE_FORMAT_P8_ABGR`) and the GPU's canvases through **vita2d** (SceGxm-based); controller/gyro init (`OpenController()`, `OpenGyro()`); aspect-ratio letterboxing (`SetRenderRect()`); presentation (`SDLDraw()`).
 - **`src/MacSrc/VitaGpu.c`** — the GPU renderer: SceGxm draw calls and shaders compiled at start-up.
@@ -81,7 +81,7 @@ Three paths can fill the 3D view's pixels. All three look the same; they differ 
 
 | Path | What happens |
 |---|---|
-| GPU | The 3D pass records its calls in the rasterizer queue (`3D/Source/rastq.c`) instead of drawing, and the queue hands its list to `VitaGpu.c`, which draws flat polygons, texture maps and shaded polygons into a canvas of its own; the CPU still draws what the GPU does not take. |
+| GPU | The 3D pass records its calls in the rasterizer queue (`3D/Source/rastq.c`) instead of drawing, and the queue hands its list to `VitaGpu.c`, which draws flat, textured and shaded polygons, translucent polygons and bitmaps, lines and points into a canvas of its own; the CPU still draws what the GPU does not take. |
 | Three cores | The queue replays the recorded calls in the same order on three threads, each filling a band of rows. |
 | One core | The original software renderer: each finished 2D polygon goes straight to the pixel-filling mappers of the `2D` library. |
 
@@ -100,7 +100,7 @@ Its options are `ENABLE_VITA_PROFILE`, which defines `VITA_PROFILE` for the prof
 
 It then adds `src/Libraries/`, defines the `MAC_SRC`/`GAME_SRC` file lists, and links the final `systemshock` executable against `GAME_LIB` and every library target.
 
-**Docker build**: `build.sh` builds a `systemshock-vita-vitasdk` image from `vita/Dockerfile` (`FROM vitasdk/vitasdk:2026.08`, which ships all required prebuilt libraries), then runs `cmake` + `make` inside the container against a bind-mounted workspace, producing `build/systemshock.vpk` (`./build.sh profile` and `./build.sh profile checks`: `build-profile/systemshock-profile.vpk` and `build-profile-checks/systemshock-profile-checks.vpk`, see [PROFILING.md](PROFILING.md)). No local VitaSDK install is required for this path (a local VitaSDK setup is also possible but needs `VITASDK` set and a pacman symlink for `vdpm install`).
+**Docker build**: `build.sh` builds a `systemshock-vita-vitasdk` image from `vita/Dockerfile` (`FROM vitasdk/vitasdk:2026.08`, which ships all required prebuilt libraries), then runs `cmake` + `make` inside the container against a bind-mounted workspace, producing `build/systemshock.vpk` (`./build.sh profile` and `./build.sh profile checks`: `build-profile/systemshock-profile.vpk` and `build-profile-checks/systemshock-profile-checks.vpk`, see [PROFILING.md](PROFILING.md)). No local VitaSDK install is required for this path (a local VitaSDK also works, with `VITASDK` set: see the README).
 
 ## Runtime data flow
 

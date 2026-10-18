@@ -47,7 +47,7 @@ typedef struct {
     short soMusicVolume;
     short soSfxVolume;
     short soAudioLogVolume;
-    short soMidiBackend; // 0 => adlmidi, 1 => native, 2 => fluidsynth
+    short soMidiBackend; // 0 => ADLMIDI with DOSBox's OPL3, 1 => with Nuked's (see OPT_SEQ_DOSBox)
     short soMidiOutput;  // which of the MIDI backend's outputs to use
 
     // Display Options
@@ -87,7 +87,7 @@ void SavePrefsIfWanted(void);
 //-------------------
 //  Enums
 //-------------------
-enum OPT_SEQ_ { // Must be in the same order as in wraper.h
+enum OPT_SEQ_ { // the values of soMidiBackend, midi-backend in the prefs file
     OPT_SEQ_ADLMIDI = 0,
     OPT_SEQ_NativeMI,
     OPT_SEQ_Max

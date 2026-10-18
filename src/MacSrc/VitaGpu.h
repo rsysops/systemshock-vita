@@ -4,9 +4,10 @@
 // The Vita's GPU as a filler for the rasterizer queue's draw list
 // (src/Libraries/3D/Source/rastq.h): see docs/PERFORMANCE.md.
 //
-// It draws flat polygons, the texture maps on ordinary 8-bit bitmaps and the
-// polygons shaded between colours; the queue has the CPU draw the rest. Its shaders are compiled when the game
-// starts, which needs ur0:data/libshacccg.suprx.
+// It draws flat polygons, the texture maps on ordinary 8-bit bitmaps, the
+// polygons shaded between colours, translucent polygons and bitmaps, lines and
+// points; the queue has the CPU draw the rest. Its shaders are compiled when
+// the game starts, which needs ur0:data/libshacccg.suprx.
 
 #include <stddef.h>
 
@@ -15,9 +16,11 @@ extern "C" {
 #endif
 
 // Sets the GPU path up, after vita2d: compiles its shaders, runs its start-up
-// checks and offers itself to the rasterizer queue. Without it, or if any of
-// that fails, everything stays on the CPU. Details go to gpu.txt in the
-// game's data folder.
+// checks and offers itself to the rasterizer queue. Without the shader
+// compiler, or without textured shaders that draw, everything stays on the
+// CPU. A kind of call whose shaders don't compile stays on the CPU, and so do
+// the translucent ones on any wrong pixel in their checks; the other checks'
+// wrong pixels are only logged. Details go to gpu.txt in the game's data folder.
 void vgpu_init(void);
 
 // Whether that worked: the GPU can be given views.

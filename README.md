@@ -12,12 +12,16 @@ The game draws its 3D view with the GPU, which needs the shader compiler module 
 
 ## Building
 
-### Prerequisites
-- VitaSDK
-- SDL2
-- SDL2-mixer
+### With Docker (nothing else to install)
+```
+./build.sh
+```
+This builds `build/systemshock.vpk` inside the `vitasdk/vitasdk` image (`vita/Dockerfile`). `./build.sh clean` starts the build folder afresh.
 
-### Build
+`./build.sh profile` and `./build.sh profile checks` build the profile flavours, each an app of its own, into `build-profile/` and `build-profile-checks/`: see [docs/PROFILING.md](docs/PROFILING.md).
+
+### With a local VitaSDK
+The SDK with the libraries the game links: SDL2, SDL2_mixer, vita2d, libjpeg, libpng, libwebp, zlib, libvorbis/libogg, libmikmod, libmodplug, libxmp-lite, opus/opusfile, FLAC, mpg123 and taihen.
 ```
 mkdir build && cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DCMAKE_BUILD_TYPE=None

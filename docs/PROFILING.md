@@ -48,7 +48,7 @@ code)` is just `code`. Nothing of the profiler ships in it.
    the same file.
 4. **Play.** Stay where you want to measure for a minute (see
    [Good practice](#good-practice)). When you move on to something else,
-   note the second number of `check=` on the overlay's last line: it
+   note the second number of `check=` on the overlay's fourth line: it
    only goes up, and it is in every log line, so it marks the place in
    the log.
 5. **Collect.** Copy from `ux0:data/systemshock/`:
@@ -124,9 +124,10 @@ the frame was, when, and where most of it went (see
 
 ## The log
 
-`profile.txt` starts each session with two lines from the start-up
-checks (`fixdiv_check ...` and `gpu: ready ...`), which also tell
-sessions apart in a file that holds several. The second ends with the
+`profile.txt` starts each session with three lines: two from the
+start-up checks (`fixdiv_check ...` and `gpu: ready ...`), which also
+tell sessions apart in a file that holds several, and `sym
+vprof_frame_end=` (see [the stutters' notes](#stutters)). The second ends with the
 translucent shaders' check: `tluc=on:way/tried` (the GPU draws
 translucent polygons, with which of its two ways of writing the
 shader, 0 being the one that is right on the console, and how many
