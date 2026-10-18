@@ -805,8 +805,6 @@ static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_ver
     vgpu_vertex out[RASTQ_GPU_VERTS];
     int i;
 
-    if (!textured) // one colour for the lot: the texel in the middle
-        return vgpu_flat(n, v, bm->bits[(size_t)(bm->h / 2) * bm->row + bm->w / 2]);
     if (n > RASTQ_GPU_VERTS)
         return 1;
     texture = texture_for(bm, (flags & RASTQ_GPU_WRAP) != 0);
@@ -952,9 +950,12 @@ static SceGxmProgram *compile(const char *source, shark_type type, const char *w
         gpu_err("%s shader did not compile", what);
     } else {
         copy = malloc(size);
-        if (copy != NULL)
+        if (copy != NULL) {
             memcpy(copy, program, size);
-        gpu_log("%s shader compiled: %u bytes", what, (unsigned)size);
+            gpu_log("%s shader compiled: %u bytes", what, (unsigned)size);
+        } else {
+            gpu_err("%s shader compiled, no memory for its copy", what);
+        }
     }
     shark_clear_output();
     return copy;
@@ -1255,7 +1256,6 @@ static int index_check(int *first_bad, int *got, int *kept) {
         quad(0, CHECK_W / 2, 0x11);
         vgpu_end();
         vgpu_finish();
-    vgpu_finish();
         *kept = canvas[(CHECK_H / 2) * CHECK_W + CHECK_W - 8] == 0x55 && canvas[(CHECK_H / 2) * CHECK_W + 8] == 0x11;
     }
     vgpu_free(canvas);
@@ -1704,8 +1704,7 @@ void vgpu_init(void) {
     else
         gpu_log("index check drawn: %d wrong", bad);
 
-    // Without the textured shaders everything is drawn in flat colours, as
-    // in the first GPU builds.
+    // Without the textured shaders the GPU isn't used (see below).
     gpu_log("compiling the textured shaders");
     textured = bad >= 0 && make_textures() && make_tmap_programs();
     // Without the shaded shaders the GPU still draws the station; what is

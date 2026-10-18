@@ -814,7 +814,7 @@ void select_email(int num, uchar scr) {
         VPROF_NOTE("mfd_notify_func", NULL, 0, 0,
                    mfd_notify_func(MFD_EMAILMUG_FUNC, EMAILMUG_SLOT, TRUE, MFD_ACTIVE, TRUE));
         // The original game plays it here only if a log's text is already
-        // shown; with Auto-play logs (Options page), it always does once the
+        // shown; with Log autoplay (Options page), it always does once the
         // player has the data reader, which reading a log needs.
         if (mug_num < BASE_VMAIL &&
             (inventory_page == INV_EMAILTEXT_PAGE ||

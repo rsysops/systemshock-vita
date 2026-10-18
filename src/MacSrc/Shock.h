@@ -38,7 +38,7 @@ void SDLDraw();
 void CaptureMouse(bool capture);
 bool CheckArgument(char *name);
 
-static const char *VITA_PATH = "ux0:data/systemshock/";
+static const char VITA_PATH[] = "ux0:data/systemshock/";
 extern SDL_Rect destRect;
 
 void InitVita2D(int width, int height);

@@ -92,10 +92,7 @@ int g3_check_and_draw_poly(long c, int n_verts, g3s_phandle *p) {
 }
 
 int check_and_draw_common(long c, int n_verts, g3s_phandle *p) {
-// clang-format off
-        // clang-format on
-
-        if (g3_check_poly_facing(p[0], p[1], p[2])) {
+    if (g3_check_poly_facing(p[0], p[1], p[2])) {
         return draw_poly_common(c, n_verts, p);
     }
     else return 0; // no draw
@@ -124,11 +121,7 @@ int draw_poly_common(long c, int n_verts, g3s_phandle *p) {
     grs_vertex *dest;
     long rgb;
 
-// clang-format off
-
-        // clang-format on
-
-        poly_color = c;
+    poly_color = c;
 
     // first, go through points and get codes
     andcode = 0xff;
@@ -310,72 +303,6 @@ int draw_line_common(g3s_phandle p0, g3s_phandle p1) {
 
                 mov     eax,CLIP_NONE
                 jmp     leave_draw_line*/
-    } else // sline
-    {
-        DEBUG("%s: implement me?", __FUNCTION__);
-        // we have to do this annoyingly because i is an sfix,
-        // and 2d takes a fix, so we dump things in eax and munge
-        /*
-        // new smaller converter
-                xor     eax,eax
-                mov     ax,[edi].i
-                shl     eax,8
-                push    eax
-                push    [edi].sy
-                xor     eax,eax
-                mov     ax,[esi].i
-                shl     eax,8
-
-                or      bl,bl   // check triv acc
-
-                mov     ebx,eax         // we had to do all the ugliness in eax b/c
-        needed
-                                        // the codes in bl to check for triv acc,
-        and we
-                                        // couldnt do the check earlier because all
-        our
-                                        // and's reset the zero flag needed for the
-        jz below mov     eax,[esi].sx mov     edx,[esi].sy mov     ecx,[edi].sx
-
-                jz      unclipped_sline
-                                        call gen_fix_sline_
-                jmp     leave_draw_line
-
-                ret
-
-        unclipped_sline:
-        //        gr_call FIX_USLINE
-        // set up args -- vertex contents on stack, pass sp
-        // pushd contents of vertex -- don't care about u,v,w
-        // i needs to have sfix to fix
-                xor     eax,eax			// eax scratch
-                mov     ax,[esi].i
-                shl     eax,8
-                push    eax
-                pushm	0,0,0			// uvw are don't cares
-                pushm	[esi].sy,[esi].sx
-                mov 	ebx,esp			// v0 on stack, addr is arg
-                xor     eax,eax			// eax scratch
-                mov     ax,[edi].i
-                shl     eax,8
-                push    eax
-                pushm	0,0,0			// uvw are don't cares
-                pushm	[edi].sy,[edi].sx
-                mov 	ecx,esp			// v1 on stack, addr is arg
-        // 	now its OK to trash esi
-                gr_getcol	eax
-                gr_getfp	edx
-                mov	esi,grd_uline_fill_vector
-                call 	d [esi + 4*SLINE]
-                add esp,48			// 2 vertex's each 6 fix's
-
-        //	junk from old stuff -- kill these
-                pop esi
-                pop esi
-
-                mov     eax,CLIP_NONE
-                jmp     leave_draw_line
-        */
     }
 
     return result;

@@ -167,10 +167,6 @@ char comments[NUM_SAVE_SLOTS + 1][SAVE_COMMENT_LEN];
 uchar pause_game_func(ushort keycode, uint32_t context, intptr_t data);
 uchar really_quit_key_func(ushort keycode, uint32_t context, intptr_t data);
 
-// separate mouse region for regular-screen and fullscreen.
-#define NUM_MOUSEREGION_SCREENS 2
-LGRegion options_mouseregion[NUM_MOUSEREGION_SCREENS];
-uchar free_mouseregion = 0;
 
 char save_game_name[] = "savgam00.dat";
 
@@ -2353,28 +2349,9 @@ errtype make_options_cursor(void) {
 }*/
 
 errtype wrapper_create_mouse_region(LGRegion *root) {
-    errtype err;
-    int id;
-    LGRect r = {{0, 0}, {STATUS_X, STATUS_HEIGHT}};
-    LGRegion *reg;
-
     // no "Click for Options" corner: START opens the options, and the cursor stuck
     // against the top-left screen edge would keep showing it
-    return OK;
-    reg = &(options_mouseregion[free_mouseregion++]);
-    err = region_create(root, reg, &r, 2, 0, REG_USER_CONTROLLED | AUTODESTROY_FLAG, NULL, NULL, NULL, NULL);
-    if (err != OK)
-        return err;
-    err = uiInstallRegionHandler(reg, UI_EVENT_MOUSE | UI_EVENT_MOUSE_MOVE, wrapper_region_mouse_handler,
-                                 0, &id);
-    if (err != OK)
-        return err;
-    if (!cursor_loaded) {
-        err = make_options_cursor();
-        if (err != OK)
-            return err;
-    }
-    uiSetRegionDefaultCursor(reg, &option_cursor);
+    (void)root;
     return OK;
 }
 

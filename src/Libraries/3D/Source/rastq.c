@@ -112,8 +112,6 @@ static struct {
     int use_gpu;   // hand views to the GPU
     int gpu_view;  // this view goes to the GPU
     int gpu_check; // this view: compare the GPU's result with the CPU's
-    int gpu_survey; // this view isn't the GPU's: only count what it could draw of it
-    int survey_next;
     int gpu_view_next; // the caller's word on the view that starts next
     int gpu_cut_min;   // lists of at least this many calls are cut by all the threads
     // Whether they are, frame by frame (rastq_gpu_frame)
@@ -436,8 +434,6 @@ static void choose_bands(void) {
 
 // ---- replay --------------------------------------------------------------
 
-// Draws one recorded call inside `band`, which must be the calling thread's.
-// The mappers modify their arguments, so each thread draws from its own copy.
 // A line of the 3D library, as it draws them: clipped, in one colour or
 // shaded between the colours in its ends' u, v and w.
 static void draw_line_now(int shaded, long color, intptr_t parm, const grs_vertex *v0, const grs_vertex *v1) {
@@ -446,6 +442,8 @@ static void draw_line_now(int shaded, long color, intptr_t parm, const grs_verte
          grd_line_clip_fill_vector[shaded ? GR_WIRE_POLY_CLINE : GR_WIRE_POLY_LINE])(color, (long)parm, &a, &b);
 }
 
+// Draws one recorded call inside `band`, which must be the calling thread's.
+// The mappers modify their arguments, so each thread draws from its own copy.
 static void draw_cmd(const rastq_cmd *c, const grs_band *band) {
     grs_vertex verts[RASTQ_MAX_VERTS];
     grs_vertex *vpl[RASTQ_MAX_VERTS];
@@ -1792,23 +1790,6 @@ static int gpu_run(void) {
     return 1;
 }
 
-// For a view the GPU isn't given: what it could draw of the list, and why not
-// the rest, in the same counts as for its own views.
-static void gpu_survey(void) {
-    unsigned k;
-
-    gpu_prepare();
-    for (k = 0; k < rq.count; k++) {
-        const rastq_cmd *c = &cmds[k];
-        if (c->gpu == GPU_CULL)
-            rastq_stats.gpu_culled++;
-        else if (c->gpu == GPU_CPU)
-            rastq_stats.gpu_whys[c->gpu_why]++;
-        else
-            rastq_stats.gpu_kinds[c->gpu_kind]++;
-    }
-}
-
 // Has the GPU draw the list. Returns 0 if it wouldn't, with the canvas as it
 // was.
 static int gpu_replay(void) {
@@ -1885,9 +1866,6 @@ void rastq_flush(void) {
         clear_on_cpu();
     }
 
-    if (rq.gpu_survey && !rq.checking)
-        gpu_survey();
-
 #ifdef RASTQ_SELFCHECK
     if (rq.test_ranges && !rq.checking)
         test_ranges();
@@ -1957,8 +1935,7 @@ void rastq_begin(void) {
     rq.checking = 0;
     rq.gpu_check = 0;
     rq.gpu_view = rq.gpu_view_next && gpu_takes(rq.canvas);
-    rq.gpu_survey = rq.survey_next && !rq.gpu_view;
-    rq.survey_next = rq.gpu_view_next = 0;
+    rq.gpu_view_next = 0;
     rq.balance = NULL;
     if (rq.threads > 1 && rq.canvas->bm.h >= rq.min_rows)
         rq.balance = find_split(rq.canvas, rq.threads);

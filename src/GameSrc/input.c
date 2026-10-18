@@ -83,7 +83,6 @@ extern frc *svga_render_context;
 // -------
 
 
-#define CFG_DCLICK_RATE_VAR "dclick_time"
 #define CFG_OOMPHOMETER "throw_oomph"
 #define CFG_INP6D_GO "inp6d"
 

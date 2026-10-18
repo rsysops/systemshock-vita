@@ -959,9 +959,6 @@ void ReloadDecXMI(void) {
             deviceTypeMatch = (AdlMidiGetEmulator(MusicDev) ==
                                ((gShockPrefs.soMidiBackend == OPT_SEQ_Nuked) ? Music_Opl3Nuked : Music_Opl3DosBox));
             break;
-        case Music_Native:
-            deviceTypeMatch = (gShockPrefs.soMidiBackend == 1);
-            break;
         }
     }
 
