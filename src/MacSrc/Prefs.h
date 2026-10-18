@@ -66,6 +66,8 @@ typedef struct {
 
 // The double-click bar's default: a third along, where its marker is
 #define DCLICK_DEFAULT (65536 / 3)
+// The music's volume by default (0 to 100), where the Audio page's mark is
+#define MUSIC_VOLUME_DEFAULT 75
 
 //--------------------
 //  Globals

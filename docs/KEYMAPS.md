@@ -74,7 +74,7 @@ Default bindings come from `HotKeyLookup[]` and `MoveKeybindsDefault[]` in
 | Save / load game | `Ctrl+S` / `Ctrl+L` | Options menu (START) |
 | Quit | `Ctrl+Q` | Options menu (START) |
 | Toggle music | `Ctrl+M` | Options menu (START) → □ |
-| Cycle detail level | `Ctrl+1` | None: `detail` in `prefs.txt`, 0 (lowest) to 3 (highest, the default) |
+| Detail level | None | None: `detail` in `prefs.txt`, 0 (lowest) to 3 (highest, the default) |
 | Pause | `P` | None (the options menu pauses the game while open) |
 | Previous weapon | `Shift+Tab` | Tap the weapon in the inventory |
 | Reload weapon (normal / swap ammo) | `Alt+Backspace` / `Ctrl+Backspace` | Tap the ammo buttons on the weapon MFD |

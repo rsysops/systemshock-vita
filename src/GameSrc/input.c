@@ -376,28 +376,6 @@ void alloc_cursor_bitmaps(void)
 #include "frtypes.h"
 //extern bool gPlayingGame;
 
-uchar MacDetailFunc(ushort keycode, uint32_t context, intptr_t data) {
-    char msg[32];
-    fauxrend_context *_frc = (fauxrend_context *)svga_render_context;
-
-    if (_frc->detail == 4) // Adjust for that global detail nonsense.
-        _frc->detail = _fr_global_detail;
-
-    _frc->detail++; // Cycle through the detail levels.
-    if (_frc->detail >= 4)
-        _frc->detail = 0;
-    _fr_global_detail = _frc->detail; // Update the global guy.
-
-    gShockPrefs.doDetail = _frc->detail; // Update and save our prefs.
-    SavePrefs();
-
-    // Show a nice, informative message, with the video options' "Detail" and its levels.
-    snprintf(msg, sizeof(msg), "%s: %s", get_temp_string(REF_STR_OptionsText + 4),
-             get_temp_string(REF_STR_DetailLvl + _frc->detail));
-    message_info(msg);
-    return TRUE;
-}
-
 /*
 // Temporary function.  Remove for final build
 
@@ -551,7 +529,6 @@ void init_input(void) {
         hotkey_add(DOWN(toupper(posture_keys[i])), DEMO_CONTEXT, posture_hotkey_func, i);
     }
     hotkey_add(CONTROL('q'), DEMO_CONTEXT, MacQuitFunc, 0);
-    hotkey_add(CONTROL('1'), DEMO_CONTEXT, MacDetailFunc, 0);
     hotkey_add(CONTROL('/'), DEMO_CONTEXT, MacHelpFunc, 0);
     hotkey_add(CONTROL('?'), DEMO_CONTEXT, MacHelpFunc, 0);
 

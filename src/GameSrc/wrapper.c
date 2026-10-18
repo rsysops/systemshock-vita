@@ -349,7 +349,7 @@ static struct {
     {REF_STR_GyroOff, {"Disabled", "D\x82sactiv\x82" "e", "Aus"}},
     {REF_STR_ControllerLookSpeed, {"Look Speed", "Vitesse vue", "Blicktempo"}},
     {REF_STR_GyroLookSpeed, {"Gyro Speed", "Vitesse gyro", "Gyro-Tempo"}},
-    {REF_STR_Cursor, {"Menu Cursor", "Curseur menus", "Men\x81-Cursor"}},
+    {REF_STR_Cursor, {"Menu Cursor", "Curseur menu", "Men\x81-Cursor"}},
     // the message line of the confirmation before loading a save
     {REF_STR_LoadConfirm, {"Load this save?", "Charger cette sauvegarde ?", "Diesen Spielstand laden?"}},
     // and before quitting: an empty text is the game's own (in English, "Do you really want to exit?")
@@ -359,6 +359,9 @@ static struct {
     {REF_STR_SaveTemplate, {"Save Templ.", "Mod\x8a" "le Sauv.", "Namensvorl."}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
+    // the game's Off/On, which its French data leaves in English
+    {REF_STR_OffonText, {"", "Non", ""}},
+    {REF_STR_OffonText + 1, {"", "Oui", ""}},
 };
 
 static char *_get_temp_string(int num) {
@@ -444,8 +447,17 @@ void slider_draw_func(uchar butid) {
     wrapper_draw_background(BR(butid).ul.x - sw / 2, BR(butid).ul.y - h, BR(butid).lr.x + sw / 2, BR(butid).lr.y);
     draw_shadowed_string(title, BR(butid).ul.x, BR(butid).ul.y - h, full_game_3d);
 
+    // The default's mark, on the middle pixel of the handle drawn for that
+    // value: worked out on the screen, where the handle is scaled, since its
+    // middle falls between two of the panel's units.
     gr_set_fcolor(st->bvalcol);
-    ss_vline(BR(butid).ul.x + st->baseval, BR(butid).ul.y, BR(butid).lr.y - 1);
+    {
+        short left = BR(butid).ul.x + st->baseval + 1 - sw / 2;
+        if (perform_svga_conversion(OVERRIDE_SCALE))
+            gr_vline(SCONV_X(left) + (SCONV_X(sw) - 1) / 2, SCONV_Y(BR(butid).ul.y), SCONV_Y(BR(butid).lr.y - 1));
+        else
+            gr_vline(left + (sw - 1) / 2, BR(butid).ul.y, BR(butid).lr.y - 1);
+    }
 
     gr_set_fcolor(col);
     ss_box(BR(butid).ul.x, BR(butid).ul.y, BR(butid).lr.x, BR(butid).lr.y);
@@ -1065,6 +1077,7 @@ void textlist_init(uchar butid, char *text, uchar numblocks, uchar blocksiz, uch
 
 void wrapper_pushbutton_func(uchar butid);
 uchar can_save();
+static uchar can_save_now(uchar say);
 
 // Every screen init calls this right after clear_obuttons(): it records where Back goes
 // (parent, focusing entry_button there) and which page L/R switch from.
@@ -1213,6 +1226,9 @@ static void opanel_slider_step(int b, int delta) {
     int max = BR(b).lr.x - BR(b).ul.x - 3;
     int pos = st->sliderpos + delta;
 
+    // a step over the default's mark stops on it, the next one goes on
+    if ((st->sliderpos < st->baseval && pos > st->baseval) || (st->sliderpos > st->baseval && pos < st->baseval))
+        pos = st->baseval;
     if (pos < 0)
         pos = 0;
     else if (pos > max)
@@ -1295,13 +1311,18 @@ static void opanel_open_page(int page) {
 
 // L/R: previous/next top-level page, wrapping; Save is skipped where saving isn't allowed
 static void opanel_switch_page(int dir) {
-    int page = opanel_page;
+    int page;
 
+    // a confirmation is answered No first, as START does: nothing of it is
+    // left over, and the page is the one that asked
+    if (opanel_verify_no)
+        opanel_verify_no(0);
+    page = opanel_page;
     if (page == PAGE_NONE)
         return;
     do {
         page = (page + dir + NUM_PAGES) % NUM_PAGES;
-    } while (page == PAGE_SAVE && !can_save());
+    } while (page == PAGE_SAVE && !can_save_now(FALSE));
 
     opanel_leave_textlist();
     opanel_open_page(page);
@@ -1676,22 +1697,29 @@ errtype wrapper_panel_close(uchar clear_message) {
 
 extern uchar game_paused;
 
-uchar can_save() {
+// Whether the game can be saved now; if not and `say`, the message line says
+// why. L/R skip the Save page without a word.
+static uchar can_save_now(uchar say) {
     uchar gp = game_paused;
     if (global_fullmap->cyber) {
-        // spoof the game as not being paused so that the message won't go to the
-        // phantom message line in full screen mode, where it will stay only for a frame.
-        game_paused = FALSE;
-        string_message_info(REF_STR_NoCyberSave);
-        game_paused = gp;
+        if (say) {
+            // spoof the game as not being paused so that the message won't go to the
+            // phantom message line in full screen mode, where it will stay only for a frame.
+            game_paused = FALSE;
+            string_message_info(REF_STR_NoCyberSave);
+            game_paused = gp;
+        }
         return (FALSE);
     }
     if (input_cursor_mode == INPUT_OBJECT_CURSOR) {
-        string_message_info(REF_STR_CursorObjSave);
+        if (say)
+            string_message_info(REF_STR_CursorObjSave);
         return (FALSE);
     }
     return (TRUE);
 }
+
+uchar can_save() { return can_save_now(TRUE); }
 
 //
 // THE TOP LEVEL OPTIONS: Initialization, handler
@@ -1869,10 +1897,12 @@ void sound_screen_init(void) {
     // one bar per row, each the full width of the page
     standard_slider_rect(&r, 0);
     r.lr.x += 2 * OPANEL_SLOT_W; // spans three slots
-    sliderbase = r.lr.x - r.ul.x - 2;
+    // the bars hold quest variables, a volume's square over 100 (VOLUME_TO_QVAR): the
+    // effects' and the logs' default, 100, is the bar's end, the music's isn't
+    sliderbase = r.lr.x - r.ul.x - 3;
     if (music_card) {
         slider_init(0, REF_STR_MusicText, sizeof(ushort), TRUE, &player_struct.questvars[MUSIC_VOLUME_QVAR], 100,
-                    sliderbase, recompute_music_level, &r);
+                    sliderbase * VOLUME_TO_QVAR(MUSIC_VOLUME_DEFAULT) / 100, recompute_music_level, &r);
     } else {
         standard_button_rect(&r, 0);
         r.lr.x += 2 * OPANEL_SLOT_W;
@@ -2011,12 +2041,12 @@ void input_screen_init(void) {
 
     // row 2: the bars
     standard_slider_rect(&r, 3);
-    sliderbase = ((r.lr.x - r.ul.x - 1) * 5 / 15);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * 5 / 15);
     slider_init(3, REF_STR_GyroLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.gyroAimingSpeed, 15,
                 sliderbase, NULL, &r);
 
     standard_slider_rect(&r, 4);
-    sliderbase = ((r.lr.x - r.ul.x - 1) * 10 / 25);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * 10 / 25);
     slider_init(4, REF_STR_ControllerLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.controllerAimingSpeed, 25,
                 sliderbase, NULL, &r);
 
@@ -2075,7 +2105,7 @@ void options_screen_init(void) {
                olh_dealfunc, &r);
 
     standard_slider_rect(&r, 4);
-    sliderbase = ((r.lr.x - r.ul.x - 1) * 29 / 100);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * 29 / 100);
     slider_init(4, REF_STR_OptionsText + 3, sizeof(ushort), TRUE, &(gShockPrefs.doGamma), 100,
                 sliderbase, gamma_slider_dealfunc, &r);
 

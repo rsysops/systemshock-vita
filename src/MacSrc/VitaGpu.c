@@ -1656,6 +1656,26 @@ static void time_tluc_fill(uchar *p, size_t size, int *in_place_us, int *copied_
     *copied_us = (int)(t2 - t1);
 }
 
+// The GPU's memory, given back when it turns itself off after its set-up:
+// nothing draws with it then (vgpu_canvas says no, and the queue never gets
+// the hooks).
+static void vgpu_release(void) {
+    int i;
+
+    sceGxmFinish(context);
+    for (i = 0; i < MAX_TARGETS; i++)
+        drop_target(&targets[i]);
+    vgpu_free(vertices);
+    vgpu_free(tables_pixels);
+    vgpu_free(colours_pixels);
+    vgpu_free(matrix_pixels);
+    vgpu_free(texture_heap);
+    vertices = NULL;
+    indices = NULL;
+    tables_pixels = colours_pixels = matrix_pixels = texture_heap = NULL;
+    gpu_log("GPU off: its memory freed");
+}
+
 void vgpu_init(void) {
     size_t test_bytes = 2 * GPU_BLOCK_ALIGN;
     int bad, first_bad, got, kept, tex_bad[CHECK_BANDS] = {-1, -1, -1, -1};
@@ -1792,6 +1812,7 @@ void vgpu_init(void) {
     // all: as a renderer it is the textured shaders or nothing.
     if (bad < 0 || !textured) {
         ready = 0;
+        vgpu_release();
         return;
     }
     if (!shades)

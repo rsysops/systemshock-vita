@@ -112,7 +112,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.goLanguage = 0; // English
     gShockPrefs.goCaptureMouse = true;
     gShockPrefs.goInvertMouseY = false;
-    gShockPrefs.soMusicVolume = 75;
+    gShockPrefs.soMusicVolume = MUSIC_VOLUME_DEFAULT;
     gShockPrefs.soSfxVolume = 100;
     gShockPrefs.soAudioLogVolume = 100;
     // 960x544, the Vita's own (svga_mode_data). A hidden setting: no menu has
@@ -158,9 +158,8 @@ static char *trim(char *s) {
     return s;
 }
 
-static bool is_true(const char *s) {
-    return strcasecmp(s, "yes") == 0 || strcasecmp(s, "true") == 0 || strcmp(s, "1") == 0;
-}
+// the on/off settings are written yes or no
+static bool is_true(const char *s) { return strcasecmp(s, "yes") == 0; }
 
 //--------------------------------------------------------------------
 //	  Locate the preferences file and load them to set our global pref settings.
@@ -317,10 +316,10 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_SAVE_TEMPLATE, gShockPrefs.goSaveTemplate ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_BACKEND, gShockPrefs.soMidiBackend);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_OUTPUT, gShockPrefs.soMidiOutput);
-    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_GYRO, gShockPrefs.gyroAiming);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", VITA_GYRO, gShockPrefs.gyroAiming ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
-    at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_CURSOR, gShockPrefs.showCursor);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", VITA_CURSOR, gShockPrefs.showCursor ? "yes" : "no");
     if (at >= sizeof(text)) // (never: the text is under half of that)
         at = sizeof(text) - 1;
     if (strcmp(text, written) == 0)
@@ -542,7 +541,6 @@ extern uchar select_drug_hotkey(ushort keycode, uint32_t context, intptr_t data)
 extern uchar toggle_music_func(ushort keycode, uint32_t context, intptr_t data);
 extern uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data);
 extern uchar cycle_weapons_func(ushort keycode, uint32_t context, intptr_t data);
-extern uchar MacDetailFunc(ushort keycode, uint32_t context, intptr_t data);
 extern uchar arm_grenade_hotkey(ushort keycode, uint32_t context, intptr_t data);
 extern uchar use_drug_hotkey(ushort keycode, uint32_t context, intptr_t data);
 extern uchar hud_color_bank_cycle(ushort keycode, uint32_t context, intptr_t data);
@@ -595,7 +593,6 @@ HOTKEYLOOKUP HotKeyLookup[] = {
     {"\"quit\"", DEMO_CONTEXT, demo_quit_func, 0, 0, CTRL('q'), 0},
     {"\"cycle_weapons 1\"", DEMO_CONTEXT, cycle_weapons_func, 1, 0, TAB_KEY, 0},
     {"\"cycle_weapons -1\"", DEMO_CONTEXT, cycle_weapons_func, -1, 0, S_TAB_KEY, 0},
-    {"\"cycle_detail\"", DEMO_CONTEXT, MacDetailFunc, 0, 0, CTRL('1'), 0},
     // remap Vita hotkeys to something simpler, since I haven't figured out complex key combination emulation yet
     {"\"arm_grenade\"", DEMO_CONTEXT, arm_grenade_hotkey, 0, 0, DOWN('u'), 0},
     {"\"use_drug\"", DEMO_CONTEXT, use_drug_hotkey, 0, 0, DOWN('o'), 0},

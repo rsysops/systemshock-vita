@@ -28,7 +28,6 @@ Performance:
 * System Shock Enhanced shadow render as a mod
 
 User interface:
-* Options => On / On / An
-* Options "Curseur menus" too large
+* Options items labels to review
 * Traduction "Guide"?
 * Ajouter un tooltip pour les options?
