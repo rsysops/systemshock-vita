@@ -24,7 +24,9 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 void pump_events(void);
 void set_mouse_chaos(short dx, short dy);
 
-void VitaStartTextInput(int emulate_every_frame);
+// Opens the on-screen keyboard on `initial`, for a text of `min_length` to
+// `max_length` characters (and at most VITA_TEXT_BUFFER_SIZE - 1)
+void VitaStartTextInput(int emulate_every_frame, const char *initial, int min_length, int max_length);
 // Whether the on-screen keyboard is open, or gave its text less than `ms` ago
 int VitaTextInputRecent(unsigned ms);
 

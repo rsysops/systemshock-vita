@@ -72,16 +72,19 @@ static const char *PREF_LANGUAGE = "language";
 static const char *PREF_CAPTUREMOUSE = "capture-mouse";
 static const char *PREF_INVERTMOUSEY = "invert-mousey";
 static const char *PREF_MUSIC_VOL = "music-volume";
+static const char *PREF_MUSIC = "music";
 static const char *PREF_SFX_VOL = "sfx-volume";
 static const char *PREF_ALOG_VOL = "alog-volume";
 static const char *PREF_VIDEOMODE = "video-mode";
 static const char *PREF_DETAIL = "detail";
 static const char *PREF_ONSCR_HELP = "onscreen-help";
+static const char *PREF_POPUP_CURSORS = "popup-cursors";
 static const char *PREF_GAMMA = "gamma";
 static const char *PREF_DOUBLE_CLICK = "double-click";
 static const char *PREF_MSG_LENGTH = "message-length";
 static const char *PREF_ALOG_SETTING = "alog-setting";
 static const char *PREF_AUTOPLAY_LOGS = "autoplay-logs";
+static const char *PREF_SAVE_TEMPLATE = "save-template";
 static const char *PREF_MIDI_BACKEND = "midi-backend";
 static const char *PREF_MIDI_OUTPUT = "midi-output";
 static const char *VITA_GYRO = "vita-gyro";
@@ -126,6 +129,7 @@ void SetDefaultPrefs(void) {
     gShockPrefs.goDoubleClick = DCLICK_DEFAULT;
     gShockPrefs.goMsgLength = 0; // Normal
     gShockPrefs.goAutoplayLogs = true;
+    gShockPrefs.goSaveTemplate = true;
     audiolog_setting = 2; // Messages: both, the text and the speech
 
     SetShockGlobals();
@@ -189,9 +193,15 @@ int16_t LoadPrefs(void) {
         } else if (strcasecmp(key, PREF_MUSIC_VOL) == 0) {
             int vol = atoi(value);
             if (vol >= 0 && vol <= 100) {
-                gShockPrefs.soBackMusic = vol > 0;
+                // the music plays unless this or "music" turns it off, in
+                // either order (files from before "music" don't have it)
+                if (vol == 0)
+                    gShockPrefs.soBackMusic = false;
                 gShockPrefs.soMusicVolume = vol;
             }
+        } else if (strcasecmp(key, PREF_MUSIC) == 0) {
+            if (!is_true(value))
+                gShockPrefs.soBackMusic = false;
         } else if (strcasecmp(key, PREF_SFX_VOL) == 0) {
             int vol = atoi(value);
             if (vol >= 0 && vol <= 100) {
@@ -212,6 +222,8 @@ int16_t LoadPrefs(void) {
                 gShockPrefs.doDetail = detail;
         } else if (strcasecmp(key, PREF_ONSCR_HELP) == 0) {
             gShockPrefs.goOnScreenHelp = is_true(value);
+        } else if (strcasecmp(key, PREF_POPUP_CURSORS) == 0) {
+            gShockPrefs.goPopupLabels = is_true(value);
         } else if (strcasecmp(key, PREF_GAMMA) == 0) {
             int gamma = atoi(value);
             if (gamma < 10)
@@ -233,6 +245,8 @@ int16_t LoadPrefs(void) {
                 audiolog_setting = as;
         } else if (strcasecmp(key, PREF_AUTOPLAY_LOGS) == 0) {
             gShockPrefs.goAutoplayLogs = is_true(value);
+        } else if (strcasecmp(key, PREF_SAVE_TEMPLATE) == 0) {
+            gShockPrefs.goSaveTemplate = is_true(value);
         } else if (strcasecmp(key, PREF_MIDI_BACKEND) == 0) {
             int mb = atoi(value);
             if (mb >= 0 && mb < OPT_SEQ_Max)
@@ -288,16 +302,19 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_CAPTUREMOUSE, gShockPrefs.goCaptureMouse ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_INVERTMOUSEY, gShockPrefs.goInvertMouseY ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MUSIC_VOL, curr_vol_lev);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_MUSIC, gShockPrefs.soBackMusic ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_SFX_VOL, sfx_on ? curr_sfx_vol : 0);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_VOL, curr_alog_vol);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_VIDEOMODE, mode_id);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DETAIL, _fr_global_detail);
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_POPUP_CURSORS, popup_cursors ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DOUBLE_CLICK, gShockPrefs.goDoubleClick);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_SETTING, audiolog_setting);
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_AUTOPLAY_LOGS, gShockPrefs.goAutoplayLogs ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_SAVE_TEMPLATE, gShockPrefs.goSaveTemplate ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_BACKEND, gShockPrefs.soMidiBackend);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MIDI_OUTPUT, gShockPrefs.soMidiOutput);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_GYRO, gShockPrefs.gyroAiming);

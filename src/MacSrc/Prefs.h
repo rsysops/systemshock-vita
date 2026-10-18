@@ -37,6 +37,7 @@ typedef struct {
     bool goOnScreenHelp;
     short goLanguage; // 0 - English, 1 - French, 2 - German
     bool goAutoplayLogs; // a new e-mail or log plays on arrival (see select_email)
+    bool goSaveTemplate; // a save is offered the name "Save N (floor)" (see save_name_template)
     bool goCaptureMouse;
     bool goInvertMouseY;
 

@@ -83,7 +83,9 @@ static void check_end(const check_area *a) {
     hudkeep_stats.checks++;
     hudkeep_stats.check_bad += bad;
     // a checked frame draws things twice: keep it out of the timings
+#if defined(__vita__) && defined(VITA_PROFILE)
     vprof_frame_discard();
+#endif
 }
 #endif
 

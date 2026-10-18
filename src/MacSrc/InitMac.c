@@ -42,7 +42,7 @@ uint32_t gShockTicks;
 uint32_t *tmd_ticks;
 
 void InitMac(void) {
-    INFO("Starting %s", SHOCKOLATE_VERSION);
+    INFO("Starting System Shock %s", SHOCKOLATE_VERSION);
     InstallShockTimers(); // needed for the tick pointer
 }
 

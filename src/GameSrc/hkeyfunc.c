@@ -83,10 +83,8 @@ void start_music(void) {
         mlimbs_AI_init();
         load_score_for_location(PLAYER_BIN_X, PLAYER_BIN_Y);
         MacTuneStartCurrentTheme();
-    } else {
-        gShockPrefs.soBackMusic = FALSE;
-        SavePrefs();
     }
+    // (if it fails, the music is off for this session only)
     //   }
 }
 
@@ -105,12 +103,13 @@ uchar toggle_music_func(ushort keycode, uint32_t context, intptr_t data) {
         message_info("Music off.");
         StopTheMusic(); //do this here, not in stop_music(), to prevent silence when changing levels
         stop_music();
+        gShockPrefs.soBackMusic = FALSE;
     } else {
         start_music();
         message_info("Music on.");
+        gShockPrefs.soBackMusic = TRUE; // what the player asked for, even if it didn't start
     }
 
-    gShockPrefs.soBackMusic = music_on;
     SavePrefs();
 
     return (FALSE);

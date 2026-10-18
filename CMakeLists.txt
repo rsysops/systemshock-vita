@@ -1,6 +1,10 @@
 cmake_minimum_required(VERSION 3.1)
 
-project(shockolate VERSION 0.7.8)
+project(shockolate)
+
+# The game's version, the one the Vita shows: ## dot ## (vita_create_vpk
+# refuses anything else). Change it here only.
+set(GAME_VERSION "00.82")
 
 include(FeatureSummary)
 
@@ -17,6 +21,11 @@ option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log" OFF)
 add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
 option(ENABLE_VITA_PROFILE_CHECKS "Enable the profile build's self-checks and frame dumps" OFF)
 add_feature_info(ENABLE_VITA_PROFILE_CHECKS ENABLE_VITA_PROFILE_CHECKS "Enable VITA_PROFILE_CHECKS self-checks")
+# the self-checks are the profile build's: they report through its profiler
+if(ENABLE_VITA_PROFILE_CHECKS AND NOT ENABLE_VITA_PROFILE)
+	message(STATUS "ENABLE_VITA_PROFILE_CHECKS turns ENABLE_VITA_PROFILE on")
+	set(ENABLE_VITA_PROFILE ON CACHE BOOL "Enable on-device profiler overlay/log" FORCE)
+endif()
 
 add_compile_options(-fsigned-char -fno-strict-aliasing)
 
@@ -27,23 +36,24 @@ include_directories(
 	${SDL2_INCLUDE_DIRS}
 )
 
-# Generate version based on project version
-set(PROJECT_REVERSION_STRING "")
+# The log's version: the game's, and the commit it was built from, "-dirty"
+# with changes not committed (a tag, if there ever is one, still ends in it)
+set(GAME_VERSION_BUILD "")
 find_package(Git)
 if(GIT_FOUND)
-	execute_process(COMMAND ${GIT_EXECUTABLE} describe --dirty
+	execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --dirty
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
 		OUTPUT_VARIABLE git_describe_out
-		ERROR_VARIABLE git_describe_error
+		OUTPUT_STRIP_TRAILING_WHITESPACE
+		ERROR_QUIET
 		RESULT_VARIABLE git_describe_result
 		)
-	string(REGEX MATCH "[a-z|0-9|.]*-[0-9]*-g([a-z|0-9]*)([-|a-z]*)" git_commit "${git_describe_out}")
-	set(git_commit ${CMAKE_MATCH_1})
-	set(git_dirty ${CMAKE_MATCH_2})
-	set(PROJECT_REVERSION_STRING "-g${git_commit}${git_dirty}")
+	if(git_describe_result EQUAL 0 AND git_describe_out MATCHES "([0-9a-f]+)(-dirty)?$")
+		set(GAME_VERSION_BUILD " (${CMAKE_MATCH_1}${CMAKE_MATCH_2})")
+	endif()
 endif(GIT_FOUND)
 
-message(STATUS "Version is ${PROJECT_VERSION}${PROJECT_REVERSION_STRING}")
+message(STATUS "Version is ${GAME_VERSION}${GAME_VERSION_BUILD}")
 configure_file("${CMAKE_SOURCE_DIR}/src/GameSrc/Headers/shockolate_version.h.in"
 	"${CMAKE_BINARY_DIR}/src/GameSrc/Headers/shockolate_version.h" )
 

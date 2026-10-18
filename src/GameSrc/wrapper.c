@@ -342,7 +342,7 @@ uchar fv;
 // override get_temp_string() to support hard-coded custom strings without
 // providing an actual resource file
 
-// In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute.
+// In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute, \x8a e grave.
 // Arrays rather than literals, since pushbutton_draw_func() wraps its label in place.
 static struct {
     int num;
@@ -356,8 +356,11 @@ static struct {
     {REF_STR_Cursor, {"Menu Cursor", "Curseur menus", "Men\x81-Cursor"}},
     // the message line of the confirmation before loading a save
     {REF_STR_LoadConfirm, {"Load this save?", "Charger cette sauvegarde ?", "Diesen Spielstand laden?"}},
+    // and before quitting: an empty text is the game's own (in English, "Do you really want to exit?")
+    {REF_STR_QuitConfirm, {"", "Quitter la partie ?", "Spiel beenden?"}},
     // the buttons fit about 12 characters: the label isn't wrapped
     {REF_STR_AutoplayLogs, {"Log autoplay", "Lect. journ.", "Log autoplay"}},
+    {REF_STR_SaveTemplate, {"Save Templ.", "Mod\x8a" "le Sauv.", "Namensvorl."}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
 };
@@ -365,9 +368,14 @@ static struct {
 static char *_get_temp_string(int num) {
     int i;
 
-    for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++)
-        if (custom_strings[i].num == num)
-            return custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
+    for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++) {
+        if (custom_strings[i].num == num) {
+            char *text = custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
+            if (text[0] != '\0')
+                return text;
+            break;
+        }
+    }
 
     return get_temp_string(num);
 }
@@ -773,6 +781,57 @@ void slork_init(uchar butid, slorker slork) {
 
 char *textlist_string(opt_textlist_state *st, int ind) { return (st->text + ind * (st->blocksiz)); }
 
+// A save's name, offered when saving: "Save N (Medical)", N one more than
+// the highest such number among the slots' names, in any of the languages
+// (and the "Save #N" of the first builds). In plain ASCII: the keyboard
+// gives the game nothing else. Cyberspace, where nothing is saved, has no
+// floor name.
+static const char *const save_word[3] = {"Save", "Sauvegarde", "Spielstand"};
+static const char *const floor_names[3][14] = {
+    {"Reactor", "Medical", "Research", "Maintenance", "Storage", "Flight", "Executive", "Engineering", "Security",
+     "Bridge", NULL, "Delta Grove", "Alpha Grove", "Beta Grove"},
+    {"Reacteur", "Medical", "Recherche", "Maintenance", "Stockage", "Hangar", "Direction", "Ingenierie", "Securite",
+     "Passerelle", NULL, "Serre Delta", "Serre Alpha", "Serre Beta"},
+    {"Reaktor", "Medizin", "Forschung", "Wartung", "Lager", "Flugdeck", "Verwaltung", "Technik", "Sicherheit",
+     "Bruecke", NULL, "Garten Delta", "Garten Alpha", "Garten Beta"},
+};
+
+static void save_name_template(char *buf, size_t size) {
+    extern uchar valid_save;
+    int lang = (which_lang >= 0 && which_lang < 3) ? which_lang : 0;
+    int i, top = 0;
+    const char *floor = NULL;
+
+    for (i = 0; i < NUM_SAVE_SLOTS * 3; i++) {
+        const char *name = comments[i / 3], *word = save_word[i % 3];
+        size_t len = strlen(word);
+
+        if (!(valid_save & (1 << (i / 3))) || strncmp(name, word, len) != 0 || name[len] != ' ')
+            continue;
+        name += len + 1 + (name[len + 1] == '#');
+        if (isdigit((unsigned char)name[0]) && atoi(name) > top)
+            top = atoi(name);
+    }
+    if (player_struct.level >= 0 && player_struct.level < 14)
+        floor = floor_names[lang][player_struct.level];
+    if (floor != NULL)
+        snprintf(buf, size, "%s %d (%s)", save_word[lang], top + 1, floor);
+    else
+        snprintf(buf, size, "%s %d", save_word[lang], top + 1);
+}
+
+// The keyboard for a save slot's name: it opens on the template, or the name
+// the slot has. Closed unchanged, the slot keeps its name.
+static void textlist_keyboard(opt_textlist_state *st, int line) {
+    char name[SAVE_COMMENT_LEN];
+
+    if (gShockPrefs.goSaveTemplate)
+        save_name_template(name, sizeof(name));
+    else
+        strcpy(name, (st->initmask & (1 << line)) ? textlist_string(st, line) : "");
+    VitaStartTextInput(0, name, 1, st->blocksiz - 1);
+}
+
 void textlist_draw_line(opt_textlist_state *st, int line, uchar butid) {
     short w, h;
     LGRect scrrect;
@@ -875,7 +934,7 @@ uchar textlist_handler(uiEvent *ev, uchar butid) {
                     st->dealfunc(butid, st->currstring);
             } else if (!st->modified) {
                 // savegame text input
-                VitaStartTextInput(0);
+                textlist_keyboard(st, line);
                 string_message_info(st->selectprompt);
                 if (st->selectprompt)
                     textlist_select_line(st, butid, line, FALSE);
@@ -1177,7 +1236,7 @@ static void opanel_textlist_enter(int b) {
         // first press on a save slot: open the name keyboard, like tapping the slot does;
         // the next press saves, with the new name or the old one if nothing was typed
         opanel_save_armed_line = cur;
-        VitaStartTextInput(0);
+        textlist_keyboard(st, cur);
         string_message_info(st->selectprompt);
         textlist_select_line(st, b, cur, FALSE);
         return;
@@ -1380,8 +1439,9 @@ static void opanel_show_help(void) {
 }
 
 // Arrows, Enter, Home (back), PgUp/PgDn (page), F1 (help) and F2 (music) are handled here
-// before the widgets see them: the slot list would swallow them and the verify screen's
-// slorker closes the panel.
+// before the widgets see them: the slot list would swallow them, and the verify screen's
+// slorker takes any key as No. So is Esc (START) on the verify screen, which would only
+// go back there; elsewhere it closes the panel further on.
 static uchar opanel_nav_key(uiEvent *ev, int key) {
     int b = opanel_focus;
 
@@ -1415,6 +1475,15 @@ static uchar opanel_nav_key(uiEvent *ev, int key) {
         } else {
             opanel_go_back();
         }
+        return TRUE;
+
+    case KEY_ESC:
+        if (!opanel_verify_no)
+            return FALSE;
+        // No first, which undoes what the confirmation holds, then the whole panel
+        // (unless No closed it already: a confirmation with nothing to go back to)
+        opanel_verify_no(0);
+        wrapper_panel_close(TRUE);
         return TRUE;
 
     case KEY_PGUP:
@@ -1656,7 +1725,7 @@ void wrapper_pushbutton_func(uchar butid) {
         break;
     case QUIT_BUTTON: // Quit
         verify_screen_init(quit_verify_pushbutton_handler, quit_verify_slorker);
-        string_message_info(REF_STR_QuitConfirm);
+        message_info(get_temp_string(REF_STR_QuitConfirm));
         break;
     }
     return;
@@ -1753,6 +1822,8 @@ void recompute_music_level(ushort vol) {
         }
         // mlimbs_change_master_volume(curr_vol_lev);
     }
+    // as □ does: what the bar turned on or off is kept for the next launch
+    gShockPrefs.soBackMusic = music_on;
     MacTuneUpdateVolume();
 }
 
@@ -2017,6 +2088,11 @@ void options_screen_init(void) {
     multi_init(5, tolower(get_temp_string(REF_STR_AutoplayLogs)[0]), REF_STR_AutoplayLogs, REF_STR_OffonText, ID_NULL,
                sizeof(gShockPrefs.goAutoplayLogs), &gShockPrefs.goAutoplayLogs, 2, NULL, &r);
 
+    // row 3: a save is offered "Save N (floor)" as its name (see save_name_template)
+    standard_button_rect(&r, 6);
+    multi_init(6, tolower(get_temp_string(REF_STR_SaveTemplate)[0]), REF_STR_SaveTemplate, REF_STR_OffonText, ID_NULL,
+               sizeof(gShockPrefs.goSaveTemplate), &gShockPrefs.goSaveTemplate, 2, NULL, &r);
+
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
 
@@ -2099,6 +2175,12 @@ void load_screen_init(void) {
 
 void save_dealfunc(uchar butid, uchar index) {
     if (!ObjSysOkay()) {
+        opt_textlist_state *st = &OButtons[butid].user.textlist_st;
+
+        // No puts back the name kept aside: the one typed over, or this one if
+        // none was (× saves a slot under its name without any typing)
+        if (st->index < 0 || st->currstring != index)
+            strcpy(comments[NUM_SAVE_SLOTS], comments[index]);
         string_message_info(REF_STR_ObjSysBad);
         savegame_verify = index;
         verify_screen_init(save_verify_pushbutton_handler, save_verify_slorker);
@@ -2308,7 +2390,7 @@ uchar saveload_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
 
 uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data) {
     wrapper_start(quit_verify_init);
-    string_message_info(REF_STR_QuitConfirm);
+    message_info(get_temp_string(REF_STR_QuitConfirm));
     return (TRUE);
 }
 #pragma enable_message(202)

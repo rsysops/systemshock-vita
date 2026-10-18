@@ -42,7 +42,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "mainloop.h"
 #include "rastq.h"
 #include "setup.h"
-#include "shockolate_version.h"
 #include "status.h"
 #include "version.h"
 #include "vprof.h"
@@ -476,16 +475,30 @@ void VitaSyncView(void)
         memcpy(to + y * drawSurface->pitch, from + y * stride, place.w);
 }
 
+// The screen's texture, cleared. Without it there is nothing to show the game
+// on: say so and go back to the LiveArea.
+static void MakeScreenTexture(int width, int height)
+{
+    char text[96];
+
+    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
+    texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
+    if (texBuffer == NULL) {
+        snprintf(text, sizeof(text), "Not enough graphics memory for the screen (%dx%d).", width, height);
+        VitaAlert(text);
+        sceKernelExitProcess(0);
+    }
+    palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
+    memset(palettedTexturePointer, 0, vita2d_texture_get_stride(texBuffer) * height);
+}
+
 void InitVita2D(int width, int height)
 {
     vita2d_init();
 
     window = SDL_CreateWindow("", 0, 0, width, height, 0);
 
-    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
-    texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
-    palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
-    memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+    MakeScreenTexture(width, height);
 
     vgpu_init();
     MakeViewTextures(width, height);
@@ -496,14 +509,13 @@ void InitVita2D(int width, int height)
 void ResizeVita2D(int width, int height)
 {
     if (texBuffer != NULL) {
+        // the last frame's scene may still be reading it
+        vita2d_wait_rendering_done();
         vita2d_free_texture(texBuffer);
         texBuffer = NULL;
     }
 
-    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
-    texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
-    palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
-    memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+    MakeScreenTexture(width, height);
     MakeViewTextures(width, height);
 
     if (window != NULL) {
