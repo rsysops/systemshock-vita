@@ -27,7 +27,20 @@ if [[ "${1:-}" == "profile" ]]; then
     fi
 fi
 
+CLEAN=0
 if [[ "${1:-}" == "clean" ]]; then
+    CLEAN=1
+    shift
+fi
+
+# anything else (a misspelling, "checks" without "profile", "clean" first)
+# would otherwise build the plain game without a word
+if [[ $# -gt 0 ]]; then
+    echo "usage: ./build.sh [profile [checks]] [clean]" >&2
+    exit 1
+fi
+
+if [[ $CLEAN -eq 1 ]]; then
     rm -rf "$BUILD_DIR"
 fi
 

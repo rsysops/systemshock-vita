@@ -1,10 +1,8 @@
-/RES/
 build
 build-profile
 build-profile-checks
 # the profiler's captures, dropped there to be read and not kept
 docs/profiles-*/
-CMakeLists.txt.user
 # Prerequisites
 *.d
 
@@ -46,16 +44,8 @@ src/Libraries/CMakeFiles
 **/cmake_install.cmake
 **/Makefile
 
-TestSimpleMain
 **/core
 
 # Save files
 CurrentGame.dat
 savgam*.dat
-
-# Temporary audio files
-.temp.audio
-
-# Eclipse CDT
-.project
-.cproject

@@ -46,7 +46,7 @@ Each row with sources is its own CMake target, defined in `src/Libraries/CMakeLi
 |---|---|
 | `2D` | Bitmap/blit primitives |
 | `3D` | 3D math and texture mapping; the rasterizer queue and its worker threads (`rastq.c`, `rastqthr.c`) |
-| `GR` | Graphics abstraction (its sources live in `2D/Source/GR`) |
+| `GR` | Graphics abstraction: its sources, in `2D/Source/GR`, are built into `2D`, not a target of their own |
 | `RES` | Reads the original `.res` game data files (`resacc.c`, `lzw.c`), from the card or from a file's copy in memory (`ResUseImage` in `resfile.c`) |
 | `LG` | "Looking Glass" core utilities: temporary memory (`tmpalloc.c`, `stack.c`), per-thread slots for the rasterizer's workers (`lgslot.c`), logging (vendored, `LG/Source/LOG`) |
 | `INPUT` | Input; `sdl_events.c` turns SDL controller, touch and gyro events into the game's keyboard and mouse events |

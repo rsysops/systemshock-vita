@@ -1,6 +1,3 @@
-enable_language(ASM)
-set(can_use_assembler TRUE)
-
 set(2D_SRC
 	2D/Source/band.c
 	2D/Source/bit.c
@@ -105,7 +102,6 @@ set(2D_SRC
 	2D/Source/Flat8/fl8ns.c
 	2D/Source/Flat8/fl8lnop.c
 	2D/Source/Flat8/fl8dbl.c
-	2D/Source/Flat8/fl8clin.h
 	2D/Source/Flat8/fl8cnv.c
 	2D/Source/Flat8/fl8slin.c
 	2D/Source/Flat8/fl8lin.c
@@ -122,7 +118,6 @@ set(2D_SRC
 	2D/Source/Flat8/fl8ntrp2.c
 	2D/Source/Flat8/fl8sub.c
 	2D/Source/Flat8/fl8tpl.c
-	2D/Source/Flat8/fl8wclin.h
 	2D/Source/Flat8/fl8nl.c
 	2D/Source/Flat8/fl8fltr2.c
 	2D/Source/Flat8/fl8mono.c
@@ -149,14 +144,6 @@ set(2D_SRC
 	2D/Source/string/strsiz.c
 	2D/Source/string/struscl.c
 	2D/Source/string/strwrap.c
-)
-
-set(GR_SRC
-	2D/Source/GR/grd.c
-	2D/Source/GR/grilin.c
-	2D/Source/GR/grmalloc.c
-	2D/Source/GR/grnull.c
-	2D/Source/GR/gruilin.c
 )
 
 
@@ -217,7 +204,7 @@ set(LG_SRC
 )
 
 set(PALETTE_SRC
-        PALETTE/Source/palette.c
+	PALETTE/Source/palette.c
 )
 
 set(RES_SRC
@@ -336,7 +323,6 @@ include_directories(
 
 add_library(2D_LIB ${2D_SRC})
 target_link_libraries(2D_LIB LG_LIB)
-add_library(GR_LIB ${GR_SRC})
 add_library(3D_LIB ${3D_SRC})
 target_link_libraries(3D_LIB m)
 add_library(AFILE_LIB ${AFILE_SRC})

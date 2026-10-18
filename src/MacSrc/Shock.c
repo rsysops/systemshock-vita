@@ -70,6 +70,8 @@ SDL_Rect destRect;
 SDL_GameController *gameController;
 SDL_Sensor *vitaGyro;
 
+// The C library's memory functions, as the system's. The compiler still writes
+// small and fixed-size copies inline; the rest come here.
 void *memcpy(void *destination, const void *source, size_t n)
 {
 	return sceClibMemcpy(destination, source, n);

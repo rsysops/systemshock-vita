@@ -25,15 +25,15 @@ includes() { # source root
 
 # The .c files of a source list in the libraries' CMakeLists.txt
 sources() { # source root, list name
-    awk -v name="$2" '$0 == "set(" name {on = 1; next} on && /^\)/ {on = 0} on {print $1}' \
-        "$1/src/Libraries/CMakeLists.txt" | grep '\.c$'
+    awk -v name="$2" '$0 == "set(" name {on = 1; next} on && /^\)/ {on = 0} on {sub(/\)$/, "", $1); print $1}
+                      on && /\)$/ {on = 0}' "$1/src/Libraries/CMakeLists.txt" | grep '\.c$'
 }
 
 build_lib() { # library name, source root, extra compiler flags
     local name="$1" root="$2"
     shift 2
     mkdir "$OUT/$name"
-    # fix_pow.c duplicates a function of fix.c
+    # the reference commit's fix_pow.c duplicates a function of fix.c
     { sources "$root" 2D_SRC; sources "$root" LG_SRC; sources "$root" FIX_SRC | grep -v fix_pow.c; } |
         xargs -P "$(nproc)" -I{} sh -c \
             'gcc -O2 -fcommon -w -pthread -DLG_SLOT_PTHREADS '"$*"' '"$(includes "$root")"' -c "'"$root"'/src/Libraries/{}" -o "'"$OUT/$name"'/$(echo {} | tr / _).o"'
