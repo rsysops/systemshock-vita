@@ -17,15 +17,17 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -g ")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -g -D__STDC_LIMIT_MACROS")
 
-option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log" OFF)
-add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
-option(ENABLE_VITA_PROFILE_CHECKS "Enable the profile build's self-checks and frame dumps" OFF)
-add_feature_info(ENABLE_VITA_PROFILE_CHECKS ENABLE_VITA_PROFILE_CHECKS "Enable VITA_PROFILE_CHECKS self-checks")
 # the self-checks are the profile build's: they report through its profiler
 if(ENABLE_VITA_PROFILE_CHECKS AND NOT ENABLE_VITA_PROFILE)
 	message(STATUS "ENABLE_VITA_PROFILE_CHECKS turns ENABLE_VITA_PROFILE on")
 	set(ENABLE_VITA_PROFILE ON CACHE BOOL "Enable on-device profiler overlay/log" FORCE)
 endif()
+
+option(ENABLE_VITA_PROFILE "Enable on-device profiler overlay/log" OFF)
+add_feature_info(ENABLE_VITA_PROFILE ENABLE_VITA_PROFILE "Enable VITA_PROFILE instrumentation")
+
+option(ENABLE_VITA_PROFILE_CHECKS "Enable the profile build's self-checks and frame dumps" OFF)
+add_feature_info(ENABLE_VITA_PROFILE_CHECKS ENABLE_VITA_PROFILE_CHECKS "Enable VITA_PROFILE_CHECKS self-checks")
 
 add_compile_options(-fsigned-char -fno-strict-aliasing)
 
@@ -40,6 +42,7 @@ include_directories(
 # with changes not committed (a tag, if there ever is one, still ends in it)
 set(GAME_VERSION_BUILD "")
 find_package(Git)
+
 if(GIT_FOUND)
 	execute_process(COMMAND ${GIT_EXECUTABLE} describe --always --dirty
 		WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
@@ -60,19 +63,24 @@ configure_file("${CMAKE_SOURCE_DIR}/src/GameSrc/Headers/shockolate_version.h.in"
 # Keep the music mix the Vita port has always had: both OPL3 emulators
 # play waveforms 6 and 7 as a one-sided pulse (see docs/PERFORMANCE.md).
 add_definitions(-DOPL3_HALF_SQUARE_WAVES)
+
 set(VITA_FLAGS "-Ofast -mcpu=cortex-a9 -mfpu=neon -fgraphite-identity -floop-nest-optimize -fno-lto")
 set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} ${VITA_FLAGS}")
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} ${VITA_FLAGS}")
 set(VITA_LIBS "-lSDL2 -lvita2d -pthread -ljpeg -lpng -lwebp -lz -lvorbisfile -lvorbis -logg -lmikmod -lmodplug -lxmp-lite -lopusfile -lopus -lScePower_stub -lSceAudio_stub -lSceCtrl_stub -lSceHid_stub \
 -lSceTouch_stub -lSceDisplay_stub -lSceGxm_stub -lSceAppMgr_stub -lSceSysmodule_stub -lSceCommonDialog_stub -lFLAC -lmpg123 -lSceMotion_stub -lSceAppUtil_stub -lSceShaccCgExt -ltaihen_stub")
+
 if(ENABLE_VITA_PROFILE)
 	add_definitions(-DVITA_PROFILE)
 	set(VITA_LIBS "${VITA_LIBS} -lScePgf_stub")
 endif()
+
 if(ENABLE_VITA_PROFILE_CHECKS)
 	add_definitions(-DVITA_PROFILE_CHECKS)
 endif()
+
 SET(CMAKE_CXX_STANDARD_LIBRARIES "${VITA_LIBS}")
+
 # room after the code segment for what vita-elf-create adds there
 set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -Wl,-T,${CMAKE_SOURCE_DIR}/vita/segment-gap.ld")
 include("${CMAKE_SOURCE_DIR}/vita/vita.cmake")
