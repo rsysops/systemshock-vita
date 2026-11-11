@@ -22,9 +22,9 @@ Features:
 Fixes:
 * Audio mixing
 * Crash when hibernated Vita?
-* Saving: write to a temporary file, then rename it over the slot (the slot is emptied before the copy, so an interrupted save loses the old one too)
 * Saving: block the PS button, quick menu and power menu during a save (sceShellUtilLock)
 * Saving: tell the player when a save fails (save_game returns OK even if the copy fails)
+* Saving: disallow empty save name
 
 Performance:
 * FPS lock 30 option

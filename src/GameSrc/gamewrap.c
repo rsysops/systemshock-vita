@@ -218,11 +218,19 @@ errtype save_game(char *fname, char *comment) {
         critical_error(CRITERR_FILE | 3);
     }
 
-    // Copy current game out to save game slot
-    if (copy_file(CURRENT_GAME_FNAME, fname) != OK) {
-        // Put up some alert here.
-        ERROR("No good copy, dude!");
-        //		string_message_info(REF_STR_SaveGameFail);
+    // Copy current game out to save game slot, which keeps its old game until
+    // the new one is all on the card (see filecopy.h)
+    {
+        long size = 0;
+        int failed;
+
+        // (the profiler's note is still copy_file's, with the file's size)
+        VPROF_NOTE("copy_file", NULL, 0, (int)size, failed = file_replace(CURRENT_GAME_FNAME, fname, &size));
+        if (failed) {
+            // Put up some alert here.
+            ERROR("No good copy, dude!");
+            //		string_message_info(REF_STR_SaveGameFail);
+        }
     }
     // KLC	else
     // KLC		string_message_info(REF_STR_SaveGameSaved);

@@ -338,7 +338,7 @@ notes=98.41:input_chk();97.02:uiPoll;96.80:ui@810a1234#4;61.04:res#4d2/52311;9.6
 | `view@address` | a 3D view drawn (`fr_rend`), and where it was asked for from |
 | `inv_select@address#row`, `inv_use@…`, `inv_drop@…` | a click in the inventory handed to the page's own function at that address, for that row (hex) |
 | `mfd_handler@address#function/panel`, `mfd_simp@…` | a click on a side panel handed to the panel function's handler at that address |
-| `copy_file#0/bytes` | a whole file copied: a save to its slot, a slot back for a load, the archive for a new game |
+| `copy_file#0/bytes` | a whole file copied: a save to its slot (with its sync and two renames), a slot back for a load, the archive for a new game |
 | `save_head`, `write_level_to_disk#level`, `level_save_open`, `level_save_pieces#count`, `level_save_close` | what a save is made of: the player and the schedules written, then the level, piece by piece |
 | `empty_slate`, `closedown_game`, `load_head`, `load_level_from_file#level`, `free_dynamic_memory`, `level_load_open`, `level_load_pieces`, `level_load_close`, `load_dynamic_memory`, `load_level_data`, `obj_load_art` | what a load, a new game or a change of level is made of |
 | `wait_cursor@address` | the frame `begin_wait()` presents to show the wait cursor, and who asked for it. A present waits for the screen: up to 16.7 ms |
