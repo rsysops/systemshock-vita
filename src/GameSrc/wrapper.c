@@ -24,6 +24,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <limits.h>
+#include <strings.h>
 
 #include "newmfd.h"
 #include "wrapper.h"
@@ -814,7 +815,9 @@ static void save_name_template(char *buf, size_t size) {
         const char *name = comments[i / 3], *word = save_word[i % 3];
         size_t len = strlen(word);
 
-        if (!(valid_save & (1 << (i / 3))) || strncmp(name, word, len) != 0 || name[len] != ' ')
+        // (in any case: the keyboard's capitals reach a slot's name in lower
+        // case, with a shift flag the name doesn't keep; see sdl_events.c)
+        if (!(valid_save & (1 << (i / 3))) || strncasecmp(name, word, len) != 0 || name[len] != ' ')
             continue;
         name += len + 1 + (name[len + 1] == '#');
         if (isdigit((unsigned char)name[0]) && atoi(name) > top)
