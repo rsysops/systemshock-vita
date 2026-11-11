@@ -26,6 +26,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <limits.h>
 #include <strings.h>
 
+#include <psp2/shellutil.h>
+
 #include "newmfd.h"
 #include "wrapper.h"
 #include "tools.h"
@@ -2283,11 +2285,19 @@ errtype check_free_diskspace(int *needed) {
     return (OK);
 }
 
+// What a save holds back: the PS button, the quick menu and the power menu,
+// whose LiveArea could close the game in the middle of it. (A short press of
+// power still suspends: file_replace keeps the slot whole then.)
+#define SAVE_SHELL_LOCK \
+    (SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN | SCE_SHELL_UTIL_LOCK_TYPE_QUICK_MENU | SCE_SHELL_UTIL_LOCK_TYPE_POWEROFF_MENU)
+
 errtype do_savegame_guts(uchar slot) {
     extern uchar valid_save;
     errtype retval = OK;
 
     begin_wait();
+    if (sceShellUtilLock(SAVE_SHELL_LOCK) < 0)
+        WARN("%s: sceShellUtilLock failed, saving anyway", __FUNCTION__);
     if (!(valid_save & (1 << slot))) {
         int needed;
         //      char buf1[128],buf2[128];
@@ -2310,6 +2320,7 @@ errtype do_savegame_guts(uchar slot) {
             if (retval == OK)
             valid_save |= 1 << slot;
     }
+    sceShellUtilUnlock(SAVE_SHELL_LOCK);
     end_wait();
     // spoof_mouse_event();
     if (retval == OK)

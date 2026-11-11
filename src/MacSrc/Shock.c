@@ -52,6 +52,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vita2d.h>
 #include "VitaGpu.h"
 #include <psp2/kernel/processmgr.h>
+#include <psp2/shellutil.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -290,6 +291,11 @@ int main(int argc, char **argv) {
     log_set_level(LOG_WARN);
 
     INFO("Logger initialized");
+
+    // for the PS button and the system's menus to be held back during a save
+    // (do_savegame_guts); without it, saves go on unguarded
+    if (sceShellUtilInitEvents(0) < 0)
+        WARN("sceShellUtilInitEvents failed: saves won't hold back the PS button");
 
     // init mac managers
 

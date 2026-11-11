@@ -22,7 +22,6 @@ Features:
 Fixes:
 * Audio mixing
 * Crash when hibernated Vita?
-* Saving: block the PS button, quick menu and power menu during a save (sceShellUtilLock)
 * Saving: tell the player when a save fails (save_game returns OK even if the copy fails)
 * Saving: disallow empty save name
 
