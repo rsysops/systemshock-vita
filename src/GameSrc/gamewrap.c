@@ -207,21 +207,25 @@ errtype save_game(char *fname, char *comment) {
     ResUnmake(idx);
     idx++;
 
-    ResCloseFile(filenum);
+    // (each part goes on only if the last was written whole: what goes in
+    // the slot must be the whole game, and the menu says when it isn't, in
+    // do_savegame_guts)
+    retval = ResCloseFile(filenum) == 0 ? OK : ERR_FWRITE;
     VPROF_SPAN_END(head_began, "save_head", 0, 0);
+    if (retval != OK)
+        ERROR("Couldn't write the save's head to Current Game");
 
     // Save current level
-    VPROF_NOTE("write_level_to_disk", NULL, player_struct.level, 0,
-               retval = write_level_to_disk(ResIdFromLevel(player_struct.level), TRUE));
-    if (retval) {
-        ERROR("Return value from write_level_to_disk is non-zero!"); //
-        critical_error(CRITERR_FILE | 3);
+    if (retval == OK) {
+        VPROF_NOTE("write_level_to_disk", NULL, player_struct.level, 0,
+                   retval = write_level_to_disk(ResIdFromLevel(player_struct.level), TRUE));
+        if (retval)
+            ERROR("Return value from write_level_to_disk is non-zero!");
     }
 
     // Copy current game out to save game slot, which keeps its old game until
-    // the new one is all on the card (see filecopy.h); the menu says when it
-    // can't (do_savegame_guts)
-    {
+    // the new one is all on the card (see filecopy.h)
+    if (retval == OK) {
         long size = 0;
         int failed;
 

@@ -22,7 +22,6 @@ Features:
 Fixes:
 * Audio mixing
 * Crash when hibernated Vita?
-* Saving: catch the resource library's write errors, and don't quit on a failed level write
 * Saving: disallow empty save name
 
 Performance:

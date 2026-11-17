@@ -226,8 +226,10 @@ uchar go_to_different_level(int targlevel) {
         early_exit_cyberspace_stuff();
     }
 
+    // (a level that couldn't be written all goes on, as it always has; it is
+    // a save that says so: see save_game)
     rv = write_level_to_disk(ResIdFromLevel(player_struct.level), TRUE);
-    if (rv)
+    if (rv == ERR_FOPEN)
         critical_error(CRITERR_FILE | 4);
 
     rv = load_level_from_file(targlevel);
@@ -298,7 +300,7 @@ errtype write_id(Id id_num, short index, uint32_t version, void *ptr, long sz, i
 errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
     int i, goof;
     int idx = 0;
-    int fd;
+    int fd, closed;
     int map_version = MAP_VERSION_NUMBER;
     int ovnum = OBJECT_VERSION_NUMBER;
     int mvnum = MISC_SAVELOAD_VERSION_NUMBER;
@@ -313,6 +315,16 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
 
     // make pathfinding state stable by fulfilling PF requests
     check_requests(FALSE);
+
+    // Open the file we're going to save into: first, so that a file that
+    // won't open leaves the game as it was, player and all.
+    // (the profiler's notes: what a level's saving is made of)
+    VPROF_NOTE("level_save_open", NULL, 0, 0, fd = ResEditFile(CURRENT_GAME_FNAME, TRUE));
+    if (fd < 0) {
+        ERROR("No file!");
+        end_wait();
+        return ERR_FOPEN;
+    }
 
     /* KLC - not needed for game
        if (id_num - LEVEL_ID_NUM < ANOTHER_DEFINE_FOR_NUM_LEVELS)
@@ -336,14 +348,6 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
     //   if (flush_mem)
     //      free_dynamic_memory(DYNMEM_PARTIAL);
 
-    // Open the file we're going to save into.
-    // (the profiler's notes: what a level's saving is made of)
-    VPROF_NOTE("level_save_open", NULL, 0, 0, fd = ResEditFile(CURRENT_GAME_FNAME, TRUE));
-    if (fd < 0) {
-        ERROR("No file!");
-        end_wait();
-        return ERR_FOPEN;
-    }
     VPROF_SPAN_BEGIN(pieces_began);
 
 #define REF_WRITE(id_num, index, x)			\
@@ -451,7 +455,7 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
     verify_cookie = VERIFY_COOKIE_VALID;
     REF_WRITE(SAVELOAD_VERIFICATION_ID, 0, verify_cookie);
     VPROF_SPAN_END(pieces_began, "level_save_pieces", idx, 0);
-    VPROF_NOTE("level_save_close", NULL, 0, 0, ResCloseFile(fd));
+    VPROF_NOTE("level_save_close", NULL, 0, 0, closed = ResCloseFile(fd));
 
     // FlushVol(nil, fSpec->vRefNum);                   // Make sure everything is saved.
 
@@ -468,6 +472,11 @@ errtype save_current_map(char *fname, Id id_num, uchar flush_mem, uchar pack) {
         // what does this do???      spoof_mouse_event();
     }
 
+    // (the level is still all in memory, as is the player)
+    if (closed != 0) {
+        ERROR("Couldn't write the level to %s", CURRENT_GAME_FNAME);
+        return ERR_FWRITE;
+    }
     INFO("Saved level.");
 
     return OK;
