@@ -213,6 +213,7 @@ bool isRunning = false;
 char vita_input_text[VITA_TEXT_BUFFER_SIZE];
 int vita_text_input_active;
 static Uint32 vita_text_input_closed_at; // SDL_GetTicks() when the keyboard gave its text; 0: never
+static int vita_ime_entered;             // the keyboard last closed with its Enter (VitaKeyboardEntered)
 int per_frame_keydown_emulation = 0;
 int text_input_active = 0;
 int current_char_position = 0;
@@ -523,6 +524,7 @@ void VitaStartTextInput(int emulate_every_frame, const char *initial, int min_le
     SDL_StartTextInput();
     vita_text_input_active = 1;
     per_frame_keydown_emulation = emulate_every_frame;
+    vita_ime_entered = 0;
     // each keyboard's text starts afresh, whatever the last one left
     text_input_active = 0;
     current_char_position = 0;
@@ -539,15 +541,16 @@ void VitaStartTextInput(int emulate_every_frame, const char *initial, int min_le
 }
 
 // The keyboard closed: its text goes to the game as SDL's text event, then
-// Enter if it was closed with its Enter. Enter on too short a text opens the
+// Enter, if it was closed with its Enter. Enter on too short a text opens the
 // keyboard again, on what it was opened with. A save slot's keyboard closed
-// on the text it was opened with types nothing, and the slot's name stays.
+// with ○ types nothing, changed or not, and the slot's name stays (New
+// Game's, typed a letter a frame, gets its text either way).
 static void VitaPollKeyboard(void)
 {
     SceImeDialogResult result;
     SDL_Event ev;
     char text[VITA_TEXT_BUFFER_SIZE];
-    int i, n = 0, same = 1;
+    int i, n = 0;
 
     if (!vita_ime_open || sceImeDialogGetStatus() != SCE_COMMON_DIALOG_STATUS_FINISHED)
         return;
@@ -564,10 +567,9 @@ static void VitaPollKeyboard(void)
         VitaOpenKeyboard();
         return;
     }
-    for (i = 0; same && (vita_ime_initial[i] != 0 || i < n); i++)
-        same = i < n && vita_ime_initial[i] == (unsigned char)text[i];
+    vita_ime_entered = result.button == SCE_IME_DIALOG_BUTTON_ENTER;
 
-    if (n > 0 && (result.button == SCE_IME_DIALOG_BUTTON_ENTER || !same || per_frame_keydown_emulation)) {
+    if (n > 0 && (vita_ime_entered || per_frame_keydown_emulation)) {
         memset(&ev, 0, sizeof(ev));
         ev.type = SDL_TEXTINPUT;
         SDL_strlcpy(ev.text.text, text, sizeof(ev.text.text));
@@ -587,6 +589,11 @@ static void VitaPollKeyboard(void)
         ev.key.state = SDL_RELEASED;
         SDL_PushEvent(&ev);
     }
+}
+
+int VitaKeyboardEntered(void)
+{
+    return vita_ime_entered;
 }
 
 int VitaTextInputRecent(unsigned ms)

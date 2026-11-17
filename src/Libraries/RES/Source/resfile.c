@@ -309,19 +309,26 @@ int32_t ResOpenResFile(const char *fname, ResOpenMode mode, bool auxinfo) {
 //	ResCloseFile() closes an open resource file.
 //
 //		filenum = file number used when opening file
+//
+//	Returns: 0, or -1 if the file was open for writing and a write to it
+//	failed (the file's error flag stays set from the first one on) or its
+//	closing did
 
-void ResCloseFile(int32_t filenum) {
+int32_t ResCloseFile(int32_t filenum) {
     Id id;
+    bool edited;
+    int32_t result;
 
     // Make sure file is open
     if (resFile[filenum].fd == NULL) {
         WARN("%s: filenum %d not in use", __FUNCTION__, filenum);
-        return;
+        return -1;
     }
 
     // If file being created, flush it
     TRACE("%s: closing %d", __FUNCTION__, filenum);
-    if (resFile[filenum].pedit) {
+    edited = resFile[filenum].pedit != NULL;
+    if (edited) {
         ResWriteDir(filenum);
         ResWriteHeader(filenum);
     }
@@ -340,10 +347,15 @@ void ResCloseFile(int32_t filenum) {
     }
 
     // Close file
-    fclose(resFile[filenum].fd);
+    result = edited && ferror(resFile[filenum].fd) ? -1 : 0;
+    if (fclose(resFile[filenum].fd) != 0 && edited)
+        result = -1;
+    if (result != 0)
+        WARN("%s: writing %s failed", __FUNCTION__, resFileName[filenum]);
     resFile[filenum].fd = NULL;
     resFileName[filenum][0] = '\0';
     resFileOnImage[filenum] = false;
+    return result;
 }
 
 //	--------------------------------------------------------------

@@ -207,28 +207,38 @@ errtype save_game(char *fname, char *comment) {
     ResUnmake(idx);
     idx++;
 
-    ResCloseFile(filenum);
+    // (each part goes on only if the last was written whole: what goes in
+    // the slot must be the whole game, and the menu says when it isn't, in
+    // do_savegame_guts)
+    retval = ResCloseFile(filenum) == 0 ? OK : ERR_FWRITE;
     VPROF_SPAN_END(head_began, "save_head", 0, 0);
+    if (retval != OK)
+        ERROR("Couldn't write the save's head to Current Game");
 
     // Save current level
-    VPROF_NOTE("write_level_to_disk", NULL, player_struct.level, 0,
-               retval = write_level_to_disk(ResIdFromLevel(player_struct.level), TRUE));
-    if (retval) {
-        ERROR("Return value from write_level_to_disk is non-zero!"); //
-        critical_error(CRITERR_FILE | 3);
+    if (retval == OK) {
+        VPROF_NOTE("write_level_to_disk", NULL, player_struct.level, 0,
+                   retval = write_level_to_disk(ResIdFromLevel(player_struct.level), TRUE));
+        if (retval)
+            ERROR("Return value from write_level_to_disk is non-zero!");
     }
 
-    // Copy current game out to save game slot
-    if (copy_file(CURRENT_GAME_FNAME, fname) != OK) {
-        // Put up some alert here.
-        ERROR("No good copy, dude!");
-        //		string_message_info(REF_STR_SaveGameFail);
+    // Copy current game out to save game slot, which keeps its old game until
+    // the new one is all on the card (see filecopy.h)
+    if (retval == OK) {
+        long size = 0;
+        int failed;
+
+        // (the profiler's note is still copy_file's, with the file's size)
+        VPROF_NOTE("copy_file", NULL, 0, (int)size, failed = file_replace(CURRENT_GAME_FNAME, fname, &size));
+        if (failed) {
+            ERROR("No good copy, dude!");
+            retval = ERR_FOPEN;
+        }
     }
-    // KLC	else
-    // KLC		string_message_info(REF_STR_SaveGameSaved);
     old_ticks = *tmd_ticks;
     // do we have to do this?		startup_game(FALSE);
-    return (OK);
+    return (retval);
 }
 
 errtype load_game_schedules(void) {

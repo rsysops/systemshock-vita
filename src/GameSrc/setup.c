@@ -36,6 +36,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "colors.h"
 #include "cybmem.h"
 #include "diffq.h"
+#include "filecopy.h"
 #include "gamewrap.h"
 #include "gr2ss.h"
 #include "hud.h"
@@ -1333,6 +1334,7 @@ errtype load_savegame_names(void) {
 
     for (i = 0; i < NUM_SAVE_SLOTS; i++) {
         Poke_SaveName(i);
+        file_replace_finish(save_game_name); // a save stopped before its end: see filecopy.h
 
         if (access(save_game_name, F_OK) != -1) {
             file = ResOpenFile(save_game_name);

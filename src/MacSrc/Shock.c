@@ -52,6 +52,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vita2d.h>
 #include "VitaGpu.h"
 #include <psp2/kernel/processmgr.h>
+#include <psp2/shellutil.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -175,9 +176,10 @@ void SetRenderRect(int width, int height)
 }
 
 // Shows the system's message box over the screen as it is, and waits for the
-// player to close it. Before InitSDL, with only vita2d set up, over a black
-// screen.
-static void VitaAlert(const char *text)
+// player to close it: over the game once its screen is made, the last frame
+// shown again meanwhile; before that, with only vita2d set up, over a black
+// screen. The text is UTF-8.
+void VitaAlert(const char *text)
 {
     SceMsgDialogUserMessageParam message;
     SceMsgDialogParam param;
@@ -290,6 +292,11 @@ int main(int argc, char **argv) {
     log_set_level(LOG_WARN);
 
     INFO("Logger initialized");
+
+    // for the PS button and the system's menus to be held back during a save
+    // (do_savegame_guts); without it, saves go on unguarded
+    if (sceShellUtilInitEvents(0) < 0)
+        WARN("sceShellUtilInitEvents failed: saves won't hold back the PS button");
 
     // init mac managers
 

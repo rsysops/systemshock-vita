@@ -152,7 +152,10 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - **Save slots**: × on a slot opens the on-screen keyboard on a name for the
   save, `Save N (floor)` (or the slot's own name, with **Options → Save
   Templ.** Off); its Enter saves under what it shows, 1 to 31 characters.
-  Closing the keyboard without a change leaves the slot as it was.
+  Only that Enter saves: ○ closes the keyboard without saving, and × on the
+  slot opens it again. Closing it with ○ leaves the slot as it was, name
+  included. A slot isn't saved without a name (empty, or only spaces): the
+  keyboard opens again.
 - **New Game screen**: Up/Down cycle Name → the four difficulty categories →
   Start; Left/Right change the focused category's level; × on Start launches,
   and so does START from anywhere on the screen. START does nothing on the
