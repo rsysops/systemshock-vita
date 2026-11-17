@@ -22,7 +22,6 @@ Features:
 Fixes:
 * Audio mixing
 * Crash when hibernated Vita?
-* Saving: disallow empty save name
 
 Performance:
 * FPS lock 30 option

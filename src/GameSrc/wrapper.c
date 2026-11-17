@@ -1251,9 +1251,10 @@ static void opanel_textlist_enter(int b) {
 
     if (cur < 0)
         return;
-    if (st->editable && (st->editmask & (1 << cur)) && !st->modified && opanel_save_armed_line != cur) {
-        // first press on a save slot: open the name keyboard, like tapping the slot does;
-        // the next press saves, with the new name or the old one if nothing was typed
+    if (st->editable && (st->editmask & (1 << cur)) && !(opanel_save_armed_line == cur && VitaKeyboardEntered())) {
+        // a press on a save slot opens the name keyboard, like tapping the slot does: the
+        // first, and one after the keyboard was closed with ○, which saves nothing. Only
+        // its Enter, which comes here too, saves
         opanel_save_armed_line = cur;
         textlist_keyboard(st, cur);
         string_message_info(st->selectprompt);
@@ -2209,8 +2210,28 @@ void load_screen_init(void) {
 // the slot whose save just failed: it stays current on the slots shown again
 static char save_failed_slot = -1;
 
+// a name with something to see in it: not empty, not only spaces
+static uchar save_name_shows(const char *name) {
+    for (; *name != '\0'; name++)
+        if (*name != ' ')
+            return TRUE;
+    return FALSE;
+}
+
 void save_dealfunc(uchar butid, uchar index) {
     opt_textlist_state *st = &OButtons[butid].user.textlist_st;
+
+    // No save without a name (an empty slot whose keyboard was closed
+    // unchanged would be saved under its own, ""): the keyboard again, as
+    // the first × opens it, on the name typed over if only spaces were
+    if (!save_name_shows(comments[index])) {
+        textlist_cleanup(st);
+        opanel_save_armed_line = index;
+        textlist_keyboard(st, index);
+        string_message_info(st->selectprompt);
+        textlist_select_line(st, butid, index, FALSE);
+        return;
+    }
 
     // No, or a save that fails, puts back the name kept aside: the one typed
     // over, or this one if none was (× saves a slot under its name without any

@@ -29,5 +29,7 @@ void set_mouse_chaos(short dx, short dy);
 void VitaStartTextInput(int emulate_every_frame, const char *initial, int min_length, int max_length);
 // Whether the on-screen keyboard is open, or gave its text less than `ms` ago
 int VitaTextInputRecent(unsigned ms);
+// Whether the last keyboard was closed with its Enter, not ○ (none yet: no)
+int VitaKeyboardEntered(void);
 
 #endif
