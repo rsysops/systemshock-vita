@@ -79,6 +79,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define SELECTED_COLOR (RED_BASE)
 #define UNAVAILABLE_COLOR (RED_BASE + 11)
 #define VERSION_COLOR NORMAL_ENTRY_COLOR // the main menu's version, in its corner: as its entries
+#define VERSION_SHADOW_COLOR (BLACK + 1) // and its drop shadow (index 0 isn't drawn as black)
 
 uiSlab setup_slab;
 LGRegion setup_root_region;
@@ -420,6 +421,9 @@ errtype journey_draw(char part) {
         gr_set_font(ResLock(RES_tinyTechFont));
         gr_string_size(version, &w, &h);
         ResUnlock(RES_tinyTechFont);
+        // a drop shadow first, a pixel down and right, then the text over it
+        gr_set_fcolor(VERSION_SHADOW_COLOR);
+        res_draw_text(RES_tinyTechFont, version, 320 - 2 - w + 1, 200 - 2 - h + 1);
         gr_set_fcolor(VERSION_COLOR);
         res_draw_text(RES_tinyTechFont, version, 320 - 2 - w, 200 - 2 - h);
     }
