@@ -37,7 +37,7 @@ event, shown in the last column.
 
 Gyro aiming, analog/gyro look speed and the cursor in menus can be changed on
 the **Input** page of the game menu. Inverting the vertical look (Mouselook) is
-not in the menu: set `invert-mousey yes` in the prefs file.
+not in the menu: set `invert-mousey = yes` in the prefs file.
 
 Tuning values, all in `sdl_events.c`:
 
@@ -74,7 +74,7 @@ Default bindings come from `HotKeyLookup[]` and `MoveKeybindsDefault[]` in
 | Save / load game | `Ctrl+S` / `Ctrl+L` | Options menu (START) |
 | Quit | `Ctrl+Q` | Options menu (START) |
 | Toggle music | `Ctrl+M` | Options menu (START) → □ |
-| Cycle detail level | `Ctrl+1` | None: `detail` in `prefs.txt`, 0 (lowest) to 3 (highest, the default) |
+| Detail level | None | None: `detail` in `prefs.txt`, 0 (lowest) to 3 (highest, the default) |
 | Pause | `P` | None (the options menu pauses the game while open) |
 | Previous weapon | `Shift+Tab` | Tap the weapon in the inventory |
 | Reload weapon (normal / swap ammo) | `Alt+Backspace` / `Ctrl+Backspace` | Tap the ammo buttons on the weapon MFD |
@@ -141,7 +141,7 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - **Focus follows the cursor** (cursor enabled): moving the cursor (right stick
   or touch) over an entry focuses it, and × then selects it.
 - **Focus** (in-game menu): the focused control is drawn in a lighter green.
-- **Bars** (gamma, volumes, look speeds): × grabs the focused bar (it turns
+- **Bars** (gamma, volumes, look speeds, double-click): × grabs the focused bar (it turns
   yellow-green), Left/Right move it, and × or ○ release it. Changes apply live.
 - **Pages** (L / R): Save, Load, Audio, Input, Options, wrapping. Save is
   skipped when saving isn't possible. A confirmation counts as the page that
@@ -149,8 +149,13 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - **Confirmations** (Quit, loading a save, saving with a damaged object
   system): No is on top and has the focus, Yes below it. No and ○ go back to
   the screen that asked.
-- **Save slots**: × on a slot opens the on-screen keyboard to name the save;
-  × again saves it.
+- **Save slots**: × on a slot opens the on-screen keyboard on a name for the
+  save, `Save N (floor)` (or the slot's own name, with **Options → Save
+  Templ.** Off); its Enter saves under what it shows, 1 to 31 characters.
+  Only that Enter saves: ○ closes the keyboard without saving, and × on the
+  slot opens it again. Closing it with ○ leaves the slot as it was, name
+  included. A slot isn't saved without a name (empty, or only spaces): the
+  keyboard opens again.
 - **New Game screen**: Up/Down cycle Name → the four difficulty categories →
   Start; Left/Right change the focused category's level; × on Start launches,
   and so does START from anywhere on the screen. START does nothing on the

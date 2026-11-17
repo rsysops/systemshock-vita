@@ -6,7 +6,6 @@ typedef enum MusicType
 {
     Music_None
    ,Music_AdlMidi
-   ,Music_Native
 } MusicType;
 
 typedef enum MusicMode

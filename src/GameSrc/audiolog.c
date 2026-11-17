@@ -243,7 +243,7 @@ void audiolog_callback(void *userdata, Uint8 *stream, int len) {
             // its movie, from memory
             Afile *palog = malloc(sizeof(Afile));
 
-            loaded = alog_take(palog, AfilePrepareMem(alog_job_now->bytes, alog_job_now->size, palog) >= 0);
+            loaded = alog_take(palog, palog != NULL && AfilePrepareMem(alog_job_now->bytes, alog_job_now->size, palog) >= 0);
         }
         if (loaded <= 0) {
             WARN("%s: Cannot read or open the audiolog", __FUNCTION__);
@@ -307,16 +307,18 @@ errtype audiolog_play(int email_id) {
         SDL_Thread *reader = NULL;
 
         job = calloc(1, sizeof(*job));
-        job->bytes = malloc(size);
-        snprintf(job->path, sizeof(job->path), "%s", barks ? bark_files[which_lang] : alog_files[which_lang]);
-        job->offset = offset;
-        job->size = size;
-        if (job->bytes != NULL)
-            reader = SDL_CreateThread(alog_reader, "alog_reader", job);
+        if (job != NULL) {
+            job->bytes = malloc(size);
+            snprintf(job->path, sizeof(job->path), "%s", barks ? bark_files[which_lang] : alog_files[which_lang]);
+            job->offset = offset;
+            job->size = size;
+            if (job->bytes != NULL)
+                reader = SDL_CreateThread(alog_reader, "alog_reader", job);
+        }
         ready = reader != NULL;
         if (ready)
             SDL_DetachThread(reader);
-        else {
+        else if (job != NULL) {
             free(job->bytes);
             free(job);
             job = NULL;
@@ -329,7 +331,7 @@ errtype audiolog_play(int email_id) {
         Afile *palog = malloc(sizeof(Afile));
 
         begin_wait();
-        ready = alog_take(palog, AfilePrepareRes(id, palog) >= 0);
+        ready = alog_take(palog, palog != NULL && AfilePrepareRes(id, palog) >= 0);
         end_wait();
     }
     if (!ready) {

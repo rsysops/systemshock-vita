@@ -32,8 +32,7 @@ sources() { # source root, list name
 build() { # name, source root
     local name="$1" root="$2"
     mkdir "$OUT/$name"
-    # fix_pow.c duplicates a function of fix.c
-    { sources "$root" 2D_SRC; sources "$root" LG_SRC; sources "$root" FIX_SRC | grep -v fix_pow.c
+    { sources "$root" 2D_SRC; sources "$root" LG_SRC; sources "$root" FIX_SRC
       sources "$root" DSTRUCT_SRC; sources "$root" RES_SRC; } | grep '\.c$' |
         xargs -P "$(nproc)" -I{} sh -c \
             'gcc -O2 -fcommon -w -pthread -DLG_SLOT_PTHREADS '"$(includes "$root")"' -c "'"$root"'/src/Libraries/{}" -o "'"$OUT/$name"'/$(echo {} | tr / _).o"'

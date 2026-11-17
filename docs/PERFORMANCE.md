@@ -17,7 +17,9 @@ The captures each part rests on were in `docs/profiles-cpu/`,
 steps give them. They are no longer kept in the tree: they are in the
 repository's history, up to the merge of the smoothness work into `dev`
 (commit `1eb33db0`), and `git show 1eb33db0:docs/profiles-perf/...`
-brings one back. How to build the profiler and read its log is in
+brings one back. File names, line numbers, options and settings in a part
+are the tree's when that part was written: [ARCHITECTURE.md](ARCHITECTURE.md)
+describes today's. How to build the profiler and read its log is in
 [PROFILING.md](PROFILING.md).
 
 ## Contents
@@ -345,7 +347,7 @@ retry:
       `calls_per_frame=` counts batches plus calls drawn alone
 - **What the profiler looked like (re-create it).**
   - **Build.**
-    - A `VITA_PROFILE` CMake option adds `-DVITA_PROFILE` and links
+    - The `ENABLE_VITA_PROFILE` CMake option adds `-DVITA_PROFILE` and links
       `-lScePgf_stub` for the overlay font.
     - `./build.sh profile` builds into `build-profile/`, so normal and
       profile builds don't share a cache.

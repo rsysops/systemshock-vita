@@ -20,7 +20,7 @@ endif()
 
 set(EXECUTABLE_NAME systemshock)
 
-set(VITA_VERSION "00.82")
+set(VITA_VERSION "${GAME_VERSION}") # see CMakeLists.txt
 
 set(VITA_MKSFOEX_FLAGS "${VITA_MKSFOEX_FLAGS} -d ATTRIBUTE2=12")
 vita_create_self(${EXECUTABLE_NAME}.self ${EXECUTABLE_NAME})
@@ -34,5 +34,3 @@ vita_create_vpk(${VPK_NAME}.vpk ${VITA_TITLEID} ${EXECUTABLE_NAME}.self
     FILE ${CMAKE_SOURCE_DIR}/vita/sce_sys/livearea/contents/startup.png sce_sys/livearea/contents/startup.png
     FILE ${CMAKE_SOURCE_DIR}/vita/sce_sys/livearea/contents/template.xml sce_sys/livearea/contents/template.xml
 )
-
-#add_dependencies(${EXECUTABLE_NAME}.self systemshock)

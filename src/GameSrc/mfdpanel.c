@@ -974,7 +974,9 @@ uchar mfd_solve_gridpanel() {
 
     found = find_winning_move(gfpz, &solved, search_depth, NULL, FALSE, logic_probe_timeout);
     if (found && solved.gfLayout.have_won) {
-        *gfpz = solved;
+        // The puzzle is at an odd address in the packed player struct: written
+        // back byte for byte, as find_winning_move reads it (no multi-word store)
+        memcpy(player_struct.mfd_access_puzzles, &solved, sizeof(solved));
         gpz_4int_update(gfpz);
         mfd_notify_func(MFD_GRIDPANEL_FUNC, MFD_INFO_SLOT, FALSE, MFD_ACTIVE, FALSE);
     } else if (shadow)

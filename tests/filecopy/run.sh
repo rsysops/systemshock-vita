@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Builds the game's file copy natively (src/GameSrc/filecopy.c) and checks
 # that a copy is byte for byte its source, for files of many sizes and for
-# the game's own archive, over whatever the destination held before.
+# the game's own archive, over whatever the destination held before; and that
+# a save's slot, replaced, keeps its old bytes or gets all of the new ones
+# wherever it stops. rename is the test's own, which works as the Vita's.
 # Usage: tests/filecopy/run.sh [the game's DATA folder]
 set -euo pipefail
 
@@ -12,7 +14,7 @@ OUT="$(mktemp -d)"
 trap 'rm -rf "$OUT"' EXIT
 
 gcc -O2 -g -Wall -Wextra -Isrc/GameSrc/Headers tests/filecopy/filecopy_test.c src/GameSrc/filecopy.c \
-    src/Libraries/RES/Source/caseless.c -o "$OUT/filecopy_test"
+    src/Libraries/RES/Source/caseless.c -Wl,--wrap=rename -o "$OUT/filecopy_test"
 
 archive=""
 if [[ -n "$DATA" ]]; then

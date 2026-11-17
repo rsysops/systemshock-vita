@@ -104,6 +104,7 @@ enum TEMP_STR_ {
     REF_STR_Cursor,
     REF_STR_LoadConfirm,
     REF_STR_AutoplayLogs,
+    REF_STR_SaveTemplate,
 
     REF_STR_Help = 0x11000020, // the options panel's pad hints
 };

@@ -24,10 +24,9 @@ sources() { # list name
 }
 
 mkdir "$OUT/obj"
-# fix_pow.c duplicates a function of fix.c
 # The movie library's picture decoders (the .cpp files) are 32-bit code and a
-# log has no picture: the test stands in for the two functions they export.
-{ sources 2D_SRC; sources LG_SRC; sources FIX_SRC | grep -v fix_pow.c; sources DSTRUCT_SRC; sources RES_SRC
+# log has no picture: the test stands in for the three functions they export.
+{ sources 2D_SRC; sources LG_SRC; sources FIX_SRC; sources DSTRUCT_SRC; sources RES_SRC
   sources AFILE_SRC; } | grep '\.c$' |
     xargs -P "$(nproc)" -I{} sh -c \
         'gcc -O2 -fcommon -w -pthread -DLG_SLOT_PTHREADS '"$INCLUDES"' -c "'"$L"'/{}" -o "'"$OUT"'/obj/$(echo {} | tr / _).o"'

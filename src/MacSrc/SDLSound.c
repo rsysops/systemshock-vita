@@ -8,7 +8,7 @@ static snd_digi_parms digi_parms_by_channel[SND_MAX_SAMPLES];
 #include <SDL_mixer.h>
 #include <psp2/kernel/threadmgr.h>
 
-extern char curr_alog_vol;
+extern uchar curr_alog_vol;
 
 // The decoded sound effects, by snd_ref. An effect is decoded once, by
 // whoever claims it first: the preload thread on its way through all of

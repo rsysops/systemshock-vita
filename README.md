@@ -12,12 +12,16 @@ The game draws its 3D view with the GPU, which needs the shader compiler module 
 
 ## Building
 
-### Prerequisites
-- VitaSDK
-- SDL2
-- SDL2-mixer
+### With Docker (nothing else to install)
+```
+./build.sh
+```
+This builds `build/systemshock.vpk` inside the `vitasdk/vitasdk` image (`vita/Dockerfile`). `./build.sh clean` starts the build folder afresh.
 
-### Build
+`./build.sh profile` and `./build.sh profile checks` build the profile flavours, each an app of its own, into `build-profile/` and `build-profile-checks/`: see [docs/PROFILING.md](docs/PROFILING.md).
+
+### With a local VitaSDK
+The SDK with the libraries the game links: SDL2, SDL2_mixer, vita2d, libjpeg, libpng, libwebp, zlib, libvorbis/libogg, libmikmod, libmodplug, libxmp-lite, opus/opusfile, FLAC, mpg123 and taihen.
 ```
 mkdir build && cd build
 cmake .. -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake -DCMAKE_BUILD_TYPE=None
@@ -47,6 +51,8 @@ make
 Gyro aiming is active by default. You can turn it off or adjust analog/gyro look speed on the `Input` page of the game menu.
 
 Once you have the data reader, new e-mails and audio logs play as soon as they arrive. Set `Log autoplay` to Off on the `Options` page of the game menu for the original behaviour, where they wait until you tap the sender's face in the MFD (or pick them in the log list).
+
+When you save, the keyboard opens on a name such as `Save 3 (Medical)`: the next number and the floor you're on. Press Enter to keep it, or edit it. Set `Save Templ.` to Off on the `Options` page to have it open on the slot's own name instead. Closing the keyboard without a change leaves the slot's name as it was.
 
 The cursor is hidden in menus by default (they're navigated with the D-pad; touch still works). Enable `Menu Cursor` on the `Input` page to show it there again.
 

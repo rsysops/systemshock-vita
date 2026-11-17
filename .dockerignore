@@ -1,0 +1,4 @@
+# vita/Dockerfile takes nothing from this folder: docker needs only that file,
+# not the build folders and the rest
+*
+!vita/Dockerfile

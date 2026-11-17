@@ -206,13 +206,14 @@ void ss_scale_string_sized(char *s, short x, short y, short *pw, short *ph) {
     grs_font *ttfont = (grs_font *)ResLock(RES_tinyTechFont);
     grs_font *mlfont = (grs_font *)ResLock(RES_mediumLEDFont);
     grs_font *f = gr_get_font();
-    int c = gr_get_fcolor();
     Id use_font = ID_NULL;
 
     if (convert_use_mode == 0) {
         if (pw != NULL)
             drawn_string_size(s, pw, ph);
         gr_string(s, x, y);
+        ResUnlock(RES_tinyTechFont);
+        ResUnlock(RES_mediumLEDFont);
         return;
     }
 
@@ -258,18 +259,18 @@ void ss_scale_string_sized(char *s, short x, short y, short *pw, short *ph) {
         if (convert_use_mode == 1 || convert_use_mode == 4)
             use_font = ID_NULL;
 
-            if (use_font == ID_NULL) {
-                short w, h;
-                gr_string_size(s, (short *)&w, (short *)&h);
-                if (pw != NULL)
-                    scaled_string_size(s, SCONV_X(w), SCONV_Y(h), pw, ph);
-                gr_scale_string(s, x, y, SCONV_X(w), SCONV_Y(h));
-            } else {
-                gr_set_font((grs_font *)ResLock(use_font));
-                if (pw != NULL)
-                    drawn_string_size(s, pw, ph);
-                gr_string(s, x, y);
-            }
+        if (use_font == ID_NULL) {
+            short w, h;
+            gr_string_size(s, (short *)&w, (short *)&h);
+            if (pw != NULL)
+                scaled_string_size(s, SCONV_X(w), SCONV_Y(h), pw, ph);
+            gr_scale_string(s, x, y, SCONV_X(w), SCONV_Y(h));
+        } else {
+            gr_set_font((grs_font *)ResLock(use_font));
+            if (pw != NULL)
+                drawn_string_size(s, pw, ph);
+            gr_string(s, x, y);
+        }
         if (use_font != ID_NULL)
             ResUnlock(use_font);
         gr_set_font(ttfont);
@@ -282,6 +283,8 @@ void ss_scale_string_sized(char *s, short x, short y, short *pw, short *ph) {
         if (pw != NULL)
             scaled_string_size(s, SCONV_X(w), SCONV_Y(h), pw, ph);
         gr_scale_string(s, x, y, SCONV_X(w), SCONV_Y(h));
+        ResUnlock(RES_tinyTechFont);
+        ResUnlock(RES_mediumLEDFont);
     }
 }
 

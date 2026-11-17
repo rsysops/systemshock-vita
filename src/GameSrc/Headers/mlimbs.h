@@ -100,27 +100,4 @@ extern volatile uint default_rel_vol;
 extern volatile uint default_ramp_time;
 extern volatile ulong mlimbs_counter;
 
-/* Function prototypes */
-//¥¥¥void cdecl  mlimbs_callback(snd_midi_parms *mprm, int trigger_value);
-//¥¥¥void cdecl  mlimbs_seq_done_call(snd_midi_parms *mprm);
-
-int mlimbs_load_theme(char *, char *, int);
-void mlimbs_stop_theme(void);
-int mlimbs_start_theme(void);
-void mlimbs_purge_theme(void);
-void mlimbs_mute_sequence_channel(int usernum, int x, bool);
-int mlimbs_unmute_sequence_channel(int usernum, int x);
-int mlimbs_channel_prioritize(int priority, int pieceID, int voices_needed, uchar crossfade, uchar channel_prioritize);
-int mlimbs_assign_channels(int, bool);
-int mlimbs_play_piece(int, int, int, int, bool, bool);
-int mlimbs_punt_piece(int);
-char mlimbs_get_crossfade_status(int);
-void mlimbs_reassign_channels(void);
-void mlimbs_timer_callback(void);
-void mlimbs_change_master_volume(int);
-void mlimbs_change_relative_volume(int, int, int);
-void mlimbs_change_relative_tempo(int, int, int);
-void mlimbs_return_to_synch(void);
-void mlimbs_preload_full_timbres_and_go_asynch(void);
-void mlimbs_preload_requested_timbres(void);
 #endif // __MLIMBS_H

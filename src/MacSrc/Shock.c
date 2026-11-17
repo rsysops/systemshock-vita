@@ -42,7 +42,6 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "mainloop.h"
 #include "rastq.h"
 #include "setup.h"
-#include "shockolate_version.h"
 #include "status.h"
 #include "version.h"
 #include "vprof.h"
@@ -53,6 +52,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include <vita2d.h>
 #include "VitaGpu.h"
 #include <psp2/kernel/processmgr.h>
+#include <psp2/shellutil.h>
 #include <sys/stat.h>
 #include <unistd.h>
 
@@ -71,6 +71,8 @@ SDL_Rect destRect;
 SDL_GameController *gameController;
 SDL_Sensor *vitaGyro;
 
+// The C library's memory functions, as the system's. The compiler still writes
+// small and fixed-size copies inline; the rest come here.
 void *memcpy(void *destination, const void *source, size_t n)
 {
 	return sceClibMemcpy(destination, source, n);
@@ -174,9 +176,10 @@ void SetRenderRect(int width, int height)
 }
 
 // Shows the system's message box over the screen as it is, and waits for the
-// player to close it. Before InitSDL, with only vita2d set up, over a black
-// screen.
-static void VitaAlert(const char *text)
+// player to close it: over the game once its screen is made, the last frame
+// shown again meanwhile; before that, with only vita2d set up, over a black
+// screen. The text is UTF-8.
+void VitaAlert(const char *text)
 {
     SceMsgDialogUserMessageParam message;
     SceMsgDialogParam param;
@@ -289,6 +292,11 @@ int main(int argc, char **argv) {
     log_set_level(LOG_WARN);
 
     INFO("Logger initialized");
+
+    // for the PS button and the system's menus to be held back during a save
+    // (do_savegame_guts); without it, saves go on unguarded
+    if (sceShellUtilInitEvents(0) < 0)
+        WARN("sceShellUtilInitEvents failed: saves won't hold back the PS button");
 
     // init mac managers
 
@@ -476,16 +484,30 @@ void VitaSyncView(void)
         memcpy(to + y * drawSurface->pitch, from + y * stride, place.w);
 }
 
+// The screen's texture, cleared. Without it there is nothing to show the game
+// on: say so and go back to the LiveArea.
+static void MakeScreenTexture(int width, int height)
+{
+    char text[96];
+
+    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
+    texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
+    if (texBuffer == NULL) {
+        snprintf(text, sizeof(text), "Not enough graphics memory for the screen (%dx%d).", width, height);
+        VitaAlert(text);
+        sceKernelExitProcess(0);
+    }
+    palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
+    memset(palettedTexturePointer, 0, vita2d_texture_get_stride(texBuffer) * height);
+}
+
 void InitVita2D(int width, int height)
 {
     vita2d_init();
 
     window = SDL_CreateWindow("", 0, 0, width, height, 0);
 
-    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
-    texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
-    palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
-    memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+    MakeScreenTexture(width, height);
 
     vgpu_init();
     MakeViewTextures(width, height);
@@ -496,14 +518,13 @@ void InitVita2D(int width, int height)
 void ResizeVita2D(int width, int height)
 {
     if (texBuffer != NULL) {
+        // the last frame's scene may still be reading it
+        vita2d_wait_rendering_done();
         vita2d_free_texture(texBuffer);
         texBuffer = NULL;
     }
 
-    vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
-    texBuffer = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
-    palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
-    memset(palettedTexturePointer, 0, width * height * sizeof(uint8_t));
+    MakeScreenTexture(width, height);
     MakeViewTextures(width, height);
 
     if (window != NULL) {

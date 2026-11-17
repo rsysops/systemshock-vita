@@ -259,7 +259,7 @@ typedef enum {
 
 void ResAddPath(char *path); // add search path for resfiles
 int32_t ResOpenResFile(const char *fname, ResOpenMode mode, bool auxinfo);
-void ResCloseFile(int32_t filenum); // close res file
+int32_t ResCloseFile(int32_t filenum); // close res file: -1 if writing it failed
 
 #define ResOpenFile(fname) ResOpenResFile(fname, ROM_READ, FALSE)
 #define ResEditFile(fname, creat) ResOpenResFile(fname, (creat) ? ROM_EDITCREATE : ROM_EDIT, TRUE)

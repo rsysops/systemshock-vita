@@ -24,6 +24,10 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 
 #include <limits.h>
+#include <strings.h>
+#include <unistd.h>
+
+#include <psp2/shellutil.h>
 
 #include "newmfd.h"
 #include "wrapper.h"
@@ -57,6 +61,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "olhext.h"
 #include "Xmi.h"
 #include "Prefs.h"
+#include "Shock.h"
 
 
 
@@ -167,10 +172,6 @@ char comments[NUM_SAVE_SLOTS + 1][SAVE_COMMENT_LEN];
 uchar pause_game_func(ushort keycode, uint32_t context, intptr_t data);
 uchar really_quit_key_func(ushort keycode, uint32_t context, intptr_t data);
 
-// separate mouse region for regular-screen and fullscreen.
-#define NUM_MOUSEREGION_SCREENS 2
-LGRegion options_mouseregion[NUM_MOUSEREGION_SCREENS];
-uchar free_mouseregion = 0;
 
 char save_game_name[] = "savgam00.dat";
 
@@ -342,7 +343,7 @@ uchar fv;
 // override get_temp_string() to support hard-coded custom strings without
 // providing an actual resource file
 
-// In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute.
+// In English, French and German (which_lang), in the fonts' CP437: \x82 is e acute, \x8a e grave.
 // Arrays rather than literals, since pushbutton_draw_func() wraps its label in place.
 static struct {
     int num;
@@ -353,21 +354,32 @@ static struct {
     {REF_STR_GyroOff, {"Disabled", "D\x82sactiv\x82" "e", "Aus"}},
     {REF_STR_ControllerLookSpeed, {"Look Speed", "Vitesse vue", "Blicktempo"}},
     {REF_STR_GyroLookSpeed, {"Gyro Speed", "Vitesse gyro", "Gyro-Tempo"}},
-    {REF_STR_Cursor, {"Menu Cursor", "Curseur menus", "Men\x81-Cursor"}},
+    {REF_STR_Cursor, {"Menu Cursor", "Curseur menu", "Men\x81-Cursor"}},
     // the message line of the confirmation before loading a save
     {REF_STR_LoadConfirm, {"Load this save?", "Charger cette sauvegarde ?", "Diesen Spielstand laden?"}},
+    // and before quitting: an empty text is the game's own (in English, "Do you really want to exit?")
+    {REF_STR_QuitConfirm, {"", "Quitter la partie ?", "Spiel beenden?"}},
     // the buttons fit about 12 characters: the label isn't wrapped
     {REF_STR_AutoplayLogs, {"Log autoplay", "Lect. journ.", "Log autoplay"}},
+    {REF_STR_SaveTemplate, {"Save Templ.", "Mod\x8a" "le Sauv.", "Namensvorl."}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
+    // the game's Off/On, which its French data leaves in English
+    {REF_STR_OffonText, {"", "Non", ""}},
+    {REF_STR_OffonText + 1, {"", "Oui", ""}},
 };
 
 static char *_get_temp_string(int num) {
     int i;
 
-    for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++)
-        if (custom_strings[i].num == num)
-            return custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
+    for (i = 0; i < sizeof(custom_strings) / sizeof(custom_strings[0]); i++) {
+        if (custom_strings[i].num == num) {
+            char *text = custom_strings[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
+            if (text[0] != '\0')
+                return text;
+            break;
+        }
+    }
 
     return get_temp_string(num);
 }
@@ -440,8 +452,17 @@ void slider_draw_func(uchar butid) {
     wrapper_draw_background(BR(butid).ul.x - sw / 2, BR(butid).ul.y - h, BR(butid).lr.x + sw / 2, BR(butid).lr.y);
     draw_shadowed_string(title, BR(butid).ul.x, BR(butid).ul.y - h, full_game_3d);
 
+    // The default's mark, on the middle pixel of the handle drawn for that
+    // value: worked out on the screen, where the handle is scaled, since its
+    // middle falls between two of the panel's units.
     gr_set_fcolor(st->bvalcol);
-    ss_vline(BR(butid).ul.x + st->baseval, BR(butid).ul.y, BR(butid).lr.y - 1);
+    {
+        short left = BR(butid).ul.x + st->baseval + 1 - sw / 2;
+        if (perform_svga_conversion(OVERRIDE_SCALE))
+            gr_vline(SCONV_X(left) + (SCONV_X(sw) - 1) / 2, SCONV_Y(BR(butid).ul.y), SCONV_Y(BR(butid).lr.y - 1));
+        else
+            gr_vline(left + (sw - 1) / 2, BR(butid).ul.y, BR(butid).lr.y - 1);
+    }
 
     gr_set_fcolor(col);
     ss_box(BR(butid).ul.x, BR(butid).ul.y, BR(butid).lr.x, BR(butid).lr.y);
@@ -773,6 +794,59 @@ void slork_init(uchar butid, slorker slork) {
 
 char *textlist_string(opt_textlist_state *st, int ind) { return (st->text + ind * (st->blocksiz)); }
 
+// A save's name, offered when saving: "Save N (Medical)", N one more than
+// the highest such number among the slots' names, in any of the languages
+// (and the "Save #N" of the first builds). In plain ASCII: the keyboard
+// gives the game nothing else. Cyberspace, where nothing is saved, has no
+// floor name.
+static const char *const save_word[3] = {"Save", "Sauvegarde", "Spielstand"};
+static const char *const floor_names[3][14] = {
+    {"Reactor", "Medical", "Research", "Maintenance", "Storage", "Flight", "Executive", "Engineering", "Security",
+     "Bridge", NULL, "Delta Grove", "Alpha Grove", "Beta Grove"},
+    {"Reacteur", "Medical", "Recherche", "Maintenance", "Stockage", "Hangar", "Direction", "Ingenierie", "Securite",
+     "Passerelle", NULL, "Serre Delta", "Serre Alpha", "Serre Beta"},
+    {"Reaktor", "Medizin", "Forschung", "Wartung", "Lager", "Flugdeck", "Verwaltung", "Technik", "Sicherheit",
+     "Bruecke", NULL, "Garten Delta", "Garten Alpha", "Garten Beta"},
+};
+
+static void save_name_template(char *buf, size_t size) {
+    extern uchar valid_save;
+    int lang = (which_lang >= 0 && which_lang < 3) ? which_lang : 0;
+    int i, top = 0;
+    const char *floor = NULL;
+
+    for (i = 0; i < NUM_SAVE_SLOTS * 3; i++) {
+        const char *name = comments[i / 3], *word = save_word[i % 3];
+        size_t len = strlen(word);
+
+        // (in any case: the keyboard's capitals reach a slot's name in lower
+        // case, with a shift flag the name doesn't keep; see sdl_events.c)
+        if (!(valid_save & (1 << (i / 3))) || strncasecmp(name, word, len) != 0 || name[len] != ' ')
+            continue;
+        name += len + 1 + (name[len + 1] == '#');
+        if (isdigit((unsigned char)name[0]) && atoi(name) > top)
+            top = atoi(name);
+    }
+    if (player_struct.level >= 0 && player_struct.level < 14)
+        floor = floor_names[lang][player_struct.level];
+    if (floor != NULL)
+        snprintf(buf, size, "%s %d (%s)", save_word[lang], top + 1, floor);
+    else
+        snprintf(buf, size, "%s %d", save_word[lang], top + 1);
+}
+
+// The keyboard for a save slot's name: it opens on the template, or the name
+// the slot has. Closed unchanged, the slot keeps its name.
+static void textlist_keyboard(opt_textlist_state *st, int line) {
+    char name[SAVE_COMMENT_LEN];
+
+    if (gShockPrefs.goSaveTemplate)
+        save_name_template(name, sizeof(name));
+    else
+        strcpy(name, (st->initmask & (1 << line)) ? textlist_string(st, line) : "");
+    VitaStartTextInput(0, name, 1, st->blocksiz - 1);
+}
+
 void textlist_draw_line(opt_textlist_state *st, int line, uchar butid) {
     short w, h;
     LGRect scrrect;
@@ -875,7 +949,7 @@ uchar textlist_handler(uiEvent *ev, uchar butid) {
                     st->dealfunc(butid, st->currstring);
             } else if (!st->modified) {
                 // savegame text input
-                VitaStartTextInput(0);
+                textlist_keyboard(st, line);
                 string_message_info(st->selectprompt);
                 if (st->selectprompt)
                     textlist_select_line(st, butid, line, FALSE);
@@ -1010,6 +1084,7 @@ void textlist_init(uchar butid, char *text, uchar numblocks, uchar blocksiz, uch
 
 void wrapper_pushbutton_func(uchar butid);
 uchar can_save();
+static uchar can_save_now(uchar say);
 
 // Every screen init calls this right after clear_obuttons(): it records where Back goes
 // (parent, focusing entry_button there) and which page L/R switch from.
@@ -1158,6 +1233,9 @@ static void opanel_slider_step(int b, int delta) {
     int max = BR(b).lr.x - BR(b).ul.x - 3;
     int pos = st->sliderpos + delta;
 
+    // a step over the default's mark stops on it, the next one goes on
+    if ((st->sliderpos < st->baseval && pos > st->baseval) || (st->sliderpos > st->baseval && pos < st->baseval))
+        pos = st->baseval;
     if (pos < 0)
         pos = 0;
     else if (pos > max)
@@ -1173,11 +1251,12 @@ static void opanel_textlist_enter(int b) {
 
     if (cur < 0)
         return;
-    if (st->editable && (st->editmask & (1 << cur)) && !st->modified && opanel_save_armed_line != cur) {
-        // first press on a save slot: open the name keyboard, like tapping the slot does;
-        // the next press saves, with the new name or the old one if nothing was typed
+    if (st->editable && (st->editmask & (1 << cur)) && !(opanel_save_armed_line == cur && VitaKeyboardEntered())) {
+        // a press on a save slot opens the name keyboard, like tapping the slot does: the
+        // first, and one after the keyboard was closed with ○, which saves nothing. Only
+        // its Enter, which comes here too, saves
         opanel_save_armed_line = cur;
-        VitaStartTextInput(0);
+        textlist_keyboard(st, cur);
         string_message_info(st->selectprompt);
         textlist_select_line(st, b, cur, FALSE);
         return;
@@ -1240,13 +1319,18 @@ static void opanel_open_page(int page) {
 
 // L/R: previous/next top-level page, wrapping; Save is skipped where saving isn't allowed
 static void opanel_switch_page(int dir) {
-    int page = opanel_page;
+    int page;
 
+    // a confirmation is answered No first, as START does: nothing of it is
+    // left over, and the page is the one that asked
+    if (opanel_verify_no)
+        opanel_verify_no(0);
+    page = opanel_page;
     if (page == PAGE_NONE)
         return;
     do {
         page = (page + dir + NUM_PAGES) % NUM_PAGES;
-    } while (page == PAGE_SAVE && !can_save());
+    } while (page == PAGE_SAVE && !can_save_now(FALSE));
 
     opanel_leave_textlist();
     opanel_open_page(page);
@@ -1380,8 +1464,9 @@ static void opanel_show_help(void) {
 }
 
 // Arrows, Enter, Home (back), PgUp/PgDn (page), F1 (help) and F2 (music) are handled here
-// before the widgets see them: the slot list would swallow them and the verify screen's
-// slorker closes the panel.
+// before the widgets see them: the slot list would swallow them, and the verify screen's
+// slorker takes any key as No. So is Esc (START) on the verify screen, which would only
+// go back there; elsewhere it closes the panel further on.
 static uchar opanel_nav_key(uiEvent *ev, int key) {
     int b = opanel_focus;
 
@@ -1415,6 +1500,15 @@ static uchar opanel_nav_key(uiEvent *ev, int key) {
         } else {
             opanel_go_back();
         }
+        return TRUE;
+
+    case KEY_ESC:
+        if (!opanel_verify_no)
+            return FALSE;
+        // No first, which undoes what the confirmation holds, then the whole panel
+        // (unless No closed it already: a confirmation with nothing to go back to)
+        opanel_verify_no(0);
+        wrapper_panel_close(TRUE);
         return TRUE;
 
     case KEY_PGUP:
@@ -1611,22 +1705,29 @@ errtype wrapper_panel_close(uchar clear_message) {
 
 extern uchar game_paused;
 
-uchar can_save() {
+// Whether the game can be saved now; if not and `say`, the message line says
+// why. L/R skip the Save page without a word.
+static uchar can_save_now(uchar say) {
     uchar gp = game_paused;
     if (global_fullmap->cyber) {
-        // spoof the game as not being paused so that the message won't go to the
-        // phantom message line in full screen mode, where it will stay only for a frame.
-        game_paused = FALSE;
-        string_message_info(REF_STR_NoCyberSave);
-        game_paused = gp;
+        if (say) {
+            // spoof the game as not being paused so that the message won't go to the
+            // phantom message line in full screen mode, where it will stay only for a frame.
+            game_paused = FALSE;
+            string_message_info(REF_STR_NoCyberSave);
+            game_paused = gp;
+        }
         return (FALSE);
     }
     if (input_cursor_mode == INPUT_OBJECT_CURSOR) {
-        string_message_info(REF_STR_CursorObjSave);
+        if (say)
+            string_message_info(REF_STR_CursorObjSave);
         return (FALSE);
     }
     return (TRUE);
 }
+
+uchar can_save() { return can_save_now(TRUE); }
 
 //
 // THE TOP LEVEL OPTIONS: Initialization, handler
@@ -1656,7 +1757,7 @@ void wrapper_pushbutton_func(uchar butid) {
         break;
     case QUIT_BUTTON: // Quit
         verify_screen_init(quit_verify_pushbutton_handler, quit_verify_slorker);
-        string_message_info(REF_STR_QuitConfirm);
+        message_info(get_temp_string(REF_STR_QuitConfirm));
         break;
     }
     return;
@@ -1753,6 +1854,8 @@ void recompute_music_level(ushort vol) {
         }
         // mlimbs_change_master_volume(curr_vol_lev);
     }
+    // as □ does: what the bar turned on or off is kept for the next launch
+    gShockPrefs.soBackMusic = music_on;
     MacTuneUpdateVolume();
 }
 
@@ -1802,10 +1905,12 @@ void sound_screen_init(void) {
     // one bar per row, each the full width of the page
     standard_slider_rect(&r, 0);
     r.lr.x += 2 * OPANEL_SLOT_W; // spans three slots
-    sliderbase = r.lr.x - r.ul.x - 2;
+    // the bars hold quest variables, a volume's square over 100 (VOLUME_TO_QVAR): the
+    // effects' and the logs' default, 100, is the bar's end, the music's isn't
+    sliderbase = r.lr.x - r.ul.x - 3;
     if (music_card) {
         slider_init(0, REF_STR_MusicText, sizeof(ushort), TRUE, &player_struct.questvars[MUSIC_VOLUME_QVAR], 100,
-                    sliderbase, recompute_music_level, &r);
+                    sliderbase * VOLUME_TO_QVAR(MUSIC_VOLUME_DEFAULT) / 100, recompute_music_level, &r);
     } else {
         standard_button_rect(&r, 0);
         r.lr.x += 2 * OPANEL_SLOT_W;
@@ -1944,12 +2049,12 @@ void input_screen_init(void) {
 
     // row 2: the bars
     standard_slider_rect(&r, 3);
-    sliderbase = ((r.lr.x - r.ul.x - 1) * 5 / 15);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * 5 / 15);
     slider_init(3, REF_STR_GyroLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.gyroAimingSpeed, 15,
                 sliderbase, NULL, &r);
 
     standard_slider_rect(&r, 4);
-    sliderbase = ((r.lr.x - r.ul.x - 1) * 10 / 25);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * 10 / 25);
     slider_init(4, REF_STR_ControllerLookSpeed, sizeof(ushort), FALSE, &gShockPrefs.controllerAimingSpeed, 25,
                 sliderbase, NULL, &r);
 
@@ -2008,7 +2113,7 @@ void options_screen_init(void) {
                olh_dealfunc, &r);
 
     standard_slider_rect(&r, 4);
-    sliderbase = ((r.lr.x - r.ul.x - 1) * 29 / 100);
+    sliderbase = ((r.lr.x - r.ul.x - 3) * 29 / 100);
     slider_init(4, REF_STR_OptionsText + 3, sizeof(ushort), TRUE, &(gShockPrefs.doGamma), 100,
                 sliderbase, gamma_slider_dealfunc, &r);
 
@@ -2016,6 +2121,11 @@ void options_screen_init(void) {
     standard_button_rect(&r, 5);
     multi_init(5, tolower(get_temp_string(REF_STR_AutoplayLogs)[0]), REF_STR_AutoplayLogs, REF_STR_OffonText, ID_NULL,
                sizeof(gShockPrefs.goAutoplayLogs), &gShockPrefs.goAutoplayLogs, 2, NULL, &r);
+
+    // row 3: a save is offered "Save N (floor)" as its name (see save_name_template)
+    standard_button_rect(&r, 6);
+    multi_init(6, tolower(get_temp_string(REF_STR_SaveTemplate)[0]), REF_STR_SaveTemplate, REF_STR_OffonText, ID_NULL,
+               sizeof(gShockPrefs.goSaveTemplate), &gShockPrefs.goSaveTemplate, 2, NULL, &r);
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
@@ -2097,7 +2207,37 @@ void load_screen_init(void) {
 // THE SAVE GAME SCREEN: Initialization, update funcs
 //
 
+// the slot whose save just failed: it stays current on the slots shown again
+static char save_failed_slot = -1;
+
+// a name with something to see in it: not empty, not only spaces
+static uchar save_name_shows(const char *name) {
+    for (; *name != '\0'; name++)
+        if (*name != ' ')
+            return TRUE;
+    return FALSE;
+}
+
 void save_dealfunc(uchar butid, uchar index) {
+    opt_textlist_state *st = &OButtons[butid].user.textlist_st;
+
+    // No save without a name (an empty slot whose keyboard was closed
+    // unchanged would be saved under its own, ""): the keyboard again, as
+    // the first × opens it, on the name typed over if only spaces were
+    if (!save_name_shows(comments[index])) {
+        textlist_cleanup(st);
+        opanel_save_armed_line = index;
+        textlist_keyboard(st, index);
+        string_message_info(st->selectprompt);
+        textlist_select_line(st, butid, index, FALSE);
+        return;
+    }
+
+    // No, or a save that fails, puts back the name kept aside: the one typed
+    // over, or this one if none was (× saves a slot under its name without any
+    // typing)
+    if (st->index < 0 || st->currstring != index)
+        strcpy(comments[NUM_SAVE_SLOTS], comments[index]);
     if (!ObjSysOkay()) {
         string_message_info(REF_STR_ObjSysBad);
         savegame_verify = index;
@@ -2116,6 +2256,10 @@ void save_screen_init(void) {
 
     textlist_init(0, *comments, NUM_SAVE_SLOTS, SAVE_COMMENT_LEN, TRUE, 0xFFFF, 0xFFFF, valid_save, REF_STR_UnusedSave,
                   BUTTON_COLOR, WHITE, BUTTON_COLOR + 2, REF_STR_EnterSaveString, save_dealfunc, NULL);
+    if (save_failed_slot >= 0) { // back from a failed save: its slot stays current
+        OButtons[0].user.textlist_st.currstring = save_failed_slot;
+        save_failed_slot = -1;
+    }
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
@@ -2172,11 +2316,34 @@ errtype check_free_diskspace(int *needed) {
     return (OK);
 }
 
+// What a save holds back: the PS button, the quick menu and the power menu,
+// whose LiveArea could close the game in the middle of it. (A short press of
+// power still suspends: file_replace keeps the slot whole then.)
+#define SAVE_SHELL_LOCK \
+    (SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN | SCE_SHELL_UTIL_LOCK_TYPE_QUICK_MENU | SCE_SHELL_UTIL_LOCK_TYPE_POWEROFF_MENU)
+
+// The system's box when a save fails, in UTF-8 as it wants (the game's own
+// REF_STR_SaveGameFail has its font's codes for accents). "Not altered" holds
+// but for a last rename that failed: then the slot gets the new save, whole,
+// at the next save or start (see filecopy.h), and still nothing is lost.
+static const char *const save_failed_text[3] = {
+    "The game couldn't be saved.\n\n"
+    "Check that the memory card isn't full, then try again. Existing saves have not been altered.",
+    "Impossible de sauvegarder la partie.\n\n"
+    "Vérifiez que la carte mémoire n'est pas pleine, puis réessayez. Les sauvegardes existantes n'ont pas été "
+    "modifiées.",
+    "Das Spiel konnte nicht gespeichert werden.\n\n"
+    "Prüfen Sie, ob die Speicherkarte voll ist, und versuchen Sie es erneut. Vorhandene Spielstände wurden nicht "
+    "verändert.",
+};
+
 errtype do_savegame_guts(uchar slot) {
     extern uchar valid_save;
     errtype retval = OK;
 
     begin_wait();
+    if (sceShellUtilLock(SAVE_SHELL_LOCK) < 0)
+        WARN("%s: sceShellUtilLock failed, saving anyway", __FUNCTION__);
     if (!(valid_save & (1 << slot))) {
         int needed;
         //      char buf1[128],buf2[128];
@@ -2190,19 +2357,28 @@ errtype do_savegame_guts(uchar slot) {
         Poke_SaveName(slot);
         if (save_game(save_game_name, comments[slot]) != OK) {
             ERROR("Save game failed!");
-            message_info("Game save failed!");
-            //      strcpy(comments[comment_mode], original_comment);
+            // the slot keeps its game (see file_replace), and so its name
+            strcpy(comments[slot], comments[NUM_SAVE_SLOTS]);
             retval = ERR_NOEFFECT;
-            valid_save &= ~(1 << slot);
+            if (access(save_game_name, F_OK) != 0)
+                valid_save &= ~(1 << slot);
+            save_failed_slot = slot;
         } else
             // Spew(DSRC_EDITOR_Save, ("Game %d saved!\n", slot));
             if (retval == OK)
             valid_save |= 1 << slot;
     }
+    sceShellUtilUnlock(SAVE_SHELL_LOCK);
     end_wait();
     // spoof_mouse_event();
     if (retval == OK)
         wrapper_panel_close(TRUE);
+    else if (save_failed_slot >= 0) {
+        // the slots again, for another try (from the object system's
+        // confirmation too), and why, over them
+        save_screen_init();
+        VitaAlert(save_failed_text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0]);
+    }
     return (retval);
 }
 
@@ -2271,28 +2447,9 @@ errtype make_options_cursor(void) {
 }*/
 
 errtype wrapper_create_mouse_region(LGRegion *root) {
-    errtype err;
-    int id;
-    LGRect r = {{0, 0}, {STATUS_X, STATUS_HEIGHT}};
-    LGRegion *reg;
-
     // no "Click for Options" corner: START opens the options, and the cursor stuck
     // against the top-left screen edge would keep showing it
-    return OK;
-    reg = &(options_mouseregion[free_mouseregion++]);
-    err = region_create(root, reg, &r, 2, 0, REG_USER_CONTROLLED | AUTODESTROY_FLAG, NULL, NULL, NULL, NULL);
-    if (err != OK)
-        return err;
-    err = uiInstallRegionHandler(reg, UI_EVENT_MOUSE | UI_EVENT_MOUSE_MOVE, wrapper_region_mouse_handler,
-                                 0, &id);
-    if (err != OK)
-        return err;
-    if (!cursor_loaded) {
-        err = make_options_cursor();
-        if (err != OK)
-            return err;
-    }
-    uiSetRegionDefaultCursor(reg, &option_cursor);
+    (void)root;
     return OK;
 }
 
@@ -2308,7 +2465,7 @@ uchar saveload_hotkey_func(ushort keycode, uint32_t context, intptr_t data) {
 
 uchar demo_quit_func(ushort keycode, uint32_t context, intptr_t data) {
     wrapper_start(quit_verify_init);
-    string_message_info(REF_STR_QuitConfirm);
+    message_info(get_temp_string(REF_STR_QuitConfirm));
     return (TRUE);
 }
 #pragma enable_message(202)

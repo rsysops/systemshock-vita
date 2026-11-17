@@ -805,8 +805,6 @@ static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_ver
     vgpu_vertex out[RASTQ_GPU_VERTS];
     int i;
 
-    if (!textured) // one colour for the lot: the texel in the middle
-        return vgpu_flat(n, v, bm->bits[(size_t)(bm->h / 2) * bm->row + bm->w / 2]);
     if (n > RASTQ_GPU_VERTS)
         return 1;
     texture = texture_for(bm, (flags & RASTQ_GPU_WRAP) != 0);
@@ -952,9 +950,12 @@ static SceGxmProgram *compile(const char *source, shark_type type, const char *w
         gpu_err("%s shader did not compile", what);
     } else {
         copy = malloc(size);
-        if (copy != NULL)
+        if (copy != NULL) {
             memcpy(copy, program, size);
-        gpu_log("%s shader compiled: %u bytes", what, (unsigned)size);
+            gpu_log("%s shader compiled: %u bytes", what, (unsigned)size);
+        } else {
+            gpu_err("%s shader compiled, no memory for its copy", what);
+        }
     }
     shark_clear_output();
     return copy;
@@ -1255,7 +1256,6 @@ static int index_check(int *first_bad, int *got, int *kept) {
         quad(0, CHECK_W / 2, 0x11);
         vgpu_end();
         vgpu_finish();
-    vgpu_finish();
         *kept = canvas[(CHECK_H / 2) * CHECK_W + CHECK_W - 8] == 0x55 && canvas[(CHECK_H / 2) * CHECK_W + 8] == 0x11;
     }
     vgpu_free(canvas);
@@ -1656,6 +1656,26 @@ static void time_tluc_fill(uchar *p, size_t size, int *in_place_us, int *copied_
     *copied_us = (int)(t2 - t1);
 }
 
+// The GPU's memory, given back when it turns itself off after its set-up:
+// nothing draws with it then (vgpu_canvas says no, and the queue never gets
+// the hooks).
+static void vgpu_release(void) {
+    int i;
+
+    sceGxmFinish(context);
+    for (i = 0; i < MAX_TARGETS; i++)
+        drop_target(&targets[i]);
+    vgpu_free(vertices);
+    vgpu_free(tables_pixels);
+    vgpu_free(colours_pixels);
+    vgpu_free(matrix_pixels);
+    vgpu_free(texture_heap);
+    vertices = NULL;
+    indices = NULL;
+    tables_pixels = colours_pixels = matrix_pixels = texture_heap = NULL;
+    gpu_log("GPU off: its memory freed");
+}
+
 void vgpu_init(void) {
     size_t test_bytes = 2 * GPU_BLOCK_ALIGN;
     int bad, first_bad, got, kept, tex_bad[CHECK_BANDS] = {-1, -1, -1, -1};
@@ -1704,8 +1724,7 @@ void vgpu_init(void) {
     else
         gpu_log("index check drawn: %d wrong", bad);
 
-    // Without the textured shaders everything is drawn in flat colours, as
-    // in the first GPU builds.
+    // Without the textured shaders the GPU isn't used (see below).
     gpu_log("compiling the textured shaders");
     textured = bad >= 0 && make_textures() && make_tmap_programs();
     // Without the shaded shaders the GPU still draws the station; what is
@@ -1793,6 +1812,7 @@ void vgpu_init(void) {
     // all: as a renderer it is the textured shaders or nothing.
     if (bad < 0 || !textured) {
         ready = 0;
+        vgpu_release();
         return;
     }
     if (!shades)

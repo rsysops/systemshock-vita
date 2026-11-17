@@ -112,8 +112,6 @@ static struct {
     int use_gpu;   // hand views to the GPU
     int gpu_view;  // this view goes to the GPU
     int gpu_check; // this view: compare the GPU's result with the CPU's
-    int gpu_survey; // this view isn't the GPU's: only count what it could draw of it
-    int survey_next;
     int gpu_view_next; // the caller's word on the view that starts next
     int gpu_cut_min;   // lists of at least this many calls are cut by all the threads
     // Whether they are, frame by frame (rastq_gpu_frame)
@@ -436,8 +434,6 @@ static void choose_bands(void) {
 
 // ---- replay --------------------------------------------------------------
 
-// Draws one recorded call inside `band`, which must be the calling thread's.
-// The mappers modify their arguments, so each thread draws from its own copy.
 // A line of the 3D library, as it draws them: clipped, in one colour or
 // shaded between the colours in its ends' u, v and w.
 static void draw_line_now(int shaded, long color, intptr_t parm, const grs_vertex *v0, const grs_vertex *v1) {
@@ -446,6 +442,8 @@ static void draw_line_now(int shaded, long color, intptr_t parm, const grs_verte
          grd_line_clip_fill_vector[shaded ? GR_WIRE_POLY_CLINE : GR_WIRE_POLY_LINE])(color, (long)parm, &a, &b);
 }
 
+// Draws one recorded call inside `band`, which must be the calling thread's.
+// The mappers modify their arguments, so each thread draws from its own copy.
 static void draw_cmd(const rastq_cmd *c, const grs_band *band) {
     grs_vertex verts[RASTQ_MAX_VERTS];
     grs_vertex *vpl[RASTQ_MAX_VERTS];
@@ -1121,18 +1119,31 @@ typedef struct {
 
 static gpu_sink sinks[RASTQ_THREADS];
 
+// Of the call being handed to the scene: the pieces the scene took, and the
+// first pieces it leaves out, the scene before having taken them (gpu_run)
+static unsigned gpu_put_taken, gpu_put_skip;
+
 // A piece of a call: to the GPU (sink NULL; 0 if the scene has no room for
 // it), or into a sink (0 if that is full).
 static int gpu_put(gpu_sink *sink, const rastq_cmd *c, int put, int n, const rastq_gpu_vertex *v) {
     gpu_piece *piece;
 
-    if (sink == NULL)
-        return put == PUT_TMAP && c->gpu_tluc
-                   ? rq.gpu->tluc_tmap(&c->bm, c->gpu_flags, n, v, &gpu_matrix[0][0], gpu_matrix_version)
-               : put == PUT_TMAP   ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
-               : put == PUT_SHADED ? rq.gpu->shaded(n, v)
-               : put == PUT_TLUC   ? rq.gpu->tluc(n, v)
-                                   : rq.gpu->flat(n, v, c->gpu_row);
+    if (sink == NULL) {
+        int taken;
+
+        if (gpu_put_skip != 0) {
+            gpu_put_skip--;
+            return 1;
+        }
+        taken = put == PUT_TMAP && c->gpu_tluc
+                    ? rq.gpu->tluc_tmap(&c->bm, c->gpu_flags, n, v, &gpu_matrix[0][0], gpu_matrix_version)
+                : put == PUT_TMAP   ? rq.gpu->tmap(&c->bm, c->gpu_flags, n, v)
+                : put == PUT_SHADED ? rq.gpu->shaded(n, v)
+                : put == PUT_TLUC   ? rq.gpu->tluc(n, v)
+                                    : rq.gpu->flat(n, v, c->gpu_row);
+        gpu_put_taken += taken != 0;
+        return taken;
+    }
     if (sink->piece_count == SINK_PIECES || sink->vert_count + n > SINK_VERTS)
         return 0;
     piece = &sink->pieces[sink->piece_count++];
@@ -1731,14 +1742,25 @@ static int gpu_run(void) {
         if (c->gpu != GPU_CPU && !dead) {
             if (!in_scene && !(in_scene = gpu_scene_begin()))
                 dead = 1;
+            gpu_put_taken = 0;
             if (in_scene && !(sent = gpu_hand(c))) {
-                // the scene is full: the call opens the next one
+                // The scene is full: it is drawn with what it took of the
+                // call, and the next one goes on from there, so that no
+                // piece is drawn twice (a translucent one would show it).
+                // A call's pieces come out the same each time, and share
+                // its texture: what an empty scene has no room for is that,
+                // and then the full one took none of them either.
+                unsigned taken = gpu_put_taken;
+
                 gpu_scene_end(1);
                 in_scene = gpu_scene_begin();
-                if (!in_scene)
+                if (!in_scene) {
                     dead = 1;
-                else
+                } else {
+                    gpu_put_skip = taken;
                     sent = gpu_hand(c);
+                    gpu_put_skip = 0;
+                }
             }
         }
         if (sent) {
@@ -1766,23 +1788,6 @@ static int gpu_run(void) {
     if (in_scene)
         gpu_scene_end(0);
     return 1;
-}
-
-// For a view the GPU isn't given: what it could draw of the list, and why not
-// the rest, in the same counts as for its own views.
-static void gpu_survey(void) {
-    unsigned k;
-
-    gpu_prepare();
-    for (k = 0; k < rq.count; k++) {
-        const rastq_cmd *c = &cmds[k];
-        if (c->gpu == GPU_CULL)
-            rastq_stats.gpu_culled++;
-        else if (c->gpu == GPU_CPU)
-            rastq_stats.gpu_whys[c->gpu_why]++;
-        else
-            rastq_stats.gpu_kinds[c->gpu_kind]++;
-    }
 }
 
 // Has the GPU draw the list. Returns 0 if it wouldn't, with the canvas as it
@@ -1861,9 +1866,6 @@ void rastq_flush(void) {
         clear_on_cpu();
     }
 
-    if (rq.gpu_survey && !rq.checking)
-        gpu_survey();
-
 #ifdef RASTQ_SELFCHECK
     if (rq.test_ranges && !rq.checking)
         test_ranges();
@@ -1933,8 +1935,7 @@ void rastq_begin(void) {
     rq.checking = 0;
     rq.gpu_check = 0;
     rq.gpu_view = rq.gpu_view_next && gpu_takes(rq.canvas);
-    rq.gpu_survey = rq.survey_next && !rq.gpu_view;
-    rq.survey_next = rq.gpu_view_next = 0;
+    rq.gpu_view_next = 0;
     rq.balance = NULL;
     if (rq.threads > 1 && rq.canvas->bm.h >= rq.min_rows)
         rq.balance = find_split(rq.canvas, rq.threads);

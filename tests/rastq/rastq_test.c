@@ -32,6 +32,12 @@
 #include "rastq.h"
 #include "tmapfcn.h"
 #include "tmpalloc.h"
+#ifndef RASTQ_REFERENCE
+#include <signal.h>
+#include <stdatomic.h>
+#include <unistd.h>
+#include "rastqthr.h"
+#endif
 
 // What the 2D library expects from the game
 intptr_t *gScreenAddress;
@@ -929,10 +935,14 @@ static void ref_shade(uchar *dest, float part, float r, float r_span, float g, f
 #define REF_SHADED 0x100 // with bm NULL: shaded between colours, not one colour
 #define REF_TLUC 0x200   // with bm NULL: what is there through a row of the tables
 
+// The pieces drawn so far: each drawing hook draws one with ref_polygon
+static unsigned long ref_pieces;
+
 // A fan of triangles, both windings drawn, as the GPU is set up.
 static void ref_polygon(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, int color) {
     int k;
 
+    ref_pieces++;
     for (k = 1; k + 1 < n; k++) {
         const rastq_gpu_vertex *a = &v[0], *b = &v[k], *c = &v[k + 1];
         double area = ref_edge(a, b, c->x, c->y);
@@ -1046,6 +1056,53 @@ static void ref_compared_cb(const uchar *gpu, const uchar *cpu, int w, int h, in
 
 static const rastq_gpu ref_gpu = {ref_begin,  ref_flat,        ref_tmap, ref_shaded,   ref_end,
                                   ref_finish, ref_compared_cb, ref_tluc, ref_tluc_tmap};
+
+// The stand-in with small scenes: each has room for a few pieces, then none,
+// as a full scene on the Vita. A list then takes many scenes, and a call's
+// pieces are often split between two of them: the picture must be the same
+// to the byte, and as many pieces drawn, each once. The scene after a full
+// one has room for the rest of any call, as an empty scene on the Vita has.
+#define SMALL_ROOM 2
+#define SMALL_ROOM_AFTER 256
+static int small_left, small_full;
+static unsigned small_scenes, small_refused;
+
+static int small_room(void) {
+    if (small_left == 0) {
+        small_refused++;
+        small_full = 1;
+        return 0;
+    }
+    small_left--;
+    return 1;
+}
+
+static int small_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows, const uchar *ipal_table) {
+    if (!ref_begin(bits, w, h, row, tables, rows, ipal_table))
+        return 0;
+    small_scenes++;
+    small_left = (small_full ? SMALL_ROOM_AFTER : SMALL_ROOM) + 1; // the clear may take one
+    small_full = 0;
+    return 1;
+}
+
+static int small_flat(int n, const rastq_gpu_vertex *v, int color) { return small_room() && ref_flat(n, v, color); }
+
+static int small_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v) {
+    return small_room() && ref_tmap(bm, flags, n, v);
+}
+
+static int small_shaded(int n, const rastq_gpu_vertex *v) { return small_room() && ref_shaded(n, v); }
+
+static int small_tluc(int n, const rastq_gpu_vertex *v) { return small_room() && ref_tluc(n, v); }
+
+static int small_tluc_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v, const uchar *matrix,
+                           unsigned version) {
+    return small_room() && ref_tluc_tmap(bm, flags, n, v, matrix, version);
+}
+
+static const rastq_gpu small_gpu = {small_begin, small_flat,      small_tmap, small_shaded,   ref_end,
+                                    ref_finish,  ref_compared_cb, small_tluc, small_tluc_tmap};
 
 // The share of a frame's pixels that may differ between the stand-in and the
 // mappers, and the share over a whole run.
@@ -1418,6 +1475,50 @@ static int test_tluc(void) {
 // The rule that shares the GPU's lists with the workers only while frames
 // are short of time (rastq_gpu_frame), fed made-up frames. Returns the
 // number of failures.
+// A worker added while a job the caller didn't wait for is under way: it
+// never answers that job, so settling it must come first, or the caller
+// waits for an answer forever. Run before anything else starts the threads.
+static atomic_int growth_started;
+
+static void growth_job(int slot) {
+    long long until = rastq_clock_us() + 50000;
+
+    (void)slot;
+    atomic_store(&growth_started, 1);
+    while (rastq_clock_us() < until)
+        rastq_threads_relax();
+}
+
+static void growth_hung(int sig) {
+    static const char text[] = "threads: adding a worker during a job hung\nFAILED\n";
+
+    (void)sig;
+    if (write(1, text, sizeof(text) - 1) < 0)
+        _exit(2);
+    _exit(1);
+}
+
+static int test_thread_growth(void) {
+    int threads;
+
+    signal(SIGALRM, growth_hung);
+    alarm(10);
+    if (rastq_threads_start(2) != 2) {
+        alarm(0);
+        printf("threads: no worker could be started\n");
+        return 1;
+    }
+    rastq_threads_kick(growth_job, 2);
+    while (!atomic_load(&growth_started))
+        rastq_threads_relax();
+    threads = rastq_threads_start(3);
+    rastq_threads_settle();
+    alarm(0);
+    signal(SIGALRM, SIG_DFL);
+    printf("threads: a worker added during a job, %d threads, settled\n", threads);
+    return threads != 3;
+}
+
 static int test_sharing(void) {
     // work times that leave this much of the screen's time, in microseconds
     const long long easy = RASTQ_FRAME_US - 4200, between = RASTQ_FRAME_US - 2400, tight = RASTQ_FRAME_US - 1000;
@@ -1521,6 +1622,8 @@ int main(int argc, char **argv) {
     unsigned gpu_scenes = 0, gpu_polys = 0, gpu_culled = 0, gpu_cpu_calls = 0, gpu_whole_checks = 0;
     unsigned gpu_pieces = 0;
     unsigned cut_lists = 0, cut_bad = 0, cut_calls = 0, cut_by_workers = 0;
+    unsigned small_lists = 0, small_bad = 0, small_miscount = 0;
+    unsigned long small_twice = 0;
     unsigned rows_views = 0, rows_bad = 0;
     long rows_left = 0;
     long gpu_diff = 0, gpu_far = 0;
@@ -1535,6 +1638,7 @@ int main(int argc, char **argv) {
 
 #ifndef RASTQ_REFERENCE
     if (!hash_only) {
+        bad += test_thread_growth();
         bad += test_overlays();
         bad += test_marks();
         bad += test_tluc();
@@ -1703,6 +1807,7 @@ int main(int argc, char **argv) {
                     draw_scene(gpu_ops, gpu_count, RASTQ_OFF, result[1]);
                     {
                         unsigned compared = ref_compared;
+                        unsigned long pieces, small_pieces;
                         long diff, far;
                         int drawn_ok, check_ok, whole, k;
 
@@ -1711,7 +1816,9 @@ int main(int argc, char **argv) {
                         rastq_set_check_interval(0);
                         memset(&rastq_stats, 0, sizeof(rastq_stats));
                         other_expected = result[1];
+                        pieces = ref_pieces;
                         draw_scene(gpu_ops, gpu_count, RASTQ_TRUST_STABLE, result[2]);
+                        pieces = ref_pieces - pieces;
                         other_expected = NULL;
                         diff = differing(result[1], result[2]);
                         far = differing_nearby(result[1], result[2]);
@@ -1738,6 +1845,25 @@ int main(int argc, char **argv) {
                         cut_by_workers += rastq_stats.gpu_cut[1] + rastq_stats.gpu_cut[2];
                         if (differing(result[2], result[3]) != 0) {
                             cut_bad++;
+                            drawn_ok = 0;
+                        }
+                        // The same list in small scenes: what a full scene
+                        // took of a call is drawn once, the next scene going
+                        // on from there.
+                        rastq_set_gpu(&small_gpu);
+                        small_full = 0;
+                        small_pieces = ref_pieces;
+                        draw_scene(gpu_ops, gpu_count, RASTQ_TRUST_STABLE, result[3]);
+                        small_pieces = ref_pieces - small_pieces;
+                        rastq_set_gpu(&ref_gpu);
+                        small_lists++;
+                        if (differing(result[2], result[3]) != 0) {
+                            small_bad++;
+                            drawn_ok = 0;
+                        }
+                        if (small_pieces != pieces) {
+                            small_twice += small_pieces > pieces ? small_pieces - pieces : 0;
+                            small_miscount++;
                             drawn_ok = 0;
                         }
                         rastq_set_check_interval(1);
@@ -1823,6 +1949,11 @@ int main(int argc, char **argv) {
            "thread's\n",
            cut_lists, cut_calls, cut_by_workers, cut_bad);
     if (cut_lists == 0 || cut_calls == 0 || cut_bad != 0)
+        bad++;
+    printf("  %u lists in scenes of %d pieces: %u scenes, %u pieces refused; %u pictures differ from one big "
+           "scene's, %u drew a different number of pieces (%lu more)\n",
+           small_lists, SMALL_ROOM, small_scenes, small_refused, small_bad, small_miscount, small_twice);
+    if (small_lists == 0 || small_refused == 0 || small_bad != 0 || small_miscount != 0)
         bad++;
     printf("  the GPU was left its last scene %u times; %u views drawn by the CPU meanwhile\n", left_out, other_views);
     if (left_out == 0 || other_views == 0 || other_bad || other_lost || ref_unfinished) {

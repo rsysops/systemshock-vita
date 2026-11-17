@@ -156,13 +156,10 @@ void (*fr_clip_start)(uchar headnorth);
 void (*fr_rend_start)(void);
 grs_bitmap *(*fr_get_tmap)(void);
 
-// Set by machine type
-
 int (*_fr_glob_draw_call)(void *dest_canvas, void *dest_bm, int x, int y, int flags) = NULL;
 void (*_fr_glob_horizon_call)(void *dest_bm, int flags) = NULL;
 void (*_fr_glob_render_call)(void *dest_bm, int flags) = NULL;
 
-//#define DOUBLE_DEF_STUPID_BLEND
 uchar det_sizing[4][2] = {{0, 0}, {0, 0}, {0, 0}, {0, 0}}; /* sizing for detail modes */
 
 /* KLC - no stereo in Mac version
@@ -190,15 +187,11 @@ int _fr_global_detail = 3;
 //======== global initialization
 // startup and closedown functions, misc initialization and setup
 
-// first, for now, we make sure we have full texture context, and eat 8K to boot
-
 void fr_closedown(void) {
     fr_global_mod_flag(0, 0xFFFFFFFF); // not totally sure this is right.
     _frp.lighting.global_mod = 0;
 }
 
-#define _fr_init_all_tmaps()
-#define _fr_free_all_tmaps()
 
 extern int _game_fr_tmap;
 void fr_default_mouse(void) {}
@@ -225,7 +218,6 @@ void fr_set_default_ptrs(void) {
 void fr_startup(void) {
 // should be dynamic and flippable....
     g3_init(FR_PT_CNT, AXIS_ORDER);
-    _fr_init_all_tmaps();
     fr_tables_build();
     _fr_glob_flags = 0;
     _fr = _sr = NULL;

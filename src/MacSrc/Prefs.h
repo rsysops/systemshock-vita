@@ -37,6 +37,7 @@ typedef struct {
     bool goOnScreenHelp;
     short goLanguage; // 0 - English, 1 - French, 2 - German
     bool goAutoplayLogs; // a new e-mail or log plays on arrival (see select_email)
+    bool goSaveTemplate; // a save is offered the name "Save N (floor)" (see save_name_template)
     bool goCaptureMouse;
     bool goInvertMouseY;
 
@@ -46,7 +47,7 @@ typedef struct {
     short soMusicVolume;
     short soSfxVolume;
     short soAudioLogVolume;
-    short soMidiBackend; // 0 => adlmidi, 1 => native, 2 => fluidsynth
+    short soMidiBackend; // 0 => ADLMIDI with DOSBox's OPL3, 1 => with Nuked's (see OPT_SEQ_DOSBox)
     short soMidiOutput;  // which of the MIDI backend's outputs to use
 
     // Display Options
@@ -65,6 +66,8 @@ typedef struct {
 
 // The double-click bar's default: a third along, where its marker is
 #define DCLICK_DEFAULT (65536 / 3)
+// The music's volume by default (0 to 100), where the Audio page's mark is
+#define MUSIC_VOLUME_DEFAULT 75
 
 //--------------------
 //  Globals
@@ -86,7 +89,7 @@ void SavePrefsIfWanted(void);
 //-------------------
 //  Enums
 //-------------------
-enum OPT_SEQ_ { // Must be in the same order as in wraper.h
+enum OPT_SEQ_ { // the values of soMidiBackend, midi-backend in the prefs file
     OPT_SEQ_ADLMIDI = 0,
     OPT_SEQ_NativeMI,
     OPT_SEQ_Max

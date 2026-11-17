@@ -248,12 +248,8 @@ int do_tmap(int n, g3s_phandle *vp, grs_bitmap *bm) {
     if (bm == NULL)
         return CLIP_ALL;
 
-// clang-format off
-
-        // clang-format on
-
-        // convert RSD bitmap to normal
-        if (bm->type == BMT_RSD8) {
+    // convert RSD bitmap to normal
+    if (bm->type == BMT_RSD8) {
         if (gr_rsd8_convert(bm, &unpack_bm) != GR_UNPACK_RSD8_OK)
             return CLIP_ALL;
         else
