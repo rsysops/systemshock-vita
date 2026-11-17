@@ -32,4 +32,3 @@ User interface:
 * Options items labels to review
 * Traduction "Guide"?
 * Ajouter un tooltip pour les options?
-* Display game version + hash in the main menu
