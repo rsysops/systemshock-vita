@@ -25,6 +25,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 
 #include <limits.h>
 #include <strings.h>
+#include <unistd.h>
 
 #include <psp2/shellutil.h>
 
@@ -60,6 +61,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "olhext.h"
 #include "Xmi.h"
 #include "Prefs.h"
+#include "Shock.h"
 
 
 
@@ -2204,14 +2206,18 @@ void load_screen_init(void) {
 // THE SAVE GAME SCREEN: Initialization, update funcs
 //
 
-void save_dealfunc(uchar butid, uchar index) {
-    if (!ObjSysOkay()) {
-        opt_textlist_state *st = &OButtons[butid].user.textlist_st;
+// the slot whose save just failed: it stays current on the slots shown again
+static char save_failed_slot = -1;
 
-        // No puts back the name kept aside: the one typed over, or this one if
-        // none was (× saves a slot under its name without any typing)
-        if (st->index < 0 || st->currstring != index)
-            strcpy(comments[NUM_SAVE_SLOTS], comments[index]);
+void save_dealfunc(uchar butid, uchar index) {
+    opt_textlist_state *st = &OButtons[butid].user.textlist_st;
+
+    // No, or a save that fails, puts back the name kept aside: the one typed
+    // over, or this one if none was (× saves a slot under its name without any
+    // typing)
+    if (st->index < 0 || st->currstring != index)
+        strcpy(comments[NUM_SAVE_SLOTS], comments[index]);
+    if (!ObjSysOkay()) {
         string_message_info(REF_STR_ObjSysBad);
         savegame_verify = index;
         verify_screen_init(save_verify_pushbutton_handler, save_verify_slorker);
@@ -2229,6 +2235,10 @@ void save_screen_init(void) {
 
     textlist_init(0, *comments, NUM_SAVE_SLOTS, SAVE_COMMENT_LEN, TRUE, 0xFFFF, 0xFFFF, valid_save, REF_STR_UnusedSave,
                   BUTTON_COLOR, WHITE, BUTTON_COLOR + 2, REF_STR_EnterSaveString, save_dealfunc, NULL);
+    if (save_failed_slot >= 0) { // back from a failed save: its slot stays current
+        OButtons[0].user.textlist_st.currstring = save_failed_slot;
+        save_failed_slot = -1;
+    }
 
     // FIXME: Cannot pass a keycode with modifier flags as uchar
     keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
@@ -2291,6 +2301,21 @@ errtype check_free_diskspace(int *needed) {
 #define SAVE_SHELL_LOCK \
     (SCE_SHELL_UTIL_LOCK_TYPE_PS_BTN | SCE_SHELL_UTIL_LOCK_TYPE_QUICK_MENU | SCE_SHELL_UTIL_LOCK_TYPE_POWEROFF_MENU)
 
+// The system's box when a save fails, in UTF-8 as it wants (the game's own
+// REF_STR_SaveGameFail has its font's codes for accents). "Not altered" holds
+// but for a last rename that failed: then the slot gets the new save, whole,
+// at the next save or start (see filecopy.h), and still nothing is lost.
+static const char *const save_failed_text[3] = {
+    "The game couldn't be saved.\n\n"
+    "Check that the memory card isn't full, then try again. Existing saves have not been altered.",
+    "Impossible de sauvegarder la partie.\n\n"
+    "Vérifiez que la carte mémoire n'est pas pleine, puis réessayez. Les sauvegardes existantes n'ont pas été "
+    "modifiées.",
+    "Das Spiel konnte nicht gespeichert werden.\n\n"
+    "Prüfen Sie, ob die Speicherkarte voll ist, und versuchen Sie es erneut. Vorhandene Spielstände wurden nicht "
+    "verändert.",
+};
+
 errtype do_savegame_guts(uchar slot) {
     extern uchar valid_save;
     errtype retval = OK;
@@ -2311,10 +2336,12 @@ errtype do_savegame_guts(uchar slot) {
         Poke_SaveName(slot);
         if (save_game(save_game_name, comments[slot]) != OK) {
             ERROR("Save game failed!");
-            message_info("Game save failed!");
-            //      strcpy(comments[comment_mode], original_comment);
+            // the slot keeps its game (see file_replace), and so its name
+            strcpy(comments[slot], comments[NUM_SAVE_SLOTS]);
             retval = ERR_NOEFFECT;
-            valid_save &= ~(1 << slot);
+            if (access(save_game_name, F_OK) != 0)
+                valid_save &= ~(1 << slot);
+            save_failed_slot = slot;
         } else
             // Spew(DSRC_EDITOR_Save, ("Game %d saved!\n", slot));
             if (retval == OK)
@@ -2325,6 +2352,12 @@ errtype do_savegame_guts(uchar slot) {
     // spoof_mouse_event();
     if (retval == OK)
         wrapper_panel_close(TRUE);
+    else if (save_failed_slot >= 0) {
+        // the slots again, for another try (from the object system's
+        // confirmation too), and why, over them
+        save_screen_init();
+        VitaAlert(save_failed_text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0]);
+    }
     return (retval);
 }
 

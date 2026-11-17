@@ -176,9 +176,10 @@ void SetRenderRect(int width, int height)
 }
 
 // Shows the system's message box over the screen as it is, and waits for the
-// player to close it. Before InitSDL, with only vita2d set up, over a black
-// screen.
-static void VitaAlert(const char *text)
+// player to close it: over the game once its screen is made, the last frame
+// shown again meanwhile; before that, with only vita2d set up, over a black
+// screen. The text is UTF-8.
+void VitaAlert(const char *text)
 {
     SceMsgDialogUserMessageParam message;
     SceMsgDialogParam param;

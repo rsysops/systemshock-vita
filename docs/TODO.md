@@ -22,7 +22,7 @@ Features:
 Fixes:
 * Audio mixing
 * Crash when hibernated Vita?
-* Saving: tell the player when a save fails (save_game returns OK even if the copy fails)
+* Saving: catch the resource library's write errors, and don't quit on a failed level write
 * Saving: disallow empty save name
 
 Performance:

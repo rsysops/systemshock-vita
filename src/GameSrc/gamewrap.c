@@ -219,7 +219,8 @@ errtype save_game(char *fname, char *comment) {
     }
 
     // Copy current game out to save game slot, which keeps its old game until
-    // the new one is all on the card (see filecopy.h)
+    // the new one is all on the card (see filecopy.h); the menu says when it
+    // can't (do_savegame_guts)
     {
         long size = 0;
         int failed;
@@ -227,16 +228,13 @@ errtype save_game(char *fname, char *comment) {
         // (the profiler's note is still copy_file's, with the file's size)
         VPROF_NOTE("copy_file", NULL, 0, (int)size, failed = file_replace(CURRENT_GAME_FNAME, fname, &size));
         if (failed) {
-            // Put up some alert here.
             ERROR("No good copy, dude!");
-            //		string_message_info(REF_STR_SaveGameFail);
+            retval = ERR_FOPEN;
         }
     }
-    // KLC	else
-    // KLC		string_message_info(REF_STR_SaveGameSaved);
     old_ticks = *tmd_ticks;
     // do we have to do this?		startup_game(FALSE);
-    return (OK);
+    return (retval);
 }
 
 errtype load_game_schedules(void) {
