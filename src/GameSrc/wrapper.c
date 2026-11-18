@@ -153,9 +153,12 @@ static uchar (*opanel_verify_no)(uchar) = NULL; // a confirmation's "No", which 
 static int opanel_queued_focus = -1;       // focus the next screen should start on
 static uchar opanel_slider_editing = FALSE; // focused bar grabbed with Enter: Left/Right move it
 static int opanel_save_armed_line = -1;    // save slot whose name keyboard was opened by Enter; next Enter saves
+static uchar opanel_tip_on = FALSE;        // SELECT (F3) turned settings' descriptions on (opanel_draw_hints)
+static uchar opanel_tip_drawn = FALSE;     // and one is on the screen, over the view
 
 static void opanel_screen_begin(void (*self)(void), void (*parent)(void), int page, uchar entry_button);
 static void opanel_go_back(void);
+static void opanel_draw_hints(void);
 void opanel_redraw(uchar back);
 uchar textlist_handler(uiEvent *ev, uchar butid);
 
@@ -364,6 +367,7 @@ static struct {
     {REF_STR_SaveTemplate, {"Save Templ.", "Mod\x8a" "le Sauv.", "Namensvorl."}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
+    {REF_STR_Info, {"Info", "Infos", "Info"}},
     // the game's Off/On, which its French data leaves in English
     {REF_STR_OffonText, {"", "Non", ""}},
     {REF_STR_OffonText + 1, {"", "Oui", ""}},
@@ -1167,6 +1171,8 @@ static void opanel_set_focus(int b) {
             opanel_textlist_preselect(b);
         draw_button(b);
     }
+    if (opanel_tip_on) // the new focus's description, or none
+        opanel_draw_hints();
 }
 
 // Move to the nearest focusable button in the arrow's direction, by rectangle centres.
@@ -1376,21 +1382,119 @@ static void opanel_hover(LGPoint pos) {
 #define OPANEL_HINT_Y (SCREEN_VIEW_Y + 2)
 #define OPANEL_HINT_PAD 2 // between the box border, glyphs and labels
 
-// "(triangle) Help (square) Music": the pad's F1 / F2 in opanel_nav_key(), drawn in the
-// button style. The 3D view doesn't redraw while the panel keeps the game paused, so this
-// only needs drawing again after an explicit render_run() (see opanel_render_view()).
+// A setting's description, shown under the hints while SELECT has them on (opanel_tip_on),
+// for the focused bar or switch, found by its label. In English, French and German, in
+// the fonts' CP437 (see custom_strings).
+static const struct {
+    Ref descrip;
+    const char *text[3];
+} setting_texts[] = {
+    // Audio
+    {REF_STR_MusicText, {"Volume of the music.", "Volume de la musique.", "Lautst\x84rke der Musik."}},
+    {REF_STR_MusicText + 1,
+     {"Volume of the sound effects.", "Volume des effets sonores.", "Lautst\x84rke der Soundeffekte."}},
+    {REF_STR_MusicText + 4,
+     {"Volume of the audio logs and e-mails.", "Volume des journaux et e-mails audio.",
+      "Lautst\x84rke der Audio-Logs und E-Mails."}},
+    // Input
+    {REF_STR_GyroAiming,
+     {"Controls the view by tilting the Vita, as well as with the right stick.",
+      "Contr\x93le la vue en inclinant la Vita, en plus du stick droit.",
+      "Steuert den Blick durch Neigen der Vita, zus\x84tzlich zum rechten Stick."}},
+    {REF_STR_Cursor, {"Shows the cursor in menus.", "Affiche le curseur dans les menus.", "Zeigt den Cursor in Men\x81s."}},
+    {REF_STR_OptionsText + 0,
+     {"Shows the name of the MFD interface's buttons and icons when the cursor is over them.",
+      "Affiche le nom des boutons et ic\x93nes de l'interface MFD au survol du curseur.",
+      "Zeigt den Namen der Kn\x94pfe und Symbole der MFD-Oberfl\x84" "che, wenn der Cursor dar\x81" "ber ist."}},
+    {REF_STR_GyroLookSpeed,
+     {"How fast the view turns when you tilt the Vita.", "Vitesse de rotation de la vue quand on incline la Vita.",
+      "Wie schnell sich der Blick beim Neigen der Vita dreht."}},
+    {REF_STR_ControllerLookSpeed,
+     {"How fast the right stick turns the view.", "Vitesse de rotation de la vue au stick droit.",
+      "Wie schnell der rechte Stick den Blick dreht."}},
+    {REF_STR_DoubleClick,
+     {"Time between two clicks that counts as a double click.", "D\x82lai entre deux clics comptant pour un double-clic.",
+      "Zeit zwischen zwei Klicks, die als Doppelklick z\x84hlt."}},
+    // Options
+    {REF_STR_MusicText + 3,
+     {"Plays messages as text, as audio logs, or both at the same time.",
+      "Joue les messages sous forme de texte, de journaux audio ou les deux en m\x88me temps.",
+      "Spielt Nachrichten als Text, als Audio-Logs oder beides gleichzeitig ab."}},
+    {REF_STR_OptionsText + 2,
+     {"Show e-mails and logs in full, or shortened.", "E-mails et journaux en entier, ou abr\x82g\x82s.",
+      "E-Mails und Logs vollst\x84ndig oder gek\x81rzt anzeigen."}},
+    {REF_STR_Language,
+     {"Selects the language of the game's texts, menus and voices.",
+      "S\x82lectionne la langue des textes, des menus et des voix du jeu.",
+      "W\x84hlt die Sprache der Texte, Men\x81s und Stimmen des Spiels."}},
+    {REF_STR_OnlineHelp,
+     {"Describes what you can see in the game world (objects, doors, enemies, ...).",
+      "D\x82" "crit les \x82l\x82ments du monde visible en jeu (objets, portes, ennemis, ...).",
+      "Beschreibt die sichtbaren Dinge der Spielwelt (Objekte, T\x81ren, Gegner, ...)."}},
+    {REF_STR_OptionsText + 3, {"Brightness of the picture.", "Luminosit\x82 de l'image.", "Helligkeit des Bildes."}},
+    {REF_STR_AutoplayLogs,
+     {"New messages are played automatically.", "Les nouveaux messages sont lus automatiquement.",
+      "Neue Nachrichten werden automatisch abgespielt."}},
+    {REF_STR_SaveTemplate,
+     {"Uses a template to name saves, for example: Save 3 (Medical)",
+      "Utilise un mod\x8ale pour nommer les sauvegardes, par exemple : Sauvegarde 3 (Medical)",
+      "Benennt Spielst\x84nde nach einer Vorlage, zum Beispiel: Spielstand 3 (Medizin)"}},
+};
+
+#define OPANEL_TIP_LINES 3 // the most a description takes
+
+// the focused bar's or switch's description, NULL if it has none
+static const char *opanel_tip_text(void) {
+    Ref descrip;
+    int i;
+
+    if (opanel_focus < 0)
+        return NULL;
+    if (OButtons[opanel_focus].handler == slider_handler)
+        descrip = OButtons[opanel_focus].user.slider_st.descrip;
+    else if (OButtons[opanel_focus].handler == multi_handler)
+        descrip = OButtons[opanel_focus].user.multi_st.descrip;
+    else
+        return NULL;
+    for (i = 0; i < sizeof(setting_texts) / sizeof(setting_texts[0]); i++)
+        if (setting_texts[i].descrip == descrip)
+            return setting_texts[i].text[(which_lang >= 0 && which_lang < 3) ? which_lang : 0];
+    return NULL;
+}
+
+static void opanel_render_view(void);
+
+// "(triangle) Help (square) Music (select) Info": the pad's F1 / F2 / F3 in opanel_nav_key(),
+// drawn in the button style, and under them the focused setting's description while F3 has
+// them on. The 3D view doesn't redraw while the panel keeps the game paused, so this only
+// needs drawing again after an explicit render_run() (see opanel_render_view()), when the
+// focus moves, and to take a description away, which needs the view drawn again under it.
 static void opanel_draw_hints(void) {
     char *help = get_temp_string(REF_STR_Help), *music = get_temp_string(REF_STR_MusicText);
-    short hw, mw, th, g, w, h, x, y;
+    char *info = get_temp_string(REF_STR_Info);
+    const char *tip = opanel_tip_on ? opanel_tip_text() : NULL;
+    short hw, mw, iw, th, g, w, h, x, y;
     LGRect r;
-    uchar old_over = gr2ss_override;
+    uchar old_over;
+
+    if (tip == NULL && opanel_tip_drawn) {
+        opanel_tip_drawn = FALSE;
+        opanel_render_view(); // which draws the hints again, without it
+        if (full_game_3d)
+            opanel_redraw(FALSE); // the panel is over the view
+        return;
+    }
+
+    old_over = gr2ss_override;
     gr2ss_override = OVERRIDE_ALL;
     gr_push_canvas(grd_screen_canvas);
     gr_set_font(opt_font);
     gr_string_size(help, &hw, &th);
     gr_string_size(music, &mw, &th);
+    gr_string_size(info, &iw, &th);
     g = th | 1; // odd, so the triangle's apex is centred
-    w = OPANEL_HINT_PAD + g + OPANEL_HINT_PAD + hw + 2 * OPANEL_HINT_PAD + g + OPANEL_HINT_PAD + mw + OPANEL_HINT_PAD;
+    w = OPANEL_HINT_PAD + g + OPANEL_HINT_PAD + hw + 2 * OPANEL_HINT_PAD + g + OPANEL_HINT_PAD + mw +
+        2 * OPANEL_HINT_PAD + 2 * g + OPANEL_HINT_PAD + iw + OPANEL_HINT_PAD;
     h = g + 2 * OPANEL_HINT_PAD;
     x = OPANEL_HINT_X;
     y = OPANEL_HINT_Y;
@@ -1412,14 +1516,41 @@ static void opanel_draw_hints(void) {
     draw_pad_glyph('s', x, y, g);
     x += g + OPANEL_HINT_PAD;
     ss_string(music, x, y);
-
+    x += mw + 2 * OPANEL_HINT_PAD;
+    draw_pad_glyph('e', x, y, g);
+    x += 2 * g + OPANEL_HINT_PAD;
+    ss_string(info, x, y);
     uiShowMouse(&r);
+
+    if (tip != NULL) {
+        // the view's width, under the hints, its lines wrapped to fit; filled, so a
+        // description drawn over another leaves nothing of it
+        char text[256];
+        short x0 = OPANEL_HINT_X, y0 = OPANEL_HINT_Y + h + OPANEL_HINT_PAD;
+        short x1 = SCREEN_VIEW_X + SCREEN_VIEW_WIDTH - 2, y1 = y0 + OPANEL_TIP_LINES * th + 2 * OPANEL_HINT_PAD;
+
+        strncpy(text, tip, sizeof(text) - 1);
+        text[sizeof(text) - 1] = '\0';
+        gr_string_wrap(text, x1 - x0 - 2 * OPANEL_HINT_PAD);
+        RECT_FILL(&r, x0, y0, x1, y1);
+        uiHideMouse(&r);
+        gr_set_fcolor(BUTTON_COLOR);
+        ss_rect(x0, y0, x1, y1);
+        gr_set_fcolor(BUTTON_COLOR + BUTTON_SHADOW);
+        ss_rect(x0 + 1, y0 + 1, x1 - 1, y1 - 1);
+        gr_set_fcolor(BUTTON_COLOR);
+        ss_string(text, x0 + OPANEL_HINT_PAD, y0 + OPANEL_HINT_PAD);
+        uiShowMouse(&r);
+        opanel_tip_drawn = TRUE;
+    }
+
     gr_pop_canvas();
     gr2ss_override = old_over;
 }
 
-// render_run() repaints the 3D view, over the hints
+// render_run() repaints the 3D view, over the hints (and a description)
 static void opanel_render_view(void) {
+    opanel_tip_drawn = FALSE;
     render_run();
     opanel_draw_hints();
 }
@@ -1463,7 +1594,8 @@ static void opanel_show_help(void) {
     redraw_paused = TRUE;
 }
 
-// Arrows, Enter, Home (back), PgUp/PgDn (page), F1 (help) and F2 (music) are handled here
+// Arrows, Enter, Home (back), PgUp/PgDn (page), F1 (help), F2 (music) and F3 (the focused
+// setting's description, on or off) are handled here
 // before the widgets see them: the slot list would swallow them, and the verify screen's
 // slorker takes any key as No. So is Esc (START) on the verify screen, which would only
 // go back there; elsewhere it closes the panel further on.
@@ -1522,6 +1654,11 @@ static uchar opanel_nav_key(uiEvent *ev, int key) {
 
     case KEY_F2:
         toggle_music_func(0, 0, 0);
+        return TRUE;
+
+    case KEY_F3:
+        opanel_tip_on = !opanel_tip_on;
+        opanel_draw_hints();
         return TRUE;
     }
     return FALSE;
@@ -1682,6 +1819,9 @@ errtype wrapper_panel_close(uchar clear_message) {
     opanel_focus = -1;
     opanel_queued_focus = -1;
     opanel_slider_editing = FALSE;
+    // the game draws the view again once it runs
+    opanel_tip_on = FALSE;
+    opanel_tip_drawn = FALSE;
     SavePrefs();
     inventory_page = inv_last_page;
     if (inventory_page < 0 && inventory_page != INV_3DVIEW_PAGE)

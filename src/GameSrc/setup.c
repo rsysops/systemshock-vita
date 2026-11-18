@@ -44,6 +44,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "miscqvar.h"
 #include "player.h"
 #include "version.h"
+#include "shockolate_version.h"
 #include "wrapper.h"
 #include "verify.h"
 #include "sdl_events.h"
@@ -77,6 +78,8 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define CURRENT_DIFF_COLOR (RED_BASE + 3)
 #define SELECTED_COLOR (RED_BASE)
 #define UNAVAILABLE_COLOR (RED_BASE + 11)
+#define VERSION_COLOR NORMAL_ENTRY_COLOR // the main menu's version, in its corner: as its entries
+#define VERSION_SHADOW_COLOR (BLACK + 1) // and its drop shadow (index 0 isn't drawn as black)
 
 uiSlab setup_slab;
 LGRegion setup_root_region;
@@ -407,8 +410,23 @@ errtype journey_draw(char part) {
     }
 
     // extract into buffer - AFTER we've stopped biorhythms (which used that buffer.....)
-    if (part == 0)
+    if (part == 0) {
+        static char version[] = "v" SHOCKOLATE_VERSION; // (the 2D library's strings aren't const)
+        short w, h;
+
         draw_raw_res_bm_temp(REF_IMG_bmJourneyOnwards, 0, 0);
+
+        // the version and the commit it was built from, in the bottom right
+        // corner: which build this is, without the log
+        gr_set_font(ResLock(RES_tinyTechFont));
+        gr_string_size(version, &w, &h);
+        ResUnlock(RES_tinyTechFont);
+        // a drop shadow first, a pixel down and right, then the text over it
+        gr_set_fcolor(VERSION_SHADOW_COLOR);
+        res_draw_text(RES_tinyTechFont, version, 320 - 2 - w + 1, 200 - 2 - h + 1);
+        gr_set_fcolor(VERSION_COLOR);
+        res_draw_text(RES_tinyTechFont, version, 320 - 2 - w, 200 - 2 - h);
+    }
 
     for (i = 0; i < NUM_SETUP_LINES; i++) {
         if ((part == 0) || (part - 1 == i)) {

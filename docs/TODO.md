@@ -18,6 +18,7 @@ Features:
 * FOV
 * Modifications?
 * Quick save?
+* Enhances edition shadows
 
 Fixes:
 * Audio mixing
@@ -29,7 +30,5 @@ Performance:
 * System Shock Enhanced shadow render as a mod
 
 User interface:
-* Options items labels to review
-* Traduction "Guide"?
-* Ajouter un tooltip pour les options?
-* Display game version + hash in the main menu
+* Optional: "Double-click to..."
+* Optional: Revoir l'écran d'aide / tuto
