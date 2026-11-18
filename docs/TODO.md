@@ -18,6 +18,7 @@ Features:
 * FOV
 * Modifications?
 * Quick save?
+* Enhances edition shadows
 
 Fixes:
 * Audio mixing
@@ -30,5 +31,5 @@ Performance:
 
 User interface:
 * Options items labels to review
-* Traduction "Guide"?
-* Ajouter un tooltip pour les options?
+* "Double-click to..."
+* Revoir l'écran d'aide / tuto

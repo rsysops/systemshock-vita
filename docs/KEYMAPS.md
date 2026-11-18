@@ -129,6 +129,7 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 | Start the game (New Game) | START | `Enter` | `End` | — |
 | Show the help / controls screen | △ | `V` | — | `F1` |
 | Toggle music | □ | `Z` | — | `F2` |
+| Show / hide the focused setting's description | SELECT | `Right Shift` | — | `F3` |
 | Retype the character name (New Game) | × on the Name row | `X` | `Enter` | — |
 | Move the cursor (only with **Input → Menu Cursor** enabled) | Right stick | `I` `J` `K` `L` | mouse | mouse |
 
@@ -160,8 +161,13 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
   Start; Left/Right change the focused category's level; × on Start launches,
   and so does START from anywhere on the screen. START does nothing on the
   other main menu screens.
-- □ and △ do nothing in the main menu. In the in-game menu, a "△ Help
-  □ Music" hint is shown at the top left of the view.
+- □, △ and SELECT do nothing in the main menu. In the in-game menu, a "△ Help
+  □ Music (SELECT) Info" hint is shown at the top left of the view.
+- **Descriptions** (in-game menu): SELECT shows a short description of the
+  focused setting on the Audio, Input and Options pages, in a box under the
+  hint; it follows the focus, and SELECT again hides it. Where there is nothing
+  to describe (the main list, Save, Load), no box is shown. Closing the menu
+  turns descriptions off.
 - **Help / controls screen**: ×, ○ or △ close it. This also applies to the one
   shown automatically at new game start. It works in fullscreen mode too (drawn
   over the view), but isn't available in cyberspace. Its keyboard and mouse

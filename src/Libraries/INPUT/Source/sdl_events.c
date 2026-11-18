@@ -105,7 +105,7 @@ static void MenuDirectionUp(SDL_Keycode sym)
 // screen and does nothing elsewhere (see intro_key_handler()).
 // Options panel: Esc (START) closes the whole panel, so
 // circle sends Home (back one screen), the bumpers send PgUp/PgDn (adjacent page),
-// triangle F1 (help screen) and square F2 (toggle music).
+// triangle F1 (help screen), square F2 (toggle music) and select F3 (a setting's description).
 // Help screen: cross, circle and triangle send Enter, which closes it.
 static SDL_Keycode MenuKeyForButton(Uint8 button, bool options_panel)
 {
@@ -141,6 +141,8 @@ static SDL_Keycode MenuKeyForButton(Uint8 button, bool options_panel)
         return options_panel ? SDLK_F1 : 0;
     case SDL_CONTROLLER_BUTTON_X:
         return options_panel ? SDLK_F2 : 0;
+    case SDL_CONTROLLER_BUTTON_BACK:
+        return options_panel ? SDLK_F3 : 0;
     case SDL_CONTROLLER_BUTTON_START:
         return options_panel ? SDLK_ESCAPE : SDLK_END;
     default:

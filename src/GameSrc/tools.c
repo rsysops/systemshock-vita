@@ -316,8 +316,39 @@ static void pad_glyph_ring(short x, short y, short size) {
         }
 }
 
+// pill filling the logical rect x,y,w,h, one logical pixel thick, its ends half circles as
+// high as it is; plotted per screen pixel like the ring, for the same reason
+static void pad_glyph_pill(short x, short y, short w, short h) {
+    int x0 = x, y0 = y, x1 = x + w, y1 = y + h; // screen rect, lr exclusive
+    int d, t, cy2, left2, right2, px, py;
+    long color = gr_get_fcolor();
+
+    if (perform_svga_conversion(OVERRIDE_SCALE)) {
+        x0 = SCONV_X(x);
+        y0 = SCONV_Y(y);
+        x1 = SCONV_X(x + w);
+        y1 = SCONV_Y(y + h);
+    }
+    d = y1 - y0;                       // the ends' diameter
+    t = (d / h > 1) ? d / h : 1;       // one logical pixel
+    cy2 = y0 + y1 - 1;                 // doubled centre line
+    left2 = 2 * x0 + d - 1;            // and doubled centres of the ends
+    right2 = 2 * x1 - d - 1;
+    for (py = y0; py < y1; py++)
+        for (px = x0; px < x1; px++) {
+            // distance to the segment between the ends' centres
+            int dx = 2 * px, dy = 2 * py - cy2, r2;
+
+            dx = dx < left2 ? dx - left2 : dx > right2 ? dx - right2 : 0;
+            r2 = dx * dx + dy * dy;
+            if (r2 <= d * d && r2 >= (d - 2 * t) * (d - 2 * t))
+                gr_set_pixel(color, px, py);
+        }
+}
+
 // outline of a pad button in the current colour, size x size at x,y: 'x' cross, 'o' circle,
-// 't' triangle, 's' square. Lines are one logical pixel thick, so they scale like the rest.
+// 't' triangle, 's' square; 'e' select, a pill twice as wide and two thirds as high, in the
+// middle of the row. Lines are one logical pixel thick, so they scale like the rest.
 void draw_pad_glyph(char button, short x, short y, short size) {
     short r = x + size - 1, b = y + size - 1;
 
@@ -340,6 +371,12 @@ void draw_pad_glyph(char button, short x, short y, short size) {
         ss_thick_int_line(x, b, r, b);
         ss_thick_int_line(x, y, x, b);
         break;
+    case 'e': {
+        short h = (2 * size / 3 > 3) ? 2 * size / 3 : 3;
+
+        pad_glyph_pill(x, y + (size - h) / 2, 2 * size, h);
+        break;
+    }
     }
 }
 

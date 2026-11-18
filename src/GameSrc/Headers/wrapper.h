@@ -107,6 +107,7 @@ enum TEMP_STR_ {
     REF_STR_SaveTemplate,
 
     REF_STR_Help = 0x11000020, // the options panel's pad hints
+    REF_STR_Info,
 };
 
 #endif // __WRAPPER_H
