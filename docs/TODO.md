@@ -30,6 +30,5 @@ Performance:
 * System Shock Enhanced shadow render as a mod
 
 User interface:
-* Options items labels to review
-* "Double-click to..."
-* Revoir l'écran d'aide / tuto
+* Optional: "Double-click to..."
+* Optional: Revoir l'écran d'aide / tuto
