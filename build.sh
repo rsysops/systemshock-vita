@@ -8,22 +8,19 @@ IMAGE_TAG="systemshock-vita-vitasdk"
 BUILD_DIR="build"
 VPK_NAME="systemshock"
 PROFILE_FLAG="OFF"
-CHECKS_FLAG="OFF"
 
-# "profile": the game with its timers, for measuring.
-# "profile checks": the same with the self-checks and the frame dumps, which
-# hitch and so are kept out of the build that measures.
-# Each is a package and an app of its own (vita/vita.cmake).
+# "profile": the game with its timers, for measuring. Its Profiler page picks
+# what it profiles: the timings alone, or with the self-checks and the frame
+# dumps (docs/PROFILING.md). A package and an app of its own (vita/vita.cmake).
 if [[ "${1:-}" == "profile" ]]; then
     BUILD_DIR="build-profile"
     VPK_NAME="systemshock-profile"
     PROFILE_FLAG="ON"
     shift
     if [[ "${1:-}" == "checks" ]]; then
-        BUILD_DIR="build-profile-checks"
-        VPK_NAME="systemshock-profile-checks"
-        CHECKS_FLAG="ON"
-        shift
+        echo "The checks have no build of their own any more: build \"profile\" and pick" >&2
+        echo "Profile: Checks on its Profiler page (in-game menu)." >&2
+        exit 1
     fi
 fi
 
@@ -33,10 +30,10 @@ if [[ "${1:-}" == "clean" ]]; then
     shift
 fi
 
-# anything else (a misspelling, "checks" without "profile", "clean" first)
+# anything else (a misspelling, "clean" first)
 # would otherwise build the plain game without a word
 if [[ $# -gt 0 ]]; then
-    echo "usage: ./build.sh [profile [checks]] [clean]" >&2
+    echo "usage: ./build.sh [profile] [clean]" >&2
     exit 1
 fi
 
@@ -52,7 +49,6 @@ docker run --rm \
     --user "$(id -u):0" \
     -e BUILD_DIR="$BUILD_DIR" \
     -e PROFILE_FLAG="$PROFILE_FLAG" \
-    -e CHECKS_FLAG="$CHECKS_FLAG" \
     "$IMAGE_TAG" \
     bash -c '
         set -euo pipefail
@@ -61,7 +57,6 @@ docker run --rm \
         cmake .. \
             -DCMAKE_TOOLCHAIN_FILE=$VITASDK/share/vita.toolchain.cmake \
             -DENABLE_VITA_PROFILE=$PROFILE_FLAG \
-            -DENABLE_VITA_PROFILE_CHECKS=$CHECKS_FLAG \
             -DCMAKE_BUILD_TYPE=None
         make -j"$(nproc)"
     '

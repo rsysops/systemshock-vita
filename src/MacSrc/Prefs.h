@@ -62,6 +62,13 @@ typedef struct {
 
     // The Input page's double-click bar, 0 to USHRT_MAX (see dclick_dealfunc)
     ushort goDoubleClick;
+
+    // What the profile build profiles, from its Profiler page (docs/PROFILING.md):
+    // the timings alone, or with the self-checks and the frame dumps; and
+    // whether variants 0 and 1 of the code under test take turns (vprof.h).
+    // Kept by every build, so that the game doesn't drop them.
+    bool profChecks;
+    bool profAlternate;
 } ShockPrefs;
 
 // The double-click bar's default: a third along, where its marker is

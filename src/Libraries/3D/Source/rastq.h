@@ -10,6 +10,12 @@
 
 #include "2d.h"
 
+// The profile build has the self-checks; its Profiler page turns them on and
+// off (rastq_set_check_interval, from vprof.c).
+#if defined(VITA_PROFILE) && !defined(RASTQ_SELFCHECK)
+#define RASTQ_SELFCHECK
+#endif
+
 typedef void (*rastq_tmap_func)(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 
 enum {
@@ -279,7 +285,8 @@ void rastq_poly(int index, long color, int n, grs_vertex **vpl);
 void rastq_hmap(grs_bitmap *bm, int n, grs_vertex **vpl, grs_tmap_info *ti);
 
 #ifdef RASTQ_SELFCHECK
-// Every nth recorded view also draws directly and compares the two results.
+// Every nth recorded view also draws directly and compares the two results;
+// 0, none.
 void rastq_set_check_interval(unsigned n);
 // For tests: replay on the calling thread, band after band. `bounds` holds
 // the bands - 1 rows where one band ends and the next begins. 0 bands

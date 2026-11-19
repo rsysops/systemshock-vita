@@ -1,6 +1,5 @@
 build
 build-profile
-build-profile-checks
 # the profiler's captures, dropped there to be read and not kept
 docs/profiles-*/
 # Prerequisites

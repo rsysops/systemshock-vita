@@ -105,6 +105,14 @@ enum TEMP_STR_ {
     REF_STR_LoadConfirm,
     REF_STR_AutoplayLogs,
     REF_STR_SaveTemplate,
+    // the profile build's Profiler page: each label, then its two choices
+    REF_STR_Profile,
+    REF_STR_ProfileTimings,
+    REF_STR_ProfileChecks,
+    REF_STR_Variants,
+    REF_STR_VariantsOne,
+    REF_STR_VariantsAlternate,
+    REF_STR_Profiler, // the main list's button to it
 
     REF_STR_Help = 0x11000020, // the options panel's pad hints
     REF_STR_Info,

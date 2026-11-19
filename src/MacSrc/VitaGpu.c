@@ -4,6 +4,7 @@
 #include <psp2/io/stat.h>
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/sysmem.h>
+#include <SDL.h>
 #include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -31,8 +32,9 @@
 #define CHECK_H 32
 // Frame pairs written for looking at on a PC: the 3rd comparison, and each
 // one after it that differs by more pixels than any before and by more than
-// this share of them, up to MAX_DUMPS in all. Writing one stops the game for
-// a second or two.
+// this share of them, up to MAX_DUMPS in all. The game only copies one (some
+// tens of ms, in a frame the timings leave out); a thread of its own writes
+// it to the card.
 #define DUMP_SHARE 0.05
 #define MAX_DUMPS 5
 #define DUMP_APART_US 30000000
@@ -875,59 +877,160 @@ static void vgpu_end(void) {
     in_scene = 0;
 }
 
-#ifdef VITA_PROFILE_CHECKS
+#ifdef VITA_PROFILE
 // ---- frame pairs for looking at on a PC -------------------------------------
 
-static void write_rows(const char *path, const uchar *pixels, int w, int h, int row) {
-    FILE *f = fopen(path, "wb");
+// Rows of `w` bytes, `row` apart, copied one after the other into `to`. A
+// memcpy reads GPU memory in bursts; byte by byte it is many times slower.
+static void copy_rows(uchar *to, const uchar *pixels, int w, int h, int row) {
     int y;
 
-    if (f == NULL)
-        return;
     for (y = 0; y < h; y++)
-        fwrite(pixels + (size_t)y * row, 1, (size_t)w, f);
-    fclose(f);
+        memcpy(to + (size_t)y * w, pixels + (size_t)y * row, (size_t)w);
 }
 
+// The dump being written: copies in RAM, and what the files are called. One at
+// a time; while `busy`, a dump that comes due is let go.
+#define DUMP_FILES 4
+static struct {
+    uchar *gpu, *cpu;
+    uchar palette[4 * 256];
+    char info[200];
+    struct {
+        const char *name; // NN-<name>
+        const void *data;
+        size_t bytes;
+    } files[DUMP_FILES];
+    int count, number;
+    size_t pixels; // what the copies have room for
+} dump;
+static SDL_Thread *dump_thread;
+static SDL_sem *dump_ready;
+static SDL_atomic_t dump_busy;
+unsigned vgpu_dump_us; // the last dump's writing, in the background
+
+static int dump_writer(void *unused) {
+    char dir[200], path[256];
+    int i;
+
+    (void)unused;
+    // on any core, when nothing of the game's wants it, as the log's writer
+    sceKernelChangeThreadCpuAffinityMask(sceKernelGetThreadId(), SCE_KERNEL_CPU_MASK_USER_ALL);
+    SDL_SetThreadPriority(SDL_THREAD_PRIORITY_LOW);
+    for (;;) {
+        long long t0;
+
+        SDL_SemWait(dump_ready);
+        t0 = sceKernelGetProcessTimeWide();
+        snprintf(dir, sizeof(dir), "%sgpudumps", VITA_PATH);
+        sceIoMkdir(dir, 0777);
+        for (i = 0; i < dump.count; i++) {
+            FILE *f;
+
+            snprintf(path, sizeof(path), "%s/%02d-%s", dir, dump.number, dump.files[i].name);
+            f = fopen(path, "wb");
+            if (f == NULL)
+                continue;
+            // the whole file at once: row by row, it was hundreds of writes
+            // to the card, and seconds
+            fwrite(dump.files[i].data, 1, dump.files[i].bytes, f);
+            fclose(f);
+        }
+        __atomic_store_n(&vgpu_dump_us, (unsigned)(sceKernelGetProcessTimeWide() - t0), __ATOMIC_RELAXED);
+        SDL_AtomicSet(&dump_busy, 0);
+    }
+    return 0;
+}
+
+static void dump_add(const char *name, const void *data, size_t bytes) {
+    dump.files[dump.count].name = name;
+    dump.files[dump.count].data = data;
+    dump.files[dump.count].bytes = bytes;
+    dump.count++;
+}
+
+// Whether a dump can be taken now: the writer is there and idle, and the
+// copies have their room.
+static int dump_can_start(int w, int h) {
+    size_t pixels = (size_t)w * h;
+
+    if (SDL_AtomicGet(&dump_busy))
+        return 0;
+    if (pixels > dump.pixels) {
+        // made for the first dump's canvas, again for a bigger one
+        free(dump.gpu);
+        free(dump.cpu);
+        dump.gpu = malloc(pixels);
+        dump.cpu = malloc(pixels);
+        dump.pixels = pixels;
+        if (dump.gpu == NULL || dump.cpu == NULL) {
+            free(dump.gpu);
+            free(dump.cpu);
+            dump.gpu = dump.cpu = NULL;
+            dump.pixels = 0;
+            return 0;
+        }
+    }
+    if (dump_ready == NULL)
+        dump_ready = SDL_CreateSemaphore(0);
+    if (dump_thread == NULL && dump_ready != NULL) {
+        dump_thread = SDL_CreateThread(dump_writer, "vgpu_dump", NULL);
+        if (dump_thread != NULL)
+            SDL_DetachThread(dump_thread);
+    }
+    return dump_thread != NULL;
+}
+
+// `gpu` is the GPU's picture, `cpu` the canvas, now holding the CPU's.
+static void vgpu_compared_now(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing);
+
 static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing) {
+    long long t0 = sceKernelGetProcessTimeWide();
+    unsigned took;
+
+    vgpu_compared_now(gpu, cpu, w, h, row, differing);
+    took = (unsigned)(sceKernelGetProcessTimeWide() - t0);
+    if (took > vgpu_counters.compare_max_us)
+        vgpu_counters.compare_max_us = took;
+}
+
+static void vgpu_compared_now(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing) {
     static int comparisons, dumps;
     static unsigned worst;
     static long long last_dump_us;
     long long now = sceKernelGetProcessTimeWide();
-    char dir[200], path[256];
-    FILE *f;
 
     comparisons++;
     if (dumps >= MAX_DUMPS)
         return;
     if (comparisons != 3 && (differing <= worst || differing <= (unsigned)(DUMP_SHARE * w * h)))
         return;
-    // one freeze at a time: walking into a room sets record after record
+    // few, and apart: walking into a room sets record after record
     if (dumps != 0 && now - last_dump_us < DUMP_APART_US)
+        return;
+    // the last one is still being written: the next that qualifies goes
+    if (!dump_can_start(w, h))
         return;
     if (differing > worst)
         worst = differing;
     last_dump_us = now;
     dumps++;
-    snprintf(dir, sizeof(dir), "%sgpudumps", VITA_PATH);
-    sceIoMkdir(dir, 0777);
-    snprintf(path, sizeof(path), "%s/%02d-gpu.raw", dir, dumps);
-    write_rows(path, gpu, w, h, row);
-    snprintf(path, sizeof(path), "%s/%02d-cpu.raw", dir, dumps);
-    write_rows(path, cpu, w, h, row);
-    snprintf(path, sizeof(path), "%s/%02d-palette.raw", dir, dumps);
-    f = fopen(path, "wb");
-    if (f != NULL) {
-        // 256 colours, 4 bytes each: red, green, blue, alpha
-        fwrite(vita2d_texture_get_palette(texBuffer), 4, 256, f);
-        fclose(f);
-    }
-    snprintf(path, sizeof(path), "%s/%02d-info.txt", dir, dumps);
-    f = fopen(path, "w");
-    if (f != NULL) {
-        fprintf(f, "width=%d height=%d comparison=%d differing=%u\n", w, h, comparisons, differing);
-        fclose(f);
-    }
+
+    // Copies of all of it, for the writer to take its time over
+    dump.count = 0;
+    dump.number = dumps;
+    copy_rows(dump.gpu, gpu, w, h, row);
+    dump_add("gpu.raw", dump.gpu, (size_t)w * h);
+    copy_rows(dump.cpu, cpu, w, h, row);
+    dump_add("cpu.raw", dump.cpu, (size_t)w * h);
+    // 256 colours, 4 bytes each: red, green, blue, alpha
+    memcpy(dump.palette, vita2d_texture_get_palette(texBuffer), sizeof(dump.palette));
+    dump_add("palette.raw", dump.palette, sizeof(dump.palette));
+    snprintf(dump.info, sizeof(dump.info), "width=%d height=%d comparison=%d differing=%u\n", w, h, comparisons,
+             differing);
+    dump_add("info.txt", dump.info, strlen(dump.info));
+    SDL_AtomicSet(&dump_busy, 1);
+    SDL_SemPost(dump_ready);
 }
 
 #else

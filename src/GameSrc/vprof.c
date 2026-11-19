@@ -14,6 +14,7 @@
 #include <string.h>
 #include <vita2d.h>
 
+#include "Prefs.h"
 #include "Shock.h"
 #include "fix.h"
 #include "mainloop.h"
@@ -88,9 +89,21 @@ static short g_window_loop_mode = -1;
 static int g_window_open = 0;
 
 int vprof_variant = 1;
-#if VPROF_ALTERNATE
+int vprof_checks = 0;
 static int g_windows_in_variant = 0;
-#endif
+
+// What the Profiler page asks for, taken between two windows so that none
+// mixes two settings.
+static void vprof_apply_settings(void) {
+    vprof_checks = gShockPrefs.profChecks;
+    // An odd interval, so that with two views a frame the check takes them
+    // in turn; 0 checks none.
+    rastq_set_check_interval(vprof_checks ? 63 : 0);
+    if (!gShockPrefs.profAlternate) {
+        vprof_variant = 1;
+        g_windows_in_variant = 0;
+    }
+}
 
 // What the workers had done when the window began, and their share of the
 // last whole window: in jobs, awake without one, asleep.
@@ -538,6 +551,8 @@ static void vprof_startup_checks(void) {
 
 static void vprof_window_reset(SceInt64 now, short loop_mode) {
     int i;
+
+    vprof_apply_settings();
     for (i = 0; i < VPROF_PHASE_COUNT; i++) {
         g_call_accum[i].total_us = 0;
         g_call_accum[i].max_us = 0;
@@ -958,7 +973,7 @@ static void vprof_window_flush(SceInt64 now) {
     write_t0 = sceKernelGetProcessTimeWide();
     {
         log_printf(
-                "t=%lld mode=%d var=%d fps=%.1f frame_avg=%.2f frame_max=%.2f "
+                "t=%lld mode=%d var=%d checks=%d fps=%.1f frame_avg=%.2f frame_max=%.2f "
                 "input=%.2f/%.2f sim=%.2f/%.2f render3d=%.2f/%.2f "
                 "ui2d=%.2f/%.2f present=%.2f/%.2f | "
                 "traverse=%.2f/%.2f sendview=%.2f/%.2f raster=%.2f/%.2f "
@@ -985,10 +1000,11 @@ static void vprof_window_flush(SceInt64 now) {
                 "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
                 "applog=%u:%.2f applogmax=%08x:%.2f | at=%s | amap=%.2f/%.2f amaps=%d amapmax=%.2f | "
                 "lateswap=%d light=%d onmcb=%d/%d nearmcb=%d/%d prevmcb=%d/%d mcb0=%u mcbmax=%.2f vbllag=%.2f aprio=%d amask=%x mprio=%d "
-                "mmask=%x cutwait=%.2f/%.2f\n",
+                "mmask=%x cutwait=%.2f/%.2f | cmpms=%.2f dumpms=%.0f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
+                vprof_checks,
                 fps,
                 frame_avg,
                 frame_max,
@@ -1119,7 +1135,9 @@ static void vprof_window_flush(SceInt64 now) {
                 us_to_ms((SceInt64)__atomic_exchange_n(&g_vbl_lag_max, 0, __ATOMIC_RELAXED)),
                 g_audio_prio, (unsigned)g_audio_mask, g_main_prio, (unsigned)g_main_mask,
                 us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_us) / g_frame_samples,
-                us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_max_us));
+                us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_max_us),
+                us_to_ms((SceInt64)vgpu_counters.compare_max_us),
+                us_to_ms((SceInt64)__atomic_load_n(&vgpu_dump_us, __ATOMIC_RELAXED)));
         __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
         g_res_max_us = 0;
         g_res_max_id = 0;
@@ -1235,6 +1253,7 @@ void vprof_frame_end(void) {
         // The frame's counts go, but not the self-check's results, nor what
         // tells the next views apart.
         rastq_stats_t now_stats = rastq_stats;
+        vgpu_counters_t now_gpu = vgpu_counters;
 
         for (i = 0; i < VPROF_PHASE_COUNT; i++) {
             g_call_accum[i] = g_call_accum_at_frame_begin[i];
@@ -1248,6 +1267,8 @@ void vprof_frame_end(void) {
         rastq_stats.gpu_check_pixels = now_stats.gpu_check_pixels;
         rastq_stats.gpu_check_diff = now_stats.gpu_check_diff;
         vgpu_counters = g_vgpu_at_frame_begin;
+        // a comparison is what makes a frame be left out: its time stays
+        vgpu_counters.compare_max_us = now_gpu.compare_max_us;
         g_skipped++;
         if (elapsed > g_skipped_max_us) {
             g_skipped_max_us = elapsed;
@@ -1278,13 +1299,11 @@ void vprof_frame_end(void) {
 
     if (now - g_window_start_us >= 1000000) {
         vprof_window_flush(now);
-#if VPROF_ALTERNATE
         // Switch only at a window boundary, so no window mixes two variants.
-        if (++g_windows_in_variant >= VPROF_WINDOWS_PER_VARIANT) {
+        if (gShockPrefs.profAlternate && ++g_windows_in_variant >= VPROF_WINDOWS_PER_VARIANT) {
             g_windows_in_variant = 0;
             vprof_variant = (vprof_variant + 1) % VPROF_VARIANT_COUNT;
         }
-#endif
         vprof_window_reset(now, _current_loop);
     }
 }
@@ -1337,8 +1356,8 @@ void vprof_overlay_draw(void) {
 
     (void)raster_call_avg_ms;
     snprintf(line, sizeof(line),
-             "mode=%d var=%d age=%llds check=%u/%u leaks=%u gpuwait=%.1fms gpucpu=%.0f gpudiff=%.1f/1000",
-             _current_loop, vprof_variant, (long long)(window_age_us / 1000000), rastq_stats.check_bad_rows,
+             "mode=%d var=%d checks=%d age=%llds check=%u/%u leaks=%u gpuwait=%.1fms gpucpu=%.0f gpudiff=%.1f/1000",
+             _current_loop, vprof_variant, vprof_checks, (long long)(window_age_us / 1000000), rastq_stats.check_bad_rows,
              rastq_stats.check_runs, rastq_stats.check_leak_rows, us_to_ms(rastq_stats.gpu_wait_us) / samples,
              (double)rastq_stats.gpu_cpu_calls / samples,
              rastq_stats.gpu_check_pixels

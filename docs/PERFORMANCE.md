@@ -3941,7 +3941,9 @@ workers woken once a second).
   builds with them, into `build-profile-checks/`, for work on the
   drawing code. Without them their code isn't compiled in at all
   (`VITA_PROFILE_CHECKS`), so the measuring flavour's queue and HUD
-  code are the normal build's plus the timers.
+  code are the normal build's plus the timers. (Since 2026-11 the two
+  are one build again, whose Profiler page turns the checks on and off:
+  see PROFILING.md.)
 - In the log, `logwrite` is now what the lines cost the main thread;
   `logio` is the writer's longest write, `logdrop` the lines dropped.
 - The normal build's code is unchanged.

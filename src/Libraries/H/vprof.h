@@ -49,16 +49,21 @@ typedef enum {
 // Variants of the code under test. Currently the priority of a worker
 // thread while it cuts the GPU's list (worker_boost in rastqthr.c): 0 = its
 // own, as it was, 1 = the audio thread's (docs/PERFORMANCE.md, step S13b).
-// With VPROF_ALTERNATE set they are alternated every VPROF_WINDOWS_PER_VARIANT
-// 1 s windows, so that they can be compared within one session. Without it
-// the build stays on variant 1, which is what the game does.
+// With the Profiler page's Variants on Alternate they take turns every
+// VPROF_WINDOWS_PER_VARIANT 1 s windows, so that they can be compared within
+// one session. Otherwise the build stays on variant 1, which is what the game
+// does.
 #define VPROF_VARIANT_COUNT 2
-#define VPROF_ALTERNATE 0
 // Frame times need only a few seconds: step S13b took 20. (Ten minutes, 600,
 // for when the battery's drain is what is compared: its gauge moves a few
 // mAh every 35 s.)
 #define VPROF_WINDOWS_PER_VARIANT 20
 extern int vprof_variant;
+// 1 while the self-checks run (the Profiler page's Profile on Checks): one 3D
+// view in 63 drawn twice and compared, the kept HUD pictures held against a
+// fresh drawing, the frame dumps. Like the variant, it changes only between
+// two 1 s windows.
+extern int vprof_checks;
 
 // Leaves the current frame out of the window's statistics.
 void vprof_frame_discard(void);

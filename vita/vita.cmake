@@ -1,14 +1,10 @@
 include("${VITASDK}/share/vita.cmake" REQUIRED)
 
-# The game, and the two flavours of its profile build (docs/PROFILING.md):
-# each is a package and an app of its own, so that the three can be installed
-# side by side. They share the game's data folder, whose path doesn't depend
-# on the app (VITA_PATH in src/MacSrc/Shock.h).
-if(ENABLE_VITA_PROFILE_CHECKS)
-	set(VITA_APP_NAME "System Shock Checks")
-	set(VITA_TITLEID  "SHOK00003")
-	set(VPK_NAME systemshock-profile-checks)
-elseif(ENABLE_VITA_PROFILE)
+# The game, and its profile build (docs/PROFILING.md): each is a package and
+# an app of its own, so that the two can be installed side by side. They share
+# the game's data folder, whose path doesn't depend on the app (VITA_PATH in
+# src/MacSrc/Shock.h).
+if(ENABLE_VITA_PROFILE)
 	set(VITA_APP_NAME "System Shock Profile")
 	set(VITA_TITLEID  "SHOK00002")
 	set(VPK_NAME systemshock-profile)

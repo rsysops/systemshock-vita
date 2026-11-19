@@ -14,19 +14,28 @@ the normal build in three ways:
 - it draws six lines of figures over the picture;
 - it appends one line a second to a log on the memory card, and one
   for each stutter;
-- in its second flavour, it checks its own drawing now and then (see
-  [What it changes](#what-it-changes-in-the-game)).
+- its in-game menu has one more page, Profiler, whose two entries pick
+  what it profiles
+  (see [What it changes](#what-it-changes-in-the-game)).
 
-It comes in two flavours:
+`./build.sh profile` gives `build-profile/systemshock-profile.vpk`, the
+app System Shock Profile (`SHOK00002`). It is an app of its own, next to
+the game (`build/systemshock.vpk`, System Shock, `SHOK00001`): the two
+can be installed at once (`vita/vita.cmake`).
 
-| command | package | app on the Vita | for |
-|---|---|---|---|
-| `./build.sh profile` | `build-profile/systemshock-profile.vpk` | System Shock Profile (`SHOK00002`) | measuring: the game with its timers and nothing else |
-| `./build.sh profile checks` | `build-profile-checks/systemshock-profile-checks.vpk` | System Shock Checks (`SHOK00003`) | work on the drawing code: the same with the self-checks and the frame dumps, which hitch three times a second and so are kept out of the first |
+The Profiler page is the main list's last button, alone on a third row
+(the game's own buttons stay where they are), and L / R reach it from
+the other pages. Its two entries:
 
-Each is an app of its own, next to the game (`build/systemshock.vpk`,
-System Shock, `SHOK00001`): the three can be installed at once
-(`vita/vita.cmake`).
+| entry | choices | for |
+|---|---|---|
+| Profile | **Timings** (the default), Checks | Timings: measuring, the game with its timers and nothing else. Checks: work on the drawing code, the same with the self-checks and the frame dumps, which hitch three times a second and so are kept out of measuring (`checks=` in the log) |
+| Variants | **1 only** (the default), Alternate | Alternate: two ways of doing something under test take turns, twenty seconds each (`var=`; see [Comparing two ways](#comparing-two-ways-of-doing-something)) |
+
+Both are kept in `prefs.txt` (`profile = timings` or `checks`,
+`profile-variants = one` or `alternate`), which every build writes, and
+both change only between two logged seconds, so no line of the log mixes
+two settings.
 
 In the normal build every timer compiles to nothing: `VPROF_RUN(phase,
 code)` is just `code`. Nothing of the profiler ships in it.
@@ -34,14 +43,13 @@ code)` is just `code`. Nothing of the profiler ships in it.
 ## Quick start
 
 1. **Build.** `./build.sh profile` gives
-   `build-profile/systemshock-profile.vpk` (`./build.sh profile
-   checks`: `build-profile-checks/systemshock-profile-checks.vpk`). The
-   normal build goes to `build/`, so none of them share anything.
+   `build-profile/systemshock-profile.vpk`. The normal build goes to
+   `build/`, so the two share nothing.
 2. **Install.** The package installs as an app of its own and leaves
-   the game where it is. All three read and write the same folder,
+   the game where it is. Both read and write the same folder,
    `ux0:data/systemshock/`: the game's files, the saves and the
-   settings are shared, and so are the two flavours' `profile.txt`,
-   `gpu.txt` and `gpudumps`.
+   settings are shared. On the Profiler page, set Profile to what you
+   are after: Timings to measure, Checks for a change to the drawing.
 3. **Clear the old capture.** In `ux0:data/systemshock/`, delete
    `profile.txt` and the `gpudumps` folder. The log is appended to,
    never cleared; without this the new capture follows the old one in
@@ -71,29 +79,33 @@ commit `1eb33db0`.
 ## What it changes in the game
 
 - **It draws as the game does**: on the GPU, or on three cores when
-  the GPU can't be used. It can also switch between two ways of doing
-  something under test, when `VPROF_ALTERNATE` is set to 1 in
-  `src/Libraries/H/vprof.h` (it is 0): at present a worker thread
-  keeping its own priority while it cuts the GPU's list (`var=0`, as
-  it was before step S13b) against taking the audio thread's (`var=1`,
-  what the game does), twenty seconds each. The log says which was on
-  (`var=`). That is what makes
-  two ways comparable: same place, same moment, same capture.
+  the GPU can't be used. With Variants on Alternate it switches between
+  two ways of doing something under test, twenty seconds each: at
+  present a worker thread keeping its own priority while it cuts the
+  GPU's list (`var=0`, as it was before step S13b) against taking the
+  audio thread's (`var=1`, what the game does). The log says
+  which was on (`var=`). That is what makes two ways comparable: same
+  place, same moment, same capture.
 - **It writes its log from a thread of its own**, a few times a second.
   The main thread only builds the lines (`logwrite=`); the card is the
   writer's business (`logio=`). A read of the game's that falls on a
   write can still wait for it.
-- **With the checks flavour only, it checks pictures.** One 3D view in
+- **With Profile on Checks only, it checks pictures.** One 3D view in
   63 is drawn twice, by two paths, and compared (see
   [Self-checks](#self-checks-and-frame-dumps)). Such a frame is slow,
   about 68 ms, so it is left out of the timings (`skipped=`); with the
-  HUD's checks that is about three a second. And it stops for about
-  four seconds when it writes a frame dump to the card: at most five
-  times in a session, 30 seconds apart. To find the game's stutters,
-  use the first flavour, or go by the `spike` lines and not by the
-  feel (see [Stutters](#stutters)).
+  HUD's checks that is about three a second. A frame dump, at most five
+  a session and 30 seconds apart, is only copied by the game, in such
+  a frame (`cmpms=`: the second's longest comparison); a thread of its
+  own writes it to the card in the background (`dumpms=`, the last
+  one's writing). Until 2026-11 the game wrote it itself, row by row,
+  and stopped for seconds. To find the game's stutters,
+  use Timings, or go by the `spike` lines and not by the feel (see
+  [Stutters](#stutters)).
 - **It costs a little.** A timer is two clock reads; the overlay is
-  six lines of text.
+  six lines of text. The checks' buffers, some 1.4 MB, are there even
+  with Timings, and each view and kept HUD picture asks whether the
+  checks are on.
 
 ## The overlay
 
@@ -101,7 +113,7 @@ commit `1eb33db0`.
 fps=62.8 frame=15.92/16.74ms music=14%
 input=0.2 sim=0.5 render3d=8.1 ui2d=0.0 present=6.9
 traverse=5.1 raster=2.4ms record=0.44ms cmds=131 batches=0 wait=0.0ms
-mode=1 var=1 age=0s check=0/123 leaks=0 gpuwait=0.4ms gpucpu=0 gpudiff=59.9/1000
+mode=1 var=1 checks=1 age=0s check=0/123 leaks=0 gpuwait=0.4ms gpucpu=0 gpudiff=59.9/1000
 workers job=2/2% spin=98/98% sleep=0/0% lists=1.0 shared, 0.0 solo (0 calls)
 spikes=3 last=212.4ms t=412 (sndload 205.1)
 ```
@@ -110,7 +122,8 @@ The figures of the first four lines are those of the second under way,
 so they jump when it starts again. Line 1 is the frame: rate, average
 and longest time, and the share of one core the music takes. Lines 2
 and 3 are the phases of a frame, in ms. Line 4 says which screen is up
-(`mode`), which path is on (`var`), and how the self-checks are going.
+(`mode`), which path is on (`var`), whether the self-checks run
+(`checks`), and how they are going.
 The fields are the log's; only `gpudiff` is given per thousand pixels
 here.
 
@@ -378,7 +391,7 @@ isn't the one `nm` gives, the game was loaded elsewhere and every
 address is off by the difference. It is not the same from one capture
 to the next (0, 0x3a000 and 0x79000 so far): take it from each
 session's own line, and look the addresses up in the file of the
-flavour that session ran. A
+build that session ran. A
 stutter in a second that isn't logged (the screen changed) still gets
 its line, with the next second's.
 
@@ -411,14 +424,15 @@ late t=341.30 frame=25.23 work=8.75 swapwait=16.48 vbl=2 swapat=8.41 vbllag=0.05
 | `leaks` | total: rows a thread wrote outside its band. Must be 0 |
 | `gpudiff=a/b` | total: pixels the GPU drew differently from the CPU / pixels compared. A few percent is normal: edges and light bands fall a pixel apart |
 | `hudcheck=a/b` | total: kept HUD pictures that differed from a fresh drawing / compared. `a` must be 0 |
+| `cmpms` | the second's longest comparison of a GPU picture with the CPU's, on the game's thread, in ms: a frame dump's copy, when there is one |
+| `dumpms` | how long the last frame dump took its writer thread to put on the card, in ms (0 before the first) |
 
 ### Traps
 
 - **`fps` above 60.** It is 1000 / `frame_avg`, over the frames that
-  count. With the checks flavour it reads 61 to 63 at the screen's
-  60: a check's long frame is left out of the average, and the short
-  frames that catch up after it are not. The measuring flavour reads
-  60.0. The same happens for a second after a switch to a faster path.
+  count. With Checks it reads 61 to 63 at the screen's 60: a check's
+  long frame is left out of the average, and the short frames that
+  catch up after it are not. With Timings it reads 60.0. The same happens for a second after a switch to a faster path.
 - **Fields that contain others.** `render3d` contains `traverse` and
   `sendview`; `traverse` contains `raster`; with the GPU renderer
   `render3d` and `sendview` also contain `helpscan`, which runs while
@@ -434,12 +448,13 @@ Three rules have held up:
 
 1. **Compare inside one capture.** Two captures taken at different
    spots, or at the same spot on different days, don't compare. With
-   `VPROF_ALTERNATE` set, the alternating `var=` gives both paths in
+   Variants on Alternate, the alternating `var=` gives both paths in
    the same place.
 2. **Take medians of the seconds**, not the mean: a stall or a check
    frame's neighbour doesn't move a median.
 3. **Cut the capture** by the `check` numbers noted while playing and
-   by `mode`, and look at each part and each `var` on its own.
+   by `mode`, and look at each part and each `var` on its own. Keep
+   the seconds with `checks=1` out of any timing.
 
 A starting point, in Python. It reads a capture and prints medians for
 the parts you name:
@@ -464,6 +479,7 @@ for first, last, name in parts:
         part = [r for r in rows
                 if first <= checks(r) < last and r['var'] == var
                 and r['mode'] in '01'             # in the game
+                and r.get('checks', '0') == '0'   # no self-check
                 and num(r, 'frame_max') < 60]     # no stall in it
         if part:
             print(name, 'var', var, len(part), 'seconds:',
@@ -473,10 +489,11 @@ for first, last, name in parts:
 
 ## Self-checks and frame dumps
 
-The first two are in every profile build. The others are only in the
-checks flavour (`./build.sh profile checks`): without it `check=`,
-`leaks=`, `gpudiff=` and `hudcheck=` stay at zero and no dump is
-written.
+The first two run in every profile build. The others only while the
+Profiler page's Profile is on Checks (`checks=1`): until then `check=`,
+`leaks=`, `gpudiff=` and `hudcheck=` stay at zero and no
+dump is written. Turned back to Timings, their totals stay where they
+were.
 
 | check | when | what it compares | where the result is |
 |---|---|---|---|
@@ -571,8 +588,8 @@ a discarded frame's counts are rolled back.
 
 ### Comparing two ways of doing something
 
-With `VPROF_ALTERNATE` set to 1 (`src/Libraries/H/vprof.h`; it is 0
-unless a comparison is under way), `vprof_variant` goes round
+With the Profiler page's Variants on Alternate (`profile-variants =
+alternate` in `prefs.txt`), `vprof_variant` goes round
 `VPROF_VARIANT_COUNT` values, one every `VPROF_WINDOWS_PER_VARIANT`
 logged seconds, and only changes between two seconds. Read it where
 the two ways part:
@@ -587,11 +604,11 @@ the two ways part:
 `defined(__vita__) && defined(VITA_PROFILE)` instead)
 
 and every log line says which was on. At present it is read in
-`rastq_gpu_sharing` in `src/Libraries/3D/Source/rastq.c`: 0 shares the
-GPU's lists with the workers always, 1 only while frames are short of
-time. Each piece of work redefines what the values mean; raise
-`VPROF_VARIANT_COUNT` to compare three. Without `VPROF_ALTERNATE` the
-build stays on 1, so 1 should be what the game does.
+`boost_wanted` in `src/Libraries/3D/Source/rastqthr.c`: 0 a worker
+keeps its own priority while it cuts the GPU's list, 1 it takes the
+audio thread's (step S13b). Each piece of work redefines what the values mean; raise
+`VPROF_VARIANT_COUNT` to compare three. On 1 only, the build stays on
+1, so 1 should be what the game does.
 
 ### Leaving a frame out
 

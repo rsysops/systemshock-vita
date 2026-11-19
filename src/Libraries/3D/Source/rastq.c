@@ -1,10 +1,5 @@
 // Record, then replay in row bands: see rastq.h and docs/PERFORMANCE.md.
 
-// The profile build that checks its own drawing (./build.sh profile checks)
-#if defined(VITA_PROFILE_CHECKS) && !defined(RASTQ_SELFCHECK)
-#define RASTQ_SELFCHECK
-#endif
-
 #include <math.h>
 #include <stdatomic.h>
 #include <stdint.h>

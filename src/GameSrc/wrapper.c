@@ -77,6 +77,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #define AUDIO_BUTTON         2
 #define INPUT_BUTTON         3
 #define OPTIONS_BUTTON       4
+#define PROFILER_BUTTON      5 // the profile build's
 #define QUIT_BUTTON          7
 
 #define MOUSE_DOWN (MOUSE_LDOWN | MOUSE_RDOWN | UI_MOUSE_LDOUBLE)
@@ -123,6 +124,9 @@ extern grs_bitmap slider_cursor_bmap;
 extern char which_lang;
 
 void options_screen_init(void);
+#ifdef VITA_PROFILE
+void profiler_screen_init(void);
+#endif
 void wrapper_init(void);
 void load_screen_init(void);
 void save_screen_init(void);
@@ -132,7 +136,17 @@ static void (*wrapper_return_screen)(void) = NULL;
 
 // Keyboard / D-pad navigation: one focused widget per screen, moved with the arrow keys or by
 // hovering it with the cursor; Enter activates it, Home goes back, PgUp/PgDn switch page.
-enum { PAGE_SAVE, PAGE_LOAD, PAGE_AUDIO, PAGE_INPUT, PAGE_OPTIONS, NUM_PAGES };
+enum {
+    PAGE_SAVE,
+    PAGE_LOAD,
+    PAGE_AUDIO,
+    PAGE_INPUT,
+    PAGE_OPTIONS,
+#ifdef VITA_PROFILE
+    PAGE_PROFILER, // the profile build's
+#endif
+    NUM_PAGES
+};
 
 #define PAGE_NONE -1           // main list: PgUp/PgDn do nothing there
 #define OPANEL_SLIDER_STEP 5   // pixels a grabbed bar moves per Left/Right press (same as the mouse wheel)
@@ -365,6 +379,13 @@ static struct {
     // the buttons fit about 12 characters: the label isn't wrapped
     {REF_STR_AutoplayLogs, {"Log autoplay", "Lect. journ.", "Log autoplay"}},
     {REF_STR_SaveTemplate, {"Save Templ.", "Mod\x8a" "le Sauv.", "Namensvorl."}},
+    {REF_STR_Profiler, {"Profiler", "Profileur", "Profiler"}},
+    {REF_STR_Profile, {"Profile", "Profil", "Profil"}},
+    {REF_STR_ProfileTimings, {"Timings", "Temps", "Zeiten"}},
+    {REF_STR_ProfileChecks, {"Checks", "Contr\x93les", "Pr\x81" "fungen"}},
+    {REF_STR_Variants, {"Variants", "Variantes", "Varianten"}},
+    {REF_STR_VariantsOne, {"1 only", "1 seule", "Nur 1"}},
+    {REF_STR_VariantsAlternate, {"Alternate", "Altern\x82" "es", "Wechsel"}},
 
     {REF_STR_Help, {"Help", "Aide", "Hilfe"}},
     {REF_STR_Info, {"Info", "Infos", "Info"}},
@@ -1320,6 +1341,11 @@ static void opanel_open_page(int page) {
     case PAGE_OPTIONS:
         wrapper_pushbutton_func(OPTIONS_BUTTON);
         break;
+#ifdef VITA_PROFILE
+    case PAGE_PROFILER:
+        wrapper_pushbutton_func(PROFILER_BUTTON);
+        break;
+#endif
     }
 }
 
@@ -1439,6 +1465,15 @@ static const struct {
      {"Uses a template to name saves, for example: Save 3 (Medical)",
       "Utilise un mod\x8ale pour nommer les sauvegardes, par exemple : Sauvegarde 3 (Medical)",
       "Benennt Spielst\x84nde nach einer Vorlage, zum Beispiel: Spielstand 3 (Medizin)"}},
+    // the profile build's (docs/PROFILING.md)
+    {REF_STR_Profile,
+     {"The timings alone, or with the self-checks and frame dumps, which hitch. From the next second.",
+      "Les temps seuls, ou avec les auto-contr\x93les et captures, qui saccadent. D\x8as la seconde suivante.",
+      "Nur die Zeiten, oder mit Selbstpr\x81" "fungen und Bild-Dumps, die ruckeln. Ab der n\x84" "chsten Sekunde."}},
+    {REF_STR_Variants,
+     {"Variant 1 only, or variants 0 and 1 of the code under test in turn, 20 s each (var= in the log).",
+      "La variante 1 seule, ou les variantes 0 et 1 du code test\x82 tour \x85 tour, 20 s chacune (var= du journal).",
+      "Nur Variante 1, oder die Varianten 0 und 1 des getesteten Codes im Wechsel, je 20 s (var= im Log)."}},
 };
 
 #define OPANEL_TIP_LINES 3 // the most a description takes
@@ -1895,6 +1930,11 @@ void wrapper_pushbutton_func(uchar butid) {
     case OPTIONS_BUTTON: // Options
         options_screen_init();
         break;
+#ifdef VITA_PROFILE
+    case PROFILER_BUTTON: // the profile build's Profiler
+        profiler_screen_init();
+        break;
+#endif
     case QUIT_BUTTON: // Quit
         verify_screen_init(quit_verify_pushbutton_handler, quit_verify_slorker);
         message_info(get_temp_string(REF_STR_QuitConfirm));
@@ -1923,6 +1963,11 @@ void wrapper_init(void) {
         standard_button_rect(&r, i);
         pushbutton_init(id, keyequivs[id], REF_STR_WrapperText + id, wrapper_pushbutton_func, &r);
     }
+#ifdef VITA_PROFILE
+    // the profile build's, alone on a third row: the game's two stay as they are
+    standard_button_rect(&r, 6);
+    pushbutton_init(PROFILER_BUTTON, 'p', REF_STR_Profiler, wrapper_pushbutton_func, &r);
+#endif
 
     opanel_redraw(TRUE);
 }
@@ -2272,6 +2317,31 @@ void options_screen_init(void) {
 
     opanel_redraw(TRUE);
 }
+
+#ifdef VITA_PROFILE
+// The profile build's page: what it profiles, and whether two variants take
+// turns. vprof.c takes them between two of its 1 s windows; they are saved
+// with the other settings when the panel closes (docs/PROFILING.md).
+void profiler_screen_init(void) {
+    LGRect r;
+
+    clear_obuttons();
+    opanel_screen_begin(profiler_screen_init, wrapper_init, PAGE_PROFILER, PROFILER_BUTTON);
+
+    standard_button_rect(&r, 0);
+    multi_init(0, tolower(get_temp_string(REF_STR_Profile)[0]), REF_STR_Profile, REF_STR_ProfileTimings, ID_NULL,
+               sizeof(gShockPrefs.profChecks), &gShockPrefs.profChecks, 2, NULL, &r);
+
+    standard_button_rect(&r, 1);
+    multi_init(1, tolower(get_temp_string(REF_STR_Variants)[0]), REF_STR_Variants, REF_STR_VariantsOne, ID_NULL,
+               sizeof(gShockPrefs.profAlternate), &gShockPrefs.profAlternate, 2, NULL, &r);
+
+    // FIXME: Cannot pass a keycode with modifier flags as uchar
+    keywidget_init(QUIT_BUTTON, /*KB_FLAG_ALT |*/ 'x', wrapper_pushbutton_func);
+
+    opanel_redraw(TRUE);
+}
+#endif
 
 #pragma disable_message(202)
 uchar wrapper_options_func(ushort keycode, uint32_t context, intptr_t data) {

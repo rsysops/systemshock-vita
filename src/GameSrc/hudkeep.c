@@ -10,10 +10,10 @@
 
 hudkeep_stats_t hudkeep_stats;
 
-// In the profile build, one copy in this many is also drawn the old way and
-// the two compared: about one frame in 64 for a text, and one in 40 for the
-// stretched bitmaps, which come some fifty to a frame (the count isn't a
-// multiple of that, so the check goes round them).
+// With the profile build's checks on (vprof_checks), one copy in this many is
+// also drawn the old way and the two compared: about one frame in 64 for a
+// text, and one in 40 for the stretched bitmaps, which come some fifty to a
+// frame (the count isn't a multiple of that, so the check goes round them).
 #define CHECK_TEXT_EVERY 64
 #define CHECK_SCALED_EVERY 2039
 
@@ -21,7 +21,7 @@ static unsigned long keep_clock; // counts uses, to find the one unused the long
 
 static int fill_is_normal(void) { return gr_get_fill_type() == FILL_NORM; }
 
-#ifdef VITA_PROFILE_CHECKS
+#ifdef VITA_PROFILE
 #define CHECK_MARGIN 8
 #define CHECK_BYTES (1100 * 160)
 static uchar check_before[CHECK_BYTES], check_copied[CHECK_BYTES];
@@ -33,7 +33,7 @@ typedef struct {
 } check_area;
 
 static int check_start(check_area *a, unsigned *count, unsigned every, int x, int y, int w, int h) {
-    if (++*count % every != 0)
+    if (!vprof_checks || ++*count % every != 0)
         return 0;
     a->x = x - CHECK_MARGIN;
     a->y = y - CHECK_MARGIN;
@@ -131,7 +131,7 @@ static kept_text texts[TEXT_KEPT];
 static uchar *text_bits;
 static grs_canvas text_canvas;
 
-#ifdef VITA_PROFILE_CHECKS
+#ifdef VITA_PROFILE
 // The nine draws a picture stands for, to hold it against.
 static void outline(char *s, short x, short y, uchar shadow, long color) {
     gr_set_fcolor(shadow);
@@ -333,7 +333,7 @@ int hudkeep_outlined(char *s, short x, short y, uchar shadow) {
     if (t->bm.bits == NULL)
         return 1;
 
-#ifdef VITA_PROFILE_CHECKS
+#ifdef VITA_PROFILE
     {
         static unsigned count;
         check_area a;
@@ -448,7 +448,7 @@ int hudkeep_scaled(grs_bitmap *bm, short x, short y, short w, short h) {
         hudkeep_stats.scaled_hits++;
     k->last = ++keep_clock;
 
-#ifdef VITA_PROFILE_CHECKS
+#ifdef VITA_PROFILE
     {
         static unsigned count;
         check_area a;

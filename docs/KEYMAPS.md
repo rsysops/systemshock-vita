@@ -144,7 +144,8 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - **Focus** (in-game menu): the focused control is drawn in a lighter green.
 - **Bars** (gamma, volumes, look speeds, double-click): × grabs the focused bar (it turns
   yellow-green), Left/Right move it, and × or ○ release it. Changes apply live.
-- **Pages** (L / R): Save, Load, Audio, Input, Options, wrapping. Save is
+- **Pages** (L / R): Save, Load, Audio, Input, Options (and, in the profile
+  build, Profiler: docs/PROFILING.md), wrapping. Save is
   skipped when saving isn't possible. A confirmation counts as the page that
   asked (loading a slot → Load). L / R do nothing on the main list.
 - **Confirmations** (Quit, loading a save, saving with a damaged object
@@ -164,7 +165,8 @@ handled in `HandleControllerButtonEvent()` / `UpdateMenuStick()`
 - □, △ and SELECT do nothing in the main menu. In the in-game menu, a "△ Help
   □ Music (SELECT) Info" hint is shown at the top left of the view.
 - **Descriptions** (in-game menu): SELECT shows a short description of the
-  focused setting on the Audio, Input and Options pages, in a box under the
+  focused setting on the Audio, Input and Options pages (and the profile
+  build's Profiler page), in a box under the
   hint; it follows the focus, and SELECT again hides it. Where there is nothing
   to describe (the main list, Save, Load), no box is shown. Closing the menu
   turns descriptions off.

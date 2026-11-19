@@ -65,8 +65,15 @@ typedef struct {
     unsigned long long draw_us;       // issuing a scene's draws
     unsigned long long swap_wait_us;  // waiting to hand a frame to the screen
     unsigned draws;                   // draws issued
+    // With the profile build's checks on, the longest comparison of the
+    // window with the CPU's picture, on the game's thread: a frame dump's
+    // copy, when there is one. The profiler keeps it.
+    unsigned compare_max_us;
 } vgpu_counters_t;
 extern vgpu_counters_t vgpu_counters;
+// How long the last frame dump took its writer to put on the card, in the
+// background (profile build, checks on).
+extern unsigned vgpu_dump_us;
 
 #ifdef __cplusplus
 }

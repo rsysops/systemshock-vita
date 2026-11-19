@@ -18,7 +18,7 @@ The game draws its 3D view with the GPU, which needs the shader compiler module 
 ```
 This builds `build/systemshock.vpk` inside the `vitasdk/vitasdk` image (`vita/Dockerfile`). `./build.sh clean` starts the build folder afresh.
 
-`./build.sh profile` and `./build.sh profile checks` build the profile flavours, each an app of its own, into `build-profile/` and `build-profile-checks/`: see [docs/PROFILING.md](docs/PROFILING.md).
+`./build.sh profile` builds the profile build, an app of its own, into `build-profile/`; its Profiler page, in the in-game menu, picks the timings alone or with the self-checks and frame dumps: see [docs/PROFILING.md](docs/PROFILING.md).
 
 ### With a local VitaSDK
 The SDK with the libraries the game links: SDL2, SDL2_mixer, vita2d, libjpeg, libpng, libwebp, zlib, libvorbis/libogg, libmikmod, libmodplug, libxmp-lite, opus/opusfile, FLAC, mpg123 and taihen.

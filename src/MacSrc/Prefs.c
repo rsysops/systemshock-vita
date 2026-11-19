@@ -91,6 +91,8 @@ static const char *VITA_GYRO = "vita-gyro";
 static const char *VITA_GYRO_SPEED = "vita-gyro-speed";
 static const char *VITA_CONTROLLER_SPEED = "vita-controller-speed";
 static const char *VITA_CURSOR = "vita-cursor";
+static const char *PREF_PROFILE = "profile";
+static const char *PREF_PROFILE_VARIANTS = "profile-variants";
 
 static void SetShockGlobals(void);
 
@@ -123,6 +125,8 @@ void SetDefaultPrefs(void) {
     gShockPrefs.gyroAimingSpeed = 5;
     gShockPrefs.controllerAimingSpeed = 10;
     gShockPrefs.showCursor = false;
+    gShockPrefs.profChecks = false;    // the timings alone
+    gShockPrefs.profAlternate = false; // variant 1 only, what the game does
     gShockPrefs.doDetail = 3;     // Max detail.
     gShockPrefs.goOnScreenHelp = true;
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
@@ -267,6 +271,10 @@ int16_t LoadPrefs(void) {
                 gShockPrefs.controllerAimingSpeed = cas;
         } else if (strcasecmp(key, VITA_CURSOR) == 0) {
             gShockPrefs.showCursor = is_true(value);
+        } else if (strcasecmp(key, PREF_PROFILE) == 0) {
+            gShockPrefs.profChecks = strcasecmp(value, "checks") == 0;
+        } else if (strcasecmp(key, PREF_PROFILE_VARIANTS) == 0) {
+            gShockPrefs.profAlternate = strcasecmp(value, "alternate") == 0;
         }
     }
 
@@ -320,6 +328,9 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_GYRO_SPEED, gShockPrefs.gyroAimingSpeed);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", VITA_CONTROLLER_SPEED, gShockPrefs.controllerAimingSpeed);
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", VITA_CURSOR, gShockPrefs.showCursor ? "yes" : "no");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_PROFILE, gShockPrefs.profChecks ? "checks" : "timings");
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_PROFILE_VARIANTS,
+                   gShockPrefs.profAlternate ? "alternate" : "one");
     if (at >= sizeof(text)) // (never: the text is under half of that)
         at = sizeof(text) - 1;
     if (strcmp(text, written) == 0)
