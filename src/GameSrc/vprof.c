@@ -590,7 +590,15 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
     rastq_stats.gpu_wait_us = 0;
     rastq_stats.gpu_overlap_us = 0;
     rastq_stats.gpu_cpu_us = 0;
-    memset(&vgpu_counters, 0, sizeof(vgpu_counters));
+    {
+        // the side buffers' checks run on, like the other self-checks'
+        vgpu_counters_t kept = vgpu_counters;
+
+        memset(&vgpu_counters, 0, sizeof(vgpu_counters));
+        vgpu_counters.side_pixels = kept.side_pixels;
+        vgpu_counters.side_lit = kept.side_lit;
+        vgpu_counters.side_mismatch = kept.side_mismatch;
+    }
     // the checks' counts run on, like the other self-checks'
     hudkeep_stats.text_hits = hudkeep_stats.text_misses = 0;
     hudkeep_stats.scaled_hits = hudkeep_stats.scaled_misses = 0;
@@ -1000,7 +1008,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
                 "applog=%u:%.2f applogmax=%08x:%.2f | at=%s | amap=%.2f/%.2f amaps=%d amapmax=%.2f | "
                 "lateswap=%d light=%d onmcb=%d/%d nearmcb=%d/%d prevmcb=%d/%d mcb0=%u mcbmax=%.2f vbllag=%.2f aprio=%d amask=%x mprio=%d "
-                "mmask=%x cutwait=%.2f/%.2f | cmpms=%.2f dumpms=%.0f\n",
+                "mmask=%x cutwait=%.2f/%.2f | side=%.2f/%.2f sidecheck=%llu/%llu/%llu cmpms=%.2f dumpms=%.0f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -1136,6 +1144,9 @@ static void vprof_window_flush(SceInt64 now) {
                 g_audio_prio, (unsigned)g_audio_mask, g_main_prio, (unsigned)g_main_mask,
                 us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_us) / g_frame_samples,
                 us_to_ms((SceInt64)rastq_stats.gpu_cut_wait_max_us),
+                (double)vgpu_counters.side_scenes / g_frame_samples,
+                us_to_ms(vgpu_counters.side_draw_us) / g_frame_samples,
+                vgpu_counters.side_lit, vgpu_counters.side_mismatch, vgpu_counters.side_pixels,
                 us_to_ms((SceInt64)vgpu_counters.compare_max_us),
                 us_to_ms((SceInt64)__atomic_load_n(&vgpu_dump_us, __ATOMIC_RELAXED)));
         __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
@@ -1267,6 +1278,9 @@ void vprof_frame_end(void) {
         rastq_stats.gpu_check_pixels = now_stats.gpu_check_pixels;
         rastq_stats.gpu_check_diff = now_stats.gpu_check_diff;
         vgpu_counters = g_vgpu_at_frame_begin;
+        vgpu_counters.side_pixels = now_gpu.side_pixels;
+        vgpu_counters.side_lit = now_gpu.side_lit;
+        vgpu_counters.side_mismatch = now_gpu.side_mismatch;
         // a comparison is what makes a frame be left out: its time stays
         vgpu_counters.compare_max_us = now_gpu.compare_max_us;
         g_skipped++;

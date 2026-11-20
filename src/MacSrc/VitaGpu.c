@@ -16,11 +16,14 @@
 #include "VitaGpu.h"
 #include "rastq.h"
 #include "tlucdat.h"
+#include "vprof.h"
 
 #define SHACCCG_PATH "ur0:data/libshacccg.suprx"
 #define GPU_BLOCK_ALIGN (256 * 1024) // CDRAM blocks come in multiples of this
 #define MAX_BLOCKS 12
-#define MAX_TARGETS 2
+// The canvases' size and the start-up checks', each for the canvas and for
+// its side buffer (see target_for)
+#define MAX_TARGETS 4
 #define MAX_VERTICES 16384
 #define MAX_INDICES 49152
 #define MAX_DRAWS 2048
@@ -38,6 +41,9 @@
 #define DUMP_SHARE 0.05
 #define MAX_DUMPS 5
 #define DUMP_APART_US 30000000
+// What the side pass's textured shader writes in alpha where the light is one
+// of the light table's levels; every other shader writes 255 (docs/SHADOWS.md)
+#define SIDE_LIT 0x5A
 
 // What the vertex shaders get.
 // - The textured shader leaves the perspective division to the GPU: x and y
@@ -62,9 +68,11 @@ typedef struct {
     SceUID uid;
 } gpu_block;
 
-// A size of canvas the GPU has drawn into
+// A size of canvas the GPU has drawn into, for the canvas or for its side
+// buffer
 typedef struct {
     int w, h;
+    int side;
     SceGxmRenderTarget *target;
     SceGxmDepthStencilSurface depth_stencil;
     void *depth;
@@ -79,6 +87,7 @@ enum {
     DRAW_TLUC,   // what the canvas holds, through a row of the tables
     DRAW_TLUCBM, // a translucent bitmap: its texel and what the canvas holds, through the matrix and the tables
     DRAW_TLUCBM_TRANS, // the same, texel 0 leaving the pixel alone
+    DRAW_SIDE_CLEAR,   // the whole canvas in a flat colour, drawn in the side pass only
 };
 
 // Consecutive polygons with the same bitmap and shaders
@@ -120,9 +129,28 @@ static int shades;   // and the shaded ones
 static uchar *canvas_pixels[VGPU_CANVASES];
 static int canvas_w, canvas_h, canvas_stride, canvas_turn;
 
+// The smooth shadows' side buffers, one per canvas, and whether the GPU
+// draws the canvas's view into it this frame and has begun to. See
+// vgpu_set_shadows.
+static int shadows_wanted; // the prefs want them
+static int side_on;        // their shaders draw right: the canvases get side buffers
+static SceGxmFragmentProgram *side_fragment_program, *side_trans_fragment_program;
+static unsigned side_bitmap_unit, side_tables_unit, side_trans_bitmap_unit, side_trans_tables_unit;
+static uchar *side_block; // all of them
+static uchar *side_pixels[VGPU_CANVASES];
+static SceGxmColorSurface side_surfaces[VGPU_CANVASES];
+static int side_wanted[VGPU_CANVASES], side_drawn[VGPU_CANVASES];
+static int side_errors_logged;
+// The start-up check's side buffer, and the canvas it goes with
+static SceGxmColorSurface *check_side;
+static const uchar *check_side_bits;
+
 static gpu_block blocks[MAX_BLOCKS];
 static gpu_target targets[MAX_TARGETS];
 static SceGxmColorSurface scene_color;
+static gpu_target *scene_side_target;
+static int scene_canvas;                // which canvas the scene draws into; -1: none of them
+static SceGxmColorSurface *scene_side; // where the scene is drawn again; NULL: nowhere
 static int in_scene;
 static int scene_out; // a scene ended and not waited for: the GPU may still be drawing it
 
@@ -156,7 +184,7 @@ vgpu_counters_t vgpu_counters;
 static int ready;
 static int no_compiler; // the shader compiler module didn't load
 static int begin_errors_logged, refusals_logged;
-static char report[800] = "gpu: not initialized";
+static char report[1024] = "gpu: not initialized";
 
 extern vita2d_texture *texBuffer;
 
@@ -224,6 +252,33 @@ static const char tmap_fragment_source[] =
     "    return float4(shade, shade, shade, 1.0f);\n"
     "}\n";
 static const char trans_fragment_lines[] = "    if (pal < 0.5f / 255.0f) discard;\n";
+
+// The side pass of the smooth shadows (docs/SHADOWS.md): the textured
+// shader's pixel, worked out in the same words, and what the screen needs to
+// light it in full colour. Red is the palette index the canvas gets, green the
+// texel, blue the light level in sixteenths of a row (0 to 255), and alpha
+// SIDE_LIT where the level is one of the light table's rows. The other
+// shaders, drawn into the side buffer as they are, write 255 there. %s is what
+// a transparent bitmap adds; then the tables' height, the light table's, and
+// SIDE_LIT.
+static const char side_fragment_source[] =
+    "float4 main(\n"
+    "    float2 vTex : TEXCOORD0,\n"
+    "    float4 vLight : TEXCOORD1,\n"
+    "    float vDepth : TEXCOORD2,\n"
+    "    uniform sampler2D uBitmap : TEXUNIT0,\n"
+    "    uniform sampler2D uTables : TEXUNIT1)\n"
+    "{\n"
+    "    float pal = tex2D(uBitmap, vTex).x;\n"
+    "%s"
+    "    float part = vLight.z / max(vLight.w, 0.0001f);\n"
+    "    float tab = (vLight.x + vLight.y * part) / vDepth;\n"
+    "    float2 lut = float2(pal * (255.0f / 256.0f) + 0.5f / 256.0f, tab / %d.0f);\n"
+    "    float shade = tex2D(uTables, lut).x + 0.25f / 255.0f;\n"
+    "    float level = clamp(floor(tab * 16.0f), 0.0f, 255.0f);\n"
+    "    float lit = (tab >= 0.0f && tab < %d.0f) ? %d.25f / 255.0f : 0.0f;\n"
+    "    return float4(shade, pal + 0.25f / 255.0f, (level + 0.25f) / 255.0f, lit);\n"
+    "}\n";
 
 // A polygon shaded between colours: red, green and blue from 0 to 256, each
 // left + span * along / width as the light is (see rastq.h), and the pixel
@@ -471,12 +526,53 @@ static int vgpu_free(void *block) {
     return 1;
 }
 
+void vgpu_set_shadows(int on) { shadows_wanted = on; }
+
+static void side_free(void) {
+    int i;
+
+    if (side_block != NULL)
+        vgpu_free(side_block);
+    side_block = NULL;
+    for (i = 0; i < VGPU_CANVASES; i++) {
+        side_pixels[i] = NULL;
+        side_wanted[i] = side_drawn[i] = 0;
+    }
+}
+
+// A side buffer for each canvas: as many pixels, of four bytes, the same
+// number of pixels a row. Without them the shadows are the original ones.
+static void side_make(int width, int height, int stride) {
+    size_t one = ((size_t)stride * 4 * height + 4095) & ~(size_t)4095;
+    int i, err;
+
+    side_block = vgpu_alloc(one * VGPU_CANVASES);
+    if (side_block == NULL) {
+        gpu_err("no memory for the side buffers: the original shadows");
+        return;
+    }
+    for (i = 0; i < VGPU_CANVASES; i++) {
+        side_pixels[i] = side_block + one * i;
+        err = sceGxmColorSurfaceInit(&side_surfaces[i], SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR,
+                                     SCE_GXM_COLOR_SURFACE_LINEAR, SCE_GXM_COLOR_SURFACE_SCALE_NONE,
+                                     SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, width, height, stride, side_pixels[i]);
+        if (err < 0) {
+            gpu_err("side buffer %d: no 32-bit color surface (0x%08x): the original shadows", i, (unsigned)err);
+            side_free();
+            return;
+        }
+    }
+    gpu_log("%d side buffers %dx%d, %d pixels a row, %u bytes in all", VGPU_CANVASES, width, height, stride,
+            (unsigned)(one * VGPU_CANVASES));
+}
+
 void vgpu_set_canvases(void *const *pixels, int width, int height, int stride) {
     int i;
 
     // nothing the GPU still has to do may touch the old ones
     if (context != NULL)
         sceGxmFinish(context);
+    side_free();
     for (i = 0; i < VGPU_CANVASES; i++)
         canvas_pixels[i] = pixels != NULL ? pixels[i] : NULL;
     canvas_w = width;
@@ -484,15 +580,20 @@ void vgpu_set_canvases(void *const *pixels, int width, int height, int stride) {
     canvas_stride = stride;
     if (pixels != NULL)
         gpu_log("%d canvases %dx%d, %d bytes a row, the first at %p", VGPU_CANVASES, width, height, stride, pixels[0]);
+    if (pixels != NULL && side_on && vgpu_available())
+        side_make(width, height, stride);
 }
 
-static int is_canvas(const uchar *bits) {
+// Which canvas `bits` is: -1 if none.
+static int canvas_index(const uchar *bits) {
     int i;
     for (i = 0; i < VGPU_CANVASES; i++)
         if (bits != NULL && canvas_pixels[i] == bits)
-            return 1;
-    return 0;
+            return i;
+    return -1;
 }
+
+static int is_canvas(const uchar *bits) { return canvas_index(bits) >= 0; }
 
 unsigned char *vgpu_canvas(int width, int height, int *row) {
     if (!vgpu_available() || canvas_pixels[0] == NULL || width > canvas_w || height > canvas_h)
@@ -503,12 +604,26 @@ unsigned char *vgpu_canvas(int width, int height, int *row) {
     // touched again only after two newer frames were handed to the screen,
     // and vita2d lets at most two wait.
     canvas_turn = (canvas_turn + 1) % VGPU_CANVASES;
+    // its side buffer starts the frame cleared by the first scene's side pass
+    side_wanted[canvas_turn] = side_pixels[canvas_turn] != NULL;
+    side_drawn[canvas_turn] = 0;
+#ifdef VITA_PROFILE
+    if (vprof_variant == 0) // the frames without the side pass, to time it
+        side_wanted[canvas_turn] = 0;
+#endif
     return canvas_pixels[canvas_turn];
+}
+
+void vgpu_canvas_smooth(int on) {
+    if (!on)
+        side_wanted[canvas_turn] = 0;
 }
 
 // ---- render targets --------------------------------------------------------
 
-static gpu_target *target_for(int w, int h) {
+// The side pass draws on a target of its own, so that neither has more scenes
+// a frame than a target takes (scenesPerFrame).
+static gpu_target *target_for(int w, int h, int side) {
     SceGxmRenderTargetParams params;
     gpu_target *t = NULL;
     int aligned_w = (w + SCE_GXM_TILE_SIZEX - 1) & ~(SCE_GXM_TILE_SIZEX - 1);
@@ -516,19 +631,26 @@ static gpu_target *target_for(int w, int h) {
     int i, err;
 
     for (i = 0; i < MAX_TARGETS; i++) {
-        if (targets[i].target != NULL && targets[i].w == w && targets[i].h == h)
+        if (targets[i].target != NULL && targets[i].w == w && targets[i].h == h && targets[i].side == side)
             return &targets[i];
         if (targets[i].target == NULL && t == NULL)
             t = &targets[i];
     }
     if (t == NULL) {
-        drop_target(&targets[0]);
-        t = &targets[0];
+        // All taken: one of another size goes, never the other target of
+        // this size, which the scene may be about to use. There is always
+        // one: a size has two.
+        for (i = 0; i < MAX_TARGETS && t == NULL; i++)
+            if (targets[i].w != w || targets[i].h != h)
+                t = &targets[i];
+        drop_target(t);
     }
 
     memset(&params, 0, sizeof(params));
     params.width = (uint16_t)w;
     params.height = (uint16_t)h;
+    // 8 is the most a target takes (SCE_GXM_MAX_SCENES_PER_RENDERTARGET): 16
+    // and no target is made at all (SCE_GXM_ERROR_INVALID_VALUE, docs/SHADOWS.md)
     params.scenesPerFrame = 8;
     params.multisampleMode = SCE_GXM_MULTISAMPLE_NONE;
     params.driverMemBlock = -1;
@@ -554,6 +676,7 @@ static gpu_target *target_for(int w, int h) {
     }
     t->w = w;
     t->h = h;
+    t->side = side;
     return t;
 }
 
@@ -570,6 +693,18 @@ static void vgpu_finish(void) {
     if (scene_out)
         sceGxmFinish(context);
     scene_out = 0;
+}
+
+static void side_clear(int w, int h);
+
+// What a scene's draws have to start from: polygons drawn back to front,
+// whichever way they face, over everything.
+static void scene_state(void) {
+    sceGxmSetCullMode(context, SCE_GXM_CULL_NONE);
+    sceGxmSetFrontDepthFunc(context, SCE_GXM_DEPTH_FUNC_ALWAYS);
+    sceGxmSetBackDepthFunc(context, SCE_GXM_DEPTH_FUNC_ALWAYS);
+    sceGxmSetFrontDepthWriteEnable(context, SCE_GXM_DEPTH_WRITE_DISABLED);
+    sceGxmSetBackDepthWriteEnable(context, SCE_GXM_DEPTH_WRITE_DISABLED);
 }
 
 static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, int rows, const uchar *ipal) {
@@ -595,10 +730,28 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
         refused("not a GPU canvas", bits, w, h, row, 0);
         return 0;
     }
-    t = target_for(target_w, target_h);
+    t = target_for(target_w, target_h, 0);
     if (t == NULL) {
         refused("no render target", bits, w, h, row, 0);
         return 0;
+    }
+    // Drawn again into the canvas's side buffer, if it has one this frame,
+    // on a target of its own, found before the scene begins (making one may
+    // wait for the GPU). Without that target, no side pass: the canvas is
+    // drawn all the same.
+    scene_canvas = canvas_index(bits);
+    scene_side = NULL;
+    if (scene_canvas >= 0 && side_wanted[scene_canvas])
+        scene_side = &side_surfaces[scene_canvas];
+    else if (scene_canvas < 0 && check_side != NULL && bits == check_side_bits)
+        scene_side = check_side;
+    scene_side_target = scene_side != NULL ? target_for(target_w, target_h, 1) : NULL;
+    if (scene_side != NULL && scene_side_target == NULL) {
+        if (side_errors_logged++ < 5)
+            gpu_err("no render target for the side pass: the original shadows this frame");
+        scene_side = NULL;
+        if (scene_canvas >= 0)
+            side_wanted[scene_canvas] = side_drawn[scene_canvas] = 0;
     }
     err = sceGxmColorSurfaceInit(&scene_color, SCE_GXM_COLOR_FORMAT_U8_R, SCE_GXM_COLOR_SURFACE_LINEAR,
                                  SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, target_w,
@@ -617,11 +770,7 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
             gpu_err("begin scene failed: 0x%08x", (unsigned)err);
         return 0;
     }
-    sceGxmSetCullMode(context, SCE_GXM_CULL_NONE);
-    sceGxmSetFrontDepthFunc(context, SCE_GXM_DEPTH_FUNC_ALWAYS);
-    sceGxmSetBackDepthFunc(context, SCE_GXM_DEPTH_FUNC_ALWAYS);
-    sceGxmSetFrontDepthWriteEnable(context, SCE_GXM_DEPTH_WRITE_DISABLED);
-    sceGxmSetBackDepthWriteEnable(context, SCE_GXM_DEPTH_WRITE_DISABLED);
+    scene_state();
 
     in_scene = 1;
     scene_colours = ipal;
@@ -630,6 +779,10 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     texture_heap_used = 0;
     to_clip_x = 2.0f / (float)target_w;
     to_clip_y = 2.0f / (float)target_h;
+
+    // the frame's first scene in a side buffer clears it first
+    if (scene_side != NULL && scene_canvas >= 0 && !side_drawn[scene_canvas])
+        side_clear(target_w, target_h);
     return 1;
 }
 
@@ -742,6 +895,25 @@ static int vgpu_flat(int n, const rastq_gpu_vertex *v, int color) {
     return add_polygon(NULL, DRAW_FLAT, n, out);
 }
 
+// The side buffer, all of it, to a pixel that isn't marked lit: past its
+// edges, so that every pixel's centre is inside.
+static void side_clear(int w, int h) {
+    rastq_gpu_vertex v[4];
+    vgpu_vertex out[4];
+    int i;
+
+    memset(v, 0, sizeof(v));
+    v[0].x = v[3].x = -1.0f;
+    v[1].x = v[2].x = (float)(w + 1);
+    v[0].y = v[1].y = -1.0f;
+    v[2].y = v[3].y = (float)(h + 1);
+    for (i = 0; i < 4; i++) {
+        place(&out[i], &v[i]);
+        out[i].u = 0.25f / 255.0f; // index 0, as the flat shader writes it
+    }
+    add_polygon(NULL, DRAW_SIDE_CLEAR, 4, out);
+}
+
 static int vgpu_shaded(int n, const rastq_gpu_vertex *v) {
     vgpu_vertex out[RASTQ_GPU_VERTS];
     int i;
@@ -817,60 +989,105 @@ static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_ver
     return add_polygon(texture, (flags & RASTQ_GPU_TRANS) ? DRAW_TRANS : DRAW_TMAP, n, out);
 }
 
+// The scene's draws, into the canvas, or into its side buffer (`side`): the
+// same, but for the side clear and the textured shaders, the side pass's.
+static void issue_draws(int side) {
+    int last = -1;
+    unsigned k;
+
+    sceGxmSetVertexStream(context, 0, vertices);
+    for (k = 0; k < draw_count; k++) {
+        const gpu_draw *d = &draws[k];
+        int kind = d->kind;
+
+        if (kind == DRAW_SIDE_CLEAR) {
+            if (!side)
+                continue;
+            kind = DRAW_FLAT;
+        }
+        if (kind == DRAW_FLAT) {
+            if (last != DRAW_FLAT) {
+                sceGxmSetVertexProgram(context, flat_vertex_program);
+                sceGxmSetFragmentProgram(context, flat_fragment_program);
+            }
+        } else if (kind == DRAW_SHADED) {
+            if (last != DRAW_SHADED) {
+                sceGxmSetVertexProgram(context, shaded_vertex_program);
+                sceGxmSetFragmentProgram(context, shaded_fragment_program);
+                sceGxmSetFragmentTexture(context, colours_unit, &colours_texture);
+            }
+        } else if (kind == DRAW_TLUCBM || kind == DRAW_TLUCBM_TRANS) {
+            const int *units = tlucbm_units[kind == DRAW_TLUCBM_TRANS];
+
+            sceGxmSetVertexProgram(context, tmap_vertex_program);
+            sceGxmSetFragmentProgram(context, kind == DRAW_TLUCBM_TRANS ? tlucbm_trans_fragment_program
+                                                                        : tlucbm_fragment_program);
+            sceGxmSetFragmentTexture(context, (unsigned)units[0], d->texture);
+            sceGxmSetFragmentTexture(context, (unsigned)units[1], &tables_texture);
+            sceGxmSetFragmentTexture(context, (unsigned)units[2], &matrix_texture);
+        } else if (kind == DRAW_TLUC) {
+            if (last != DRAW_TLUC) {
+                sceGxmSetVertexProgram(context, tluc_vertex_program);
+                sceGxmSetFragmentProgram(context, tluc_fragment_programs[tluc_way]);
+                sceGxmSetFragmentTexture(context, (unsigned)tluc_units[tluc_way], &tables_texture);
+            }
+        } else if (side) {
+            int trans = kind == DRAW_TRANS;
+            if (last != DRAW_TMAP && last != DRAW_TRANS)
+                sceGxmSetVertexProgram(context, tmap_vertex_program);
+            sceGxmSetFragmentProgram(context, trans ? side_trans_fragment_program : side_fragment_program);
+            sceGxmSetFragmentTexture(context, trans ? side_trans_bitmap_unit : side_bitmap_unit, d->texture);
+            sceGxmSetFragmentTexture(context, trans ? side_trans_tables_unit : side_tables_unit, &tables_texture);
+        } else {
+            int trans = kind == DRAW_TRANS;
+            if (last != DRAW_TMAP && last != DRAW_TRANS)
+                sceGxmSetVertexProgram(context, tmap_vertex_program);
+            sceGxmSetFragmentProgram(context, trans ? trans_fragment_program : tmap_fragment_program);
+            sceGxmSetFragmentTexture(context, trans ? trans_bitmap_unit : bitmap_unit, d->texture);
+            sceGxmSetFragmentTexture(context, trans ? trans_tables_unit : tables_unit, &tables_texture);
+        }
+        last = kind;
+        sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices + d->first, d->count);
+    }
+}
+
+// The scene again, into the side buffer, on the side pass's target. The canvas's
+// side buffer is no good this frame if that can't be done.
+static void side_scene(void) {
+    long long start = sceKernelGetProcessTimeWide();
+    int err;
+
+    err = sceGxmBeginScene(context, 0, scene_side_target->target, NULL, NULL, NULL, scene_side,
+                           &scene_side_target->depth_stencil);
+    if (err < 0) {
+        if (side_errors_logged++ < 5)
+            gpu_err("side scene failed: 0x%08x", (unsigned)err);
+        if (scene_canvas >= 0)
+            side_wanted[scene_canvas] = side_drawn[scene_canvas] = 0;
+        return;
+    }
+    scene_state();
+    if (index_count != 0)
+        issue_draws(1);
+    sceGxmEndScene(context, NULL, NULL);
+    if (scene_canvas >= 0)
+        side_drawn[scene_canvas] = 1;
+    vgpu_counters.side_scenes++;
+    vgpu_counters.side_draw_us += (unsigned long long)(sceKernelGetProcessTimeWide() - start);
+}
+
 static void vgpu_end(void) {
     long long start = sceKernelGetProcessTimeWide();
-    unsigned k;
 
     if (!in_scene)
         return;
-    if (index_count != 0) {
-        int last = -1;
-
-        sceGxmSetVertexStream(context, 0, vertices);
-        for (k = 0; k < draw_count; k++) {
-            const gpu_draw *d = &draws[k];
-
-            if (d->kind == DRAW_FLAT) {
-                if (last != DRAW_FLAT) {
-                    sceGxmSetVertexProgram(context, flat_vertex_program);
-                    sceGxmSetFragmentProgram(context, flat_fragment_program);
-                }
-            } else if (d->kind == DRAW_SHADED) {
-                if (last != DRAW_SHADED) {
-                    sceGxmSetVertexProgram(context, shaded_vertex_program);
-                    sceGxmSetFragmentProgram(context, shaded_fragment_program);
-                    sceGxmSetFragmentTexture(context, colours_unit, &colours_texture);
-                }
-            } else if (d->kind == DRAW_TLUCBM || d->kind == DRAW_TLUCBM_TRANS) {
-                const int *units = tlucbm_units[d->kind == DRAW_TLUCBM_TRANS];
-
-                sceGxmSetVertexProgram(context, tmap_vertex_program);
-                sceGxmSetFragmentProgram(context, d->kind == DRAW_TLUCBM_TRANS ? tlucbm_trans_fragment_program
-                                                                               : tlucbm_fragment_program);
-                sceGxmSetFragmentTexture(context, (unsigned)units[0], d->texture);
-                sceGxmSetFragmentTexture(context, (unsigned)units[1], &tables_texture);
-                sceGxmSetFragmentTexture(context, (unsigned)units[2], &matrix_texture);
-            } else if (d->kind == DRAW_TLUC) {
-                if (last != DRAW_TLUC) {
-                    sceGxmSetVertexProgram(context, tluc_vertex_program);
-                    sceGxmSetFragmentProgram(context, tluc_fragment_programs[tluc_way]);
-                    sceGxmSetFragmentTexture(context, (unsigned)tluc_units[tluc_way], &tables_texture);
-                }
-            } else {
-                int trans = d->kind == DRAW_TRANS;
-                if (last != DRAW_TMAP && last != DRAW_TRANS)
-                    sceGxmSetVertexProgram(context, tmap_vertex_program);
-                sceGxmSetFragmentProgram(context, trans ? trans_fragment_program : tmap_fragment_program);
-                sceGxmSetFragmentTexture(context, trans ? trans_bitmap_unit : bitmap_unit, d->texture);
-                sceGxmSetFragmentTexture(context, trans ? trans_tables_unit : tables_unit, &tables_texture);
-            }
-            last = d->kind;
-            sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices + d->first, d->count);
-        }
-    }
+    if (index_count != 0)
+        issue_draws(0);
     vgpu_counters.draws += draw_count;
     vgpu_counters.draw_us += (unsigned long long)(sceKernelGetProcessTimeWide() - start);
     sceGxmEndScene(context, NULL, NULL);
+    if (scene_side != NULL)
+        side_scene();
     // The GPU has the scene. Whoever touches the canvas next waits for it
     // (vgpu_finish); until then the CPU is free for something else.
     scene_out = 1;
@@ -891,10 +1108,11 @@ static void copy_rows(uchar *to, const uchar *pixels, int w, int h, int row) {
 
 // The dump being written: copies in RAM, and what the files are called. One at
 // a time; while `busy`, a dump that comes due is let go.
-#define DUMP_FILES 4
+#define DUMP_FILES 6
 static struct {
-    uchar *gpu, *cpu;
+    uchar *gpu, *cpu, *side;
     uchar palette[4 * 256];
+    uchar ltab[256 * RASTQ_GPU_LIGHT_ROWS];
     char info[200];
     struct {
         const char *name; // NN-<name>
@@ -931,8 +1149,8 @@ static int dump_writer(void *unused) {
             f = fopen(path, "wb");
             if (f == NULL)
                 continue;
-            // the whole file at once: row by row, it was hundreds of writes
-            // to the card, and seconds
+            // the whole file at once: row by row, it was 1,600 writes to the
+            // card and 8 s
             fwrite(dump.files[i].data, 1, dump.files[i].bytes, f);
             fclose(f);
         }
@@ -960,13 +1178,16 @@ static int dump_can_start(int w, int h) {
         // made for the first dump's canvas, again for a bigger one
         free(dump.gpu);
         free(dump.cpu);
+        free(dump.side);
         dump.gpu = malloc(pixels);
         dump.cpu = malloc(pixels);
+        dump.side = malloc(4 * pixels);
         dump.pixels = pixels;
-        if (dump.gpu == NULL || dump.cpu == NULL) {
+        if (dump.gpu == NULL || dump.cpu == NULL || dump.side == NULL) {
             free(dump.gpu);
             free(dump.cpu);
-            dump.gpu = dump.cpu = NULL;
+            free(dump.side);
+            dump.gpu = dump.cpu = dump.side = NULL;
             dump.pixels = 0;
             return 0;
         }
@@ -995,10 +1216,40 @@ static void vgpu_compared(const uchar *gpu, const uchar *cpu, int w, int h, int 
 }
 
 static void vgpu_compared_now(const uchar *gpu, const uchar *cpu, int w, int h, int row, unsigned differing) {
+    // a side buffer's row, out of GPU memory
+    static uchar side_row[4 * 1024];
     static int comparisons, dumps;
     static unsigned worst;
     static long long last_dump_us;
     long long now = sceKernelGetProcessTimeWide();
+    int side = canvas_index(cpu);
+    unsigned long long lit = 0, mismatch = 0;
+    int x, y;
+
+    // The side buffer against the GPU's picture: where it is marked lit, the
+    // index there must be the canvas's, or the screen would light a pixel
+    // that isn't the one drawn.
+    if (side >= 0 && !(side_wanted[side] && side_drawn[side]))
+        side = -1;
+    if (side >= 0 && 4 * w > (int)sizeof(side_row))
+        side = -1;
+    if (side >= 0) {
+        for (y = 0; y < h; y++) {
+            const uchar *p = side_row;
+            const uchar *g = gpu + (size_t)y * row;
+
+            memcpy(side_row, side_pixels[side] + (size_t)y * canvas_stride * 4, (size_t)4 * w);
+            for (x = 0; x < w; x++, p += 4) {
+                if (p[3] == SIDE_LIT) {
+                    lit++;
+                    mismatch += p[0] != g[x];
+                }
+            }
+        }
+        vgpu_counters.side_pixels += (unsigned long long)w * h;
+        vgpu_counters.side_lit += lit;
+        vgpu_counters.side_mismatch += mismatch;
+    }
 
     comparisons++;
     if (dumps >= MAX_DUMPS)
@@ -1026,8 +1277,17 @@ static void vgpu_compared_now(const uchar *gpu, const uchar *cpu, int w, int h, 
     // 256 colours, 4 bytes each: red, green, blue, alpha
     memcpy(dump.palette, vita2d_texture_get_palette(texBuffer), sizeof(dump.palette));
     dump_add("palette.raw", dump.palette, sizeof(dump.palette));
-    snprintf(dump.info, sizeof(dump.info), "width=%d height=%d comparison=%d differing=%u\n", w, h, comparisons,
-             differing);
+    if (side >= 0) {
+        // the side buffer: w pixels a row of 4 bytes, index, texel, level, mark
+        copy_rows(dump.side, side_pixels[side], 4 * w, h, 4 * canvas_stride);
+        dump_add("side.raw", dump.side, (size_t)4 * w * h);
+        // and the light table it was drawn with: 16 rows of 256
+        memcpy(dump.ltab, tables_pixels, sizeof(dump.ltab));
+        dump_add("ltab.raw", dump.ltab, sizeof(dump.ltab));
+    }
+    snprintf(dump.info, sizeof(dump.info),
+             "width=%d height=%d comparison=%d differing=%u side=%d lit=%llu mismatch=%llu\n", w, h, comparisons,
+             differing, side >= 0, lit, mismatch);
     dump_add("info.txt", dump.info, strlen(dump.info));
     SDL_AtomicSet(&dump_busy, 1);
     SDL_SemPost(dump_ready);
@@ -1215,6 +1475,42 @@ static int make_tlucbm_programs(void) {
         if (tlucbm_units[trans][0] < 0 || tlucbm_units[trans][1] < 0 || tlucbm_units[trans][2] < 0)
             return 0;
     }
+    return 1;
+}
+
+// The side pass's two textured shaders, right after the translucent bitmaps'
+// ones: they take the textured ones' vertex program too. 0 if either doesn't
+// compile.
+static int make_side_programs(void) {
+    static const char *const names[] = {"aPosition", "aTex", "aLight", "aDepth"};
+    static const size_t offsets[] = {offsetof(vgpu_vertex, x), offsetof(vgpu_vertex, u), offsetof(vgpu_vertex, left),
+                                     offsetof(vgpu_vertex, depth)};
+    static const int sizes[] = {2, 3, 4, 1};
+    static char source[2048];
+    const SceGxmProgram *opaque = NULL, *trans = NULL;
+    int units[4];
+
+    snprintf(source, sizeof(source), side_fragment_source, "", RASTQ_GPU_TABLE_ROWS, RASTQ_GPU_LIGHT_ROWS, SIDE_LIT);
+    if (!make_programs("side", tmap_vertex_source, source, names, offsets, sizes, 4, &tmap_vertex_program,
+                       &side_fragment_program, &opaque))
+        return 0;
+    snprintf(source, sizeof(source), side_fragment_source, trans_fragment_lines, RASTQ_GPU_TABLE_ROWS,
+             RASTQ_GPU_LIGHT_ROWS, SIDE_LIT);
+    if (!make_programs("side transparent", tmap_vertex_source, source, names, offsets, sizes, 4,
+                       &tmap_vertex_program, &side_trans_fragment_program, &trans))
+        return 0;
+    units[0] = sampler_unit(opaque, "uBitmap");
+    units[1] = sampler_unit(opaque, "uTables");
+    units[2] = sampler_unit(trans, "uBitmap");
+    units[3] = sampler_unit(trans, "uTables");
+    gpu_log("texture units: side: bitmap %d, tables %d; transparent: bitmap %d, tables %d", units[0], units[1],
+            units[2], units[3]);
+    if (units[0] < 0 || units[1] < 0 || units[2] < 0 || units[3] < 0)
+        return 0;
+    side_bitmap_unit = (unsigned)units[0];
+    side_tables_unit = (unsigned)units[1];
+    side_trans_bitmap_unit = (unsigned)units[2];
+    side_trans_tables_unit = (unsigned)units[3];
     return 1;
 }
 
@@ -1459,6 +1755,133 @@ static int texture_check(int bad[CHECK_BANDS]) {
     }
     vgpu_free(canvas);
     return 1;
+}
+
+// The side pass, into a side buffer of its own, on four bands of the check
+// canvas, a first scene drawing them all and a second one over the last:
+//   lit:   the light band of texture_check: in column x, red the light
+//          table's entry, green the texel x, blue the level in sixteenths,
+//          x, and the mark; the canvas as texture_check has it
+//   plain: texel x through the row that leaves it as it is: red x, no mark
+//   flat:  one palette index: red that index, no mark
+//   tluc:  the lit band again, and in the second scene a translucent polygon
+//          over it, if the translucent shaders draw: no mark (and red,
+//          logged only, the table's entry passed through the polygon's row).
+//          Without them, as the lit band: the side buffer keeps what a scene
+//          doesn't draw over.
+// Sets the number of wrong columns of each band. Returns 0 if nothing could
+// be drawn.
+#define SIDE_BANDS 4
+static int side_check(int bad[SIDE_BANDS]) {
+    enum { ROW_A = RASTQ_GPU_PLAIN_ROW + 1, ROWS, BAND_H = CHECK_H / SIDE_BANDS, FLAT = 0x33 };
+    static uchar ramp[8 * 256], tables[ROWS * 256];
+    uchar *canvas = vgpu_alloc(CHECK_W * CHECK_H);
+    uchar *side = vgpu_alloc(CHECK_W * 4 * CHECK_H);
+    SceGxmColorSurface surface;
+    rastq_gpu_vertex v[4];
+    grs_bitmap ramp_bm;
+    int band, scene, x, i, k, tluc_drawn = 0, red_wrong = 0, ok = 0;
+
+    for (band = 0; band < SIDE_BANDS; band++)
+        bad[band] = -1;
+    if (canvas == NULL || side == NULL)
+        goto done;
+    for (i = 0; i < 256; i++) {
+        for (k = 0; k < 8; k++)
+            ramp[k * 256 + i] = (uchar)i;
+        for (k = 0; k < RASTQ_GPU_LIGHT_ROWS; k++)
+            tables[k * 256 + i] = (uchar)(i * 3 + k * 17 + 1);
+        tables[RASTQ_GPU_PLAIN_ROW * 256 + i] = (uchar)i;
+        tables[ROW_A * 256 + i] = (uchar)(i * 7 + 3);
+    }
+    memset(&ramp_bm, 0, sizeof(ramp_bm));
+    ramp_bm.bits = ramp;
+    ramp_bm.w = ramp_bm.row = 256;
+    ramp_bm.h = 8;
+    if (sceGxmColorSurfaceInit(&surface, SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR, SCE_GXM_COLOR_SURFACE_LINEAR,
+                               SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, CHECK_W, CHECK_H,
+                               CHECK_W, side) < 0) {
+        gpu_err("side check: no 32-bit color surface");
+        goto done;
+    }
+    memset(canvas, 0xEE, CHECK_W * CHECK_H);
+    memset(side, 0xEE, CHECK_W * 4 * CHECK_H);
+    check_side = &surface;
+    check_side_bits = canvas;
+
+    for (scene = 0; scene < 2; scene++) {
+        if (scene == 1 && tluc_way < 0)
+            break;
+        if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS, NULL))
+            goto done;
+        for (band = 0; band < SIDE_BANDS; band++) {
+            corners(v, 0, CHECK_W, band * BAND_H, (band + 1) * BAND_H);
+            if (scene == 1) {
+                if (band == 3) {
+                    for (i = 0; i < 4; i++)
+                        v[i].left = ROW_A + 0.5f;
+                    vgpu_tluc(4, v);
+                    tluc_drawn = 1;
+                }
+                continue;
+            }
+            if (band == 2) {
+                vgpu_flat(4, v, FLAT);
+                continue;
+            }
+            for (i = 0; i < 4; i++) {
+                // the middle of texel x in column x, and of row 0
+                v[i].u = v[i].x + 0.5f;
+                v[i].v = 0.5f;
+                if (band != 1) {
+                    // level (x + 0.5) / 16 in column x
+                    v[i].left = 0.5f / 16.0f;
+                    v[i].span = 16.0f;
+                    v[i].along = v[i].x;
+                    v[i].width = (float)CHECK_W;
+                }
+            }
+            vgpu_tmap(&ramp_bm, 0, 4, v);
+        }
+        vgpu_end();
+        vgpu_finish();
+    }
+
+    for (band = 0; band < SIDE_BANDS; band++) {
+        int y = band * BAND_H + BAND_H / 2;
+
+        bad[band] = 0;
+        for (x = 0; x < 256; x++) {
+            const uchar *p = side + ((size_t)y * CHECK_W + x) * 4;
+            int drawn = canvas[y * CHECK_W + x], entry = tables[(x / 16) * 256 + x], wrong;
+
+            if (band == 0 || (band == 3 && !tluc_drawn))
+                wrong = p[0] != entry || p[1] != x || p[2] != x || p[3] != SIDE_LIT || drawn != entry;
+            else if (band == 1)
+                wrong = p[0] != x || p[3] == SIDE_LIT || drawn != x;
+            else if (band == 2)
+                wrong = p[0] != FLAT || p[3] == SIDE_LIT || drawn != FLAT;
+            else {
+                wrong = p[3] == SIDE_LIT;
+                if (p[0] != tables[ROW_A * 256 + entry] && red_wrong++ == 0)
+                    gpu_log("side check, translucent band: column %d holds %d, not %d (not counted)", x, p[0],
+                            tables[ROW_A * 256 + entry]);
+            }
+            if (wrong && bad[band]++ < 2)
+                gpu_err("side check, band %d: column %d holds %d %d %d %d, canvas %d", band, x, p[0], p[1], p[2],
+                        p[3], drawn);
+        }
+    }
+    ok = 1;
+
+done:
+    check_side = NULL;
+    check_side_bits = NULL;
+    if (canvas != NULL)
+        vgpu_free(canvas);
+    if (side != NULL)
+        vgpu_free(side);
+    return ok;
 }
 
 // Draws with the shaded shaders, in three bands, each with one of red, green
@@ -1786,6 +2209,7 @@ void vgpu_init(void) {
     int tluc_bad[TLUC_BANDS] = {-1, -1, -1, -1}, tluc_made = 0, way;
     int fill_in_place = -1, fill_copied = -1;
     int tlucbm_bad[TLUCBM_BANDS] = {-1, -1, -1, -1};
+    int side_bad[SIDE_BANDS] = {-1, -1, -1, -1}, side_made = 0;
     int gpu_write = -1, gpu_read = -1, ram_write = -1, ram_read = -1;
     uchar *gpu_mem, *ram_mem;
     int err;
@@ -1844,6 +2268,11 @@ void vgpu_init(void) {
             gpu_log("translucent bitmap check drawn: %d %d %d %d wrong", tlucbm_bad[0], tlucbm_bad[1], tlucbm_bad[2],
                     tlucbm_bad[3]);
         }
+        // The smooth shadows' side pass: the same vertex program again.
+        if (shadows_wanted) {
+            gpu_log("compiling the side pass's shaders");
+            side_made = make_side_programs();
+        }
     }
     if (textured) {
         gpu_log("compiling the shaded shaders");
@@ -1874,6 +2303,12 @@ void vgpu_init(void) {
             textured = 0;
         gpu_log("texture check drawn: %d %d %d %d wrong", tex_bad[0], tex_bad[1], tex_bad[2], tex_bad[3]);
     }
+    // Any wrong pixel there, and the shadows are the original ones.
+    if (textured && side_made) {
+        gpu_log("drawing the side check");
+        side_on = side_check(side_bad) && !side_bad[0] && !side_bad[1] && !side_bad[2] && !side_bad[3];
+        gpu_log("side check drawn: %d %d %d %d wrong", side_bad[0], side_bad[1], side_bad[2], side_bad[3]);
+    }
     if (textured && shades) {
         gpu_log("drawing the colour check");
         if (!colour_check(colour_bad))
@@ -1899,15 +2334,17 @@ void vgpu_init(void) {
              "texture_check plain=%d table=%d light=%d wrap=%d colour_check red=%d green=%d blue=%d (wrong columns "
              "of 256) | 512KB us: gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d | tluc=%s:%d/%d "
              "tluc_check under=%d twice=%d kept=%d mixed=%d | 64KB tluc_fill us: in_place=%d copied=%d | "
-             "tlucbm=%s tlucbm_check opaque=%d trans=%d table=%d twice=%d",
+             "tlucbm=%s tlucbm_check opaque=%d trans=%d table=%d twice=%d | side=%s side_check lit=%d plain=%d "
+             "flat=%d tluc=%d",
              bad, first_bad, got, kept, !textured ? "off (GPU not used)" : shades ? "on" : "on, not the shaded ones",
              tex_bad[0], tex_bad[1], tex_bad[2],
              tex_bad[3], colour_bad[0], colour_bad[1], colour_bad[2], gpu_write, gpu_read, ram_write, ram_read,
              tluc_way >= 0 ? "on" : "off (CPU)", tluc_way, tluc_made, tluc_bad[0], tluc_bad[1], tluc_bad[2],
              tluc_bad[3], fill_in_place, fill_copied, tlucbm_on ? "on" : "off (CPU)", tlucbm_bad[0], tlucbm_bad[1],
-             tlucbm_bad[2], tlucbm_bad[3]);
+             tlucbm_bad[2], tlucbm_bad[3], !shadows_wanted ? "off (original)" : side_on ? "on" : "off (failed)",
+             side_bad[0], side_bad[1], side_bad[2], side_bad[3]);
     // anything less than everything on is something wrong
-    if (bad != 0 || !kept || !textured || !shades || tluc_way < 0 || !tlucbm_on)
+    if (bad != 0 || !kept || !textured || !shades || tluc_way < 0 || !tlucbm_on || (shadows_wanted && !side_on))
         gpu_err("%s", report);
     else
         gpu_log("%s", report);

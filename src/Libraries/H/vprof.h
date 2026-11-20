@@ -46,10 +46,9 @@ typedef enum {
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 
-// Variants of the code under test. Currently the priority of a worker
-// thread while it cuts the GPU's list (worker_boost in rastqthr.c): 0 = its
-// own, as it was, 1 = the audio thread's (docs/PERFORMANCE.md, step S13b).
-// With the Profiler page's Variants on Alternate they take turns every
+// Variants of the code under test. Currently the smooth shadows' side pass
+// (vgpu_canvas in VitaGpu.c): 0 = not drawn, 1 = drawn (docs/SHADOWS.md,
+// step 1). With the Profiler page's Variants on Alternate they take turns every
 // VPROF_WINDOWS_PER_VARIANT 1 s windows, so that they can be compared within
 // one session. Otherwise the build stays on variant 1, which is what the game
 // does.

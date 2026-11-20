@@ -54,6 +54,7 @@ typedef struct {
     short doVideoMode;
     short doDetail;     // 0 - Min, 1-Low, 2-High, 3-Max
     short doGamma;
+    short doShadows; // SHADOWS_SMOOTH or SHADOWS_ORIGINAL: the prefs file only (see SetDefaultPrefs)
 
     bool gyroAiming;
     short gyroAimingSpeed;
@@ -73,6 +74,10 @@ typedef struct {
 
 // The double-click bar's default: a third along, where its marker is
 #define DCLICK_DEFAULT (65536 / 3)
+// The 3D view's shadows: shaded in full colour by the GPU, between the light
+// table's rows (docs/SHADOWS.md), or the light table's rows as they are
+#define SHADOWS_SMOOTH 0
+#define SHADOWS_ORIGINAL 1
 // The music's volume by default (0 to 100), where the Audio page's mark is
 #define MUSIC_VOLUME_DEFAULT 75
 

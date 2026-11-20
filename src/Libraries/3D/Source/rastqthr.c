@@ -157,14 +157,6 @@ void rastq_threads_times(int slot, rastq_worker_times *out) {
 // or takes the other core.
 static void worker_boost(int on);
 
-static int boost_wanted(void) {
-#if defined(__vita__) && defined(VITA_PROFILE)
-    return vprof_variant != 0; // variant 0: the worker's own priority throughout, as it was
-#else
-    return 1;
-#endif
-}
-
 static void worker_loop(worker_t *w) {
     unsigned seen = atomic_load(&generation);
     unsigned spins = 0;
@@ -183,7 +175,7 @@ static void worker_loop(worker_t *w) {
         if (g != seen) {
             seen = g;
             if (w->slot < current_threads) {
-                int boost = atomic_load(&kicked) && boost_wanted();
+                int boost = atomic_load(&kicked);
                 long long began = job_begin();
 
                 if (boost)

@@ -81,9 +81,8 @@ commit `1eb33db0`.
 - **It draws as the game does**: on the GPU, or on three cores when
   the GPU can't be used. With Variants on Alternate it switches between
   two ways of doing something under test, twenty seconds each: at
-  present a worker thread keeping its own priority while it cuts the
-  GPU's list (`var=0`, as it was before step S13b) against taking the
-  audio thread's (`var=1`, what the game does). The log says
+  present the smooth shadows' side pass left out (`var=0`) against
+  drawn (`var=1`, what the game does; docs/SHADOWS.md). The log says
   which was on (`var=`). That is what makes two ways comparable: same
   place, same moment, same capture.
 - **It writes its log from a thread of its own**, a few times a second.
@@ -93,13 +92,15 @@ commit `1eb33db0`.
 - **With Profile on Checks only, it checks pictures.** One 3D view in
   63 is drawn twice, by two paths, and compared (see
   [Self-checks](#self-checks-and-frame-dumps)). Such a frame is slow,
-  about 68 ms, so it is left out of the timings (`skipped=`); with the
-  HUD's checks that is about three a second. A frame dump, at most five
-  a session and 30 seconds apart, is only copied by the game, in such
-  a frame (`cmpms=`: the second's longest comparison); a thread of its
-  own writes it to the card in the background (`dumpms=`, the last
-  one's writing). Until 2026-11 the game wrote it itself, row by row,
-  and stopped for seconds. To find the game's stutters,
+  about 68 ms, 100 to 110 with the smooth shadows' side check (whose
+  share is `cmpms=`, about 37), so it is left out of the timings
+  (`skipped=`); with the
+  HUD's checks that is about three a second (`cmpms=`: the longest
+  comparison of the second). A frame dump, at most five a session and
+  30 seconds apart, is only copied by the game, in such a frame; a
+  thread of its own writes it to the card in the background
+  (`dumpms=`, the last one's writing: 0.5 to 1.7 s). Until 2026-11 the
+  game wrote it itself, row by row, and stopped for 4 to 8 seconds. To find the game's stutters,
   use Timings, or go by the `spike` lines and not by the feel (see
   [Stutters](#stutters)).
 - **It costs a little.** A timer is two clock reads; the overlay is
@@ -264,6 +265,7 @@ All zero in the seconds the CPU draws.
 | `gpudraw`, `gpudraws` | of `gpuwait`: issuing the draws, and how many |
 | `gpuoverlap` | time the main thread used for something else while the GPU drew |
 | `gpufallbacks` | total: lists the GPU refused, drawn by the CPU instead |
+| `side=a/b` | the smooth shadows' side pass (docs/SHADOWS.md): scenes drawn a second time, into a canvas's side buffer, and the time to send them, which isn't in `gpudraw`. As many as `gpuscenes` in the station; 0 in cyberspace and with `shadows = original`. Last in the line, with `sidecheck=` |
 
 ### The HUD and loading
 
@@ -424,7 +426,8 @@ late t=341.30 frame=25.23 work=8.75 swapwait=16.48 vbl=2 swapat=8.41 vbllag=0.05
 | `leaks` | total: rows a thread wrote outside its band. Must be 0 |
 | `gpudiff=a/b` | total: pixels the GPU drew differently from the CPU / pixels compared. A few percent is normal: edges and light bands fall a pixel apart |
 | `hudcheck=a/b` | total: kept HUD pictures that differed from a fresh drawing / compared. `a` must be 0 |
-| `cmpms` | the second's longest comparison of a GPU picture with the CPU's, on the game's thread, in ms: a frame dump's copy, when there is one |
+| `sidecheck=a/b/c` | total, over the GPU pictures compared: pixels marked lit in the side buffer / of those, the ones whose index there isn't the picture's / pixels with a side buffer. `b` must be 0; `a` is most of `c` in the station |
+| `cmpms` | the second's longest comparison of a GPU picture with the CPU's, on the game's thread, in ms: the side buffer's check, and a frame dump's copy |
 | `dumpms` | how long the last frame dump took its writer thread to put on the card, in ms (0 before the first) |
 
 ### Traps
@@ -491,7 +494,7 @@ for first, last, name in parts:
 
 The first two run in every profile build. The others only while the
 Profiler page's Profile is on Checks (`checks=1`): until then `check=`,
-`leaks=`, `gpudiff=` and `hudcheck=` stay at zero and no
+`leaks=`, `gpudiff=`, `hudcheck=` and `sidecheck=` stay at zero and no
 dump is written. Turned back to Timings, their totals stay where they
 were.
 
@@ -500,18 +503,24 @@ were.
 | division | at start-up | the fast fixed-point division against the exact one, a million cases | first line of the session in `profile.txt` |
 | GPU shaders | at start-up, in every build | known patterns drawn by each pair of shaders against what they must give | `gpu.txt` (in the game's own build only when one fails), and the session's second line |
 | CPU replay | one view in 63, when the CPU draws | the recorded calls replayed against the same calls drawn directly; and each thread kept to its rows | `check=`, `leaks=` |
-| GPU picture | one view in 63, when the GPU draws | the GPU's picture against the CPU's | `gpudiff=`, and the dumps |
+| GPU picture | one view in 63, when the GPU draws | the GPU's picture against the CPU's; and, with smooth shadows, against its side buffer | `gpudiff=`, `sidecheck=`, and the dumps |
 | kept HUD pictures | one text in 64, one bitmap in 2,039 | the copy against a fresh drawing | `hudcheck=` |
 
 A **frame dump** is written for the third GPU comparison of a session,
 and then for each one that differs more than any before and by more
-than 5% of its pixels. Each is four files in `gpudumps/`:
+than 5% of its pixels. Each is four files in `gpudumps/`, six with smooth
+shadows:
 
 | file | what |
 |---|---|
 | `NN-gpu.raw`, `NN-cpu.raw` | the two pictures: one byte a pixel (a palette number), row after row, no header |
 | `NN-palette.raw` | 256 colours, four bytes each: red, green, blue, alpha |
-| `NN-info.txt` | `width`, `height`, which comparison it was, how many pixels differed |
+| `NN-side.raw` | the GPU picture's side buffer: four bytes a pixel, the palette number, the texel, the light level in sixteenths of a row, and 0x5A for a lit texture (docs/SHADOWS.md) |
+| `NN-ltab.raw` | the light table it was drawn with: 16 rows of 256 palette numbers |
+| `NN-info.txt` | `width`, `height`, which comparison it was, how many pixels differed; `side` 1 if there is a side buffer, its `lit` pixels and their `mismatch`es |
+
+`docs/shadows_preview.py NN` makes pictures of the smooth shadows from
+the last three.
 
 To look at a pair on a PC, this writes `NN-gpu.ppm` and `NN-cpu.ppm`,
 which any image viewer opens:
@@ -604,9 +613,8 @@ the two ways part:
 `defined(__vita__) && defined(VITA_PROFILE)` instead)
 
 and every log line says which was on. At present it is read in
-`boost_wanted` in `src/Libraries/3D/Source/rastqthr.c`: 0 a worker
-keeps its own priority while it cuts the GPU's list, 1 it takes the
-audio thread's (step S13b). Each piece of work redefines what the values mean; raise
+`vgpu_canvas` in `src/MacSrc/VitaGpu.c`: 0 leaves the smooth shadows'
+side pass out, 1 draws it (docs/SHADOWS.md). Each piece of work redefines what the values mean; raise
 `VPROF_VARIANT_COUNT` to compare three. On 1 only, the build stays on
 1, so 1 should be what the game does.
 

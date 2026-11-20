@@ -491,6 +491,8 @@ int fr_start_view(void) {
             (!_frp.faces.cyber || vgpu_shades()) && rastq_gpu_next(_fr->draw_canvas.bm.h))
             gpu_bits = vgpu_canvas(_fr->draw_canvas.bm.w, _fr->draw_canvas.bm.h, &gpu_row);
         if (gpu_bits != NULL) {
+            // cyberspace's colours aren't the light table's: no smooth shadows there
+            vgpu_canvas_smooth(!_frp.faces.cyber);
             // a GPU canvas is as wide as the screen, whatever the view's width
             own_row = _fr->draw_canvas.bm.row;
             _fr->draw_canvas.bm.row = (ushort)gpu_row;

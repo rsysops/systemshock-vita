@@ -509,6 +509,8 @@ void InitVita2D(int width, int height)
 
     MakeScreenTexture(width, height);
 
+    // the prefs are loaded by now (main)
+    vgpu_set_shadows(gShockPrefs.doShadows == SHADOWS_SMOOTH);
     vgpu_init();
     MakeViewTextures(width, height);
 

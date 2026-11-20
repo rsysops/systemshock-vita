@@ -80,6 +80,7 @@ static const char *PREF_DETAIL = "detail";
 static const char *PREF_ONSCR_HELP = "onscreen-help";
 static const char *PREF_POPUP_CURSORS = "popup-cursors";
 static const char *PREF_GAMMA = "gamma";
+static const char *PREF_SHADOWS = "shadows";
 static const char *PREF_DOUBLE_CLICK = "double-click";
 static const char *PREF_MSG_LENGTH = "message-length";
 static const char *PREF_ALOG_SETTING = "alog-setting";
@@ -130,6 +131,10 @@ void SetDefaultPrefs(void) {
     gShockPrefs.doDetail = 3;     // Max detail.
     gShockPrefs.goOnScreenHelp = true;
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
+    // Smooth. A hidden setting: no menu has it, the prefs file's "shadows"
+    // does ("smooth", or "original" for the light table's rows as they are).
+    // Read at start-up only. Without the GPU the shadows are the original ones.
+    gShockPrefs.doShadows = SHADOWS_SMOOTH;
     gShockPrefs.goDoubleClick = DCLICK_DEFAULT;
     gShockPrefs.goMsgLength = 0; // Normal
     gShockPrefs.goAutoplayLogs = true;
@@ -234,6 +239,11 @@ int16_t LoadPrefs(void) {
             if (gamma > 100)
                 gamma = 100;
             gShockPrefs.doGamma = gamma;
+        } else if (strcasecmp(key, PREF_SHADOWS) == 0) {
+            if (strcasecmp(value, "smooth") == 0)
+                gShockPrefs.doShadows = SHADOWS_SMOOTH;
+            else if (strcasecmp(value, "original") == 0)
+                gShockPrefs.doShadows = SHADOWS_ORIGINAL;
         } else if (strcasecmp(key, PREF_DOUBLE_CLICK) == 0) {
             int dclick = atoi(value);
             if (dclick >= 0 && dclick <= USHRT_MAX)
@@ -317,6 +327,8 @@ int16_t SavePrefs(void) {
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_ONSCR_HELP, gShockPrefs.goOnScreenHelp ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_POPUP_CURSORS, popup_cursors ? "yes" : "no");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_GAMMA, gShockPrefs.doGamma);
+    at += snprintf(text + at, sizeof(text) - at, "%s = %s\n", PREF_SHADOWS,
+                   gShockPrefs.doShadows == SHADOWS_ORIGINAL ? "original" : "smooth");
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_DOUBLE_CLICK, gShockPrefs.goDoubleClick);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_MSG_LENGTH, gShockPrefs.goMsgLength);
     at += snprintf(text + at, sizeof(text) - at, "%s = %d\n", PREF_ALOG_SETTING, audiolog_setting);

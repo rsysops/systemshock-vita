@@ -46,6 +46,17 @@ void vgpu_set_canvases(void *const *pixels, int width, int height, int stride);
 // Each call hands out the canvas used longest ago, so call it once per frame.
 unsigned char *vgpu_canvas(int width, int height, int *row);
 
+// Smooth shadows (docs/SHADOWS.md): whether they are wanted, before
+// vgpu_init. With them the GPU draws each scene of a view a second time, into
+// a side buffer of the view's canvas: per pixel, the palette index drawn, the
+// texel, the light level in sixteenths and a mark for a lit texture, from
+// which the screen gets the light in full colour. The canvas itself is drawn
+// as it always was.
+void vgpu_set_shadows(int on);
+// Called after vgpu_canvas handed out a canvas: 0 if this view has no use for
+// smooth shadows (cyberspace).
+void vgpu_canvas_smooth(int on);
+
 // In Shock.c: whether a finished view in a GPU canvas, to go at (x, y) on
 // the screen, will be shown from there, so that it needn't be copied to the
 // screen buffer: alone if it fills the screen, laid over the screen buffer's
@@ -65,9 +76,14 @@ typedef struct {
     unsigned long long draw_us;       // issuing a scene's draws
     unsigned long long swap_wait_us;  // waiting to hand a frame to the screen
     unsigned draws;                   // draws issued
-    // With the profile build's checks on, the longest comparison of the
-    // window with the CPU's picture, on the game's thread: a frame dump's
-    // copy, when there is one. The profiler keeps it.
+    unsigned side_scenes;             // scenes drawn again into a side buffer
+    unsigned long long side_draw_us;  // issuing those
+    // With the profile build's checks on, over the views compared with the CPU's: their
+    // pixels with a side buffer, those marked lit there, and of those, the
+    // ones whose index there isn't the canvas's. The profiler keeps these.
+    unsigned long long side_pixels, side_lit, side_mismatch;
+    // And the longest comparison of the window, on the game's thread: the
+    // side buffer's check, and a frame dump's copy when there is one.
     unsigned compare_max_us;
 } vgpu_counters_t;
 extern vgpu_counters_t vgpu_counters;
