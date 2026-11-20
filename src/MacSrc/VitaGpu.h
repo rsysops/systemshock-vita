@@ -47,11 +47,11 @@ void vgpu_set_canvases(void *const *pixels, int width, int height, int stride);
 unsigned char *vgpu_canvas(int width, int height, int *row);
 
 // Smooth shadows (docs/SHADOWS.md): whether they are wanted, before
-// vgpu_init. With them the GPU draws each scene of a view a second time, into
-// a side buffer of the view's canvas: per pixel, the palette index drawn, the
+// vgpu_init. With them the GPU draws each scene of a view into a 32-bit side
+// buffer of the view's canvas: per pixel, the palette index drawn, the
 // texel, the light level in sixteenths and a mark for a lit texture, from
-// which the screen gets the light in full colour. The canvas itself is drawn
-// as it always was.
+// which the screen gets the light in full colour. The indices then go to the
+// canvas, which holds what it always held.
 void vgpu_set_shadows(int on);
 // Called after vgpu_canvas handed out a canvas: 0 if this view has no use for
 // smooth shadows (cyberspace).
@@ -76,8 +76,8 @@ typedef struct {
     unsigned long long draw_us;       // issuing a scene's draws
     unsigned long long swap_wait_us;  // waiting to hand a frame to the screen
     unsigned draws;                   // draws issued
-    unsigned side_scenes;             // scenes drawn again into a side buffer
-    unsigned long long side_draw_us;  // issuing those
+    unsigned side_scenes;             // smooth scenes' indices extracted into their canvas
+    unsigned long long side_draw_us;  // issuing those extracts
     // With the profile build's checks on, over the views compared with the CPU's: their
     // pixels with a side buffer, those marked lit there, and of those, the
     // ones whose index there isn't the canvas's. The profiler keeps these.

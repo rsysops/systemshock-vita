@@ -41,7 +41,7 @@
 #define DUMP_SHARE 0.05
 #define MAX_DUMPS 5
 #define DUMP_APART_US 30000000
-// What the side pass's textured shader writes in alpha where the light is one
+// What a smooth scene's textured shader writes in alpha where the light is one
 // of the light table's levels; every other shader writes 255 (docs/SHADOWS.md)
 #define SIDE_LIT 0x5A
 
@@ -87,7 +87,8 @@ enum {
     DRAW_TLUC,   // what the canvas holds, through a row of the tables
     DRAW_TLUCBM, // a translucent bitmap: its texel and what the canvas holds, through the matrix and the tables
     DRAW_TLUCBM_TRANS, // the same, texel 0 leaving the pixel alone
-    DRAW_SIDE_CLEAR,   // the whole canvas in a flat colour, drawn in the side pass only
+    DRAW_IMPORT_CLEAR, // smooth: the 32-bit buffer made the canvas, nothing lit
+    DRAW_IMPORT_KEEP,  // smooth: the same where the CPU drew since the last scene, the rest kept
 };
 
 // Consecutive polygons with the same bitmap and shaders
@@ -129,28 +130,39 @@ static int shades;   // and the shaded ones
 static uchar *canvas_pixels[VGPU_CANVASES];
 static int canvas_w, canvas_h, canvas_stride, canvas_turn;
 
-// The smooth shadows' side buffers, one per canvas, and whether the GPU
-// draws the canvas's view into it this frame and has begun to. See
-// vgpu_set_shadows.
+// The smooth shadows (vgpu_set_shadows, docs/SHADOWS.md). A smooth scene is
+// drawn once, into the canvas's 32-bit side buffer: its first draw imports
+// the 8-bit canvas there, and a scene of its own extracts the indices back
+// into the canvas afterwards (extract_scene).
+typedef struct {
+    SceGxmColorSurface surface; // the 32-bit buffer, drawn into
+    SceGxmTexture view;         // the same, read by the extract
+    SceGxmTexture canvas;       // the 8-bit canvas, read by the import
+    int tex_w, tex_h;           // the two textures' size
+    int drawn;                  // a scene was drawn there this frame: the next import keeps it
+} smooth_set;
 static int shadows_wanted; // the prefs want them
 static int side_on;        // their shaders draw right: the canvases get side buffers
 static SceGxmFragmentProgram *side_fragment_program, *side_trans_fragment_program;
 static unsigned side_bitmap_unit, side_tables_unit, side_trans_bitmap_unit, side_trans_tables_unit;
+static SceGxmFragmentProgram *import_clear_program, *import_keep_program, *extract_program;
+static unsigned import_clear_unit, import_keep_unit, extract_unit;
 static uchar *side_block; // all of them
 static uchar *side_pixels[VGPU_CANVASES];
-static SceGxmColorSurface side_surfaces[VGPU_CANVASES];
-static int side_wanted[VGPU_CANVASES], side_drawn[VGPU_CANVASES];
+static smooth_set side_sets[VGPU_CANVASES];
+static int side_wanted[VGPU_CANVASES]; // this frame's view is drawn the smooth way
 static int side_errors_logged;
-// The start-up check's side buffer, and the canvas it goes with
-static SceGxmColorSurface *check_side;
+// The start-up check's, and the canvas it goes with
+static smooth_set *check_set;
 static const uchar *check_side_bits;
 
 static gpu_block blocks[MAX_BLOCKS];
 static gpu_target targets[MAX_TARGETS];
 static SceGxmColorSurface scene_color;
-static gpu_target *scene_side_target;
-static int scene_canvas;                // which canvas the scene draws into; -1: none of them
-static SceGxmColorSurface *scene_side; // where the scene is drawn again; NULL: nowhere
+static gpu_target *scene_target, *scene_side_target; // the 8-bit canvas's, the 32-bit buffer's
+static int scene_w, scene_h;
+static int scene_canvas;       // which canvas the scene draws into; -1: none of them
+static smooth_set *scene_set; // the scene is smooth, drawn there; NULL: the 8-bit way
 static int in_scene;
 static int scene_out; // a scene ended and not waited for: the GPU may still be drawing it
 
@@ -253,12 +265,12 @@ static const char tmap_fragment_source[] =
     "}\n";
 static const char trans_fragment_lines[] = "    if (pal < 0.5f / 255.0f) discard;\n";
 
-// The side pass of the smooth shadows (docs/SHADOWS.md): the textured
-// shader's pixel, worked out in the same words, and what the screen needs to
-// light it in full colour. Red is the palette index the canvas gets, green the
-// texel, blue the light level in sixteenths of a row (0 to 255), and alpha
-// SIDE_LIT where the level is one of the light table's rows. The other
-// shaders, drawn into the side buffer as they are, write 255 there. %s is what
+// The textured shader of a smooth scene (docs/SHADOWS.md), into the 32-bit
+// buffer: its pixel, worked out in the same words, and what the screen needs
+// to light it in full colour. Red is the palette index the canvas gets, green
+// the texel, blue the light level in sixteenths of a row (0 to 255), and
+// alpha SIDE_LIT where the level is one of the light table's rows. The other
+// shaders, drawn into the buffer as they are, write 255 there. %s is what
 // a transparent bitmap adds; then the tables' height, the light table's, and
 // SIDE_LIT.
 static const char side_fragment_source[] =
@@ -278,6 +290,43 @@ static const char side_fragment_source[] =
     "    float level = clamp(floor(tab * 16.0f), 0.0f, 255.0f);\n"
     "    float lit = (tab >= 0.0f && tab < %d.0f) ? %d.25f / 255.0f : 0.0f;\n"
     "    return float4(shade, pal + 0.25f / 255.0f, (level + 0.25f) / 255.0f, lit);\n"
+    "}\n";
+
+// A smooth scene's first draw, over all of it, the canvas texel for pixel:
+// the frame's first scene makes the 32-bit buffer the canvas, nothing lit
+// (what it held is three frames old); a later one only where the canvas
+// isn't what the buffer has, which is where the CPU drew in between, and
+// keeps the rest as it is, marks and all. Read and written as the target's
+// bytes, the way the translucent bitmaps' shader is.
+static const char import_clear_fragment_source[] =
+    "float4 main(\n"
+    "    float2 vTex : TEXCOORD0,\n"
+    "    uniform sampler2D uCanvas : TEXUNIT0)\n"
+    "{\n"
+    "    float index = tex2D(uCanvas, vTex).x;\n"
+    "    return float4(index + 0.25f / 255.0f, 0.0f, 0.0f, 1.0f);\n"
+    "}\n";
+static const char import_keep_fragment_source[] =
+    "__nativecolor __regformat unsigned char4 main(\n"
+    "    float2 vTex : TEXCOORD0,\n"
+    "    __regformat unsigned char4 under : FRAGCOLOR,\n"
+    "    uniform sampler2D uCanvas : TEXUNIT0)\n"
+    "{\n"
+    "    float index = floor(tex2D(uCanvas, vTex).x * 255.0f + 0.5f);\n"
+    "    float held = under.x;\n"
+    "    if (abs(held - index) < 0.5f)\n"
+    "        return under;\n"
+    "    return float4(index, 0.0f, 0.0f, 255.0f);\n"
+    "}\n";
+// After a smooth scene, the 8-bit canvas gets the indices: the 32-bit
+// buffer's red, texel for pixel.
+static const char extract_fragment_source[] =
+    "float4 main(\n"
+    "    float2 vTex : TEXCOORD0,\n"
+    "    uniform sampler2D uView : TEXUNIT0)\n"
+    "{\n"
+    "    float index = tex2D(uView, vTex).x;\n"
+    "    return float4(index + 0.25f / 255.0f, 0.0f, 0.0f, 1.0f);\n"
     "}\n";
 
 // A polygon shaded between colours: red, green and blue from 0 to 256, each
@@ -536,15 +585,50 @@ static void side_free(void) {
     side_block = NULL;
     for (i = 0; i < VGPU_CANVASES; i++) {
         side_pixels[i] = NULL;
-        side_wanted[i] = side_drawn[i] = 0;
+        side_wanted[i] = side_sets[i].drawn = 0;
     }
+}
+
+static void point_and_clamp(SceGxmTexture *t) {
+    sceGxmTextureSetMinFilter(t, SCE_GXM_TEXTURE_FILTER_POINT);
+    sceGxmTextureSetMagFilter(t, SCE_GXM_TEXTURE_FILTER_POINT);
+    sceGxmTextureSetUAddrMode(t, SCE_GXM_TEXTURE_ADDR_CLAMP);
+    sceGxmTextureSetVAddrMode(t, SCE_GXM_TEXTURE_ADDR_CLAMP);
+}
+
+// A 32-bit buffer `side` and the 8-bit canvas it goes with, both `width` by
+// `height` with `stride` pixels a row, set up for smooth scenes. The
+// textures are `stride` wide. 0 if the GPU won't have them.
+static int smooth_set_init(smooth_set *s, uchar *side, uchar *canvas, int width, int height, int stride) {
+    int err;
+
+    memset(s, 0, sizeof(*s));
+    err = sceGxmColorSurfaceInit(&s->surface, SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR, SCE_GXM_COLOR_SURFACE_LINEAR,
+                                 SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, width, height,
+                                 stride, side);
+    if (err < 0) {
+        gpu_err("no 32-bit color surface: 0x%08x", (unsigned)err);
+        return 0;
+    }
+    err = sceGxmTextureInitLinear(&s->view, side, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, stride, height, 0);
+    if (err >= 0)
+        err = sceGxmTextureInitLinear(&s->canvas, canvas, SCE_GXM_TEXTURE_FORMAT_U8_RRRR, stride, height, 0);
+    if (err < 0) {
+        gpu_err("no texture over a side buffer or its canvas: 0x%08x", (unsigned)err);
+        return 0;
+    }
+    point_and_clamp(&s->view);
+    point_and_clamp(&s->canvas);
+    s->tex_w = stride;
+    s->tex_h = height;
+    return 1;
 }
 
 // A side buffer for each canvas: as many pixels, of four bytes, the same
 // number of pixels a row. Without them the shadows are the original ones.
 static void side_make(int width, int height, int stride) {
     size_t one = ((size_t)stride * 4 * height + 4095) & ~(size_t)4095;
-    int i, err;
+    int i;
 
     side_block = vgpu_alloc(one * VGPU_CANVASES);
     if (side_block == NULL) {
@@ -553,11 +637,8 @@ static void side_make(int width, int height, int stride) {
     }
     for (i = 0; i < VGPU_CANVASES; i++) {
         side_pixels[i] = side_block + one * i;
-        err = sceGxmColorSurfaceInit(&side_surfaces[i], SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR,
-                                     SCE_GXM_COLOR_SURFACE_LINEAR, SCE_GXM_COLOR_SURFACE_SCALE_NONE,
-                                     SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, width, height, stride, side_pixels[i]);
-        if (err < 0) {
-            gpu_err("side buffer %d: no 32-bit color surface (0x%08x): the original shadows", i, (unsigned)err);
+        if (!smooth_set_init(&side_sets[i], side_pixels[i], canvas_pixels[i], width, height, stride)) {
+            gpu_err("side buffer %d: the original shadows", i);
             side_free();
             return;
         }
@@ -604,11 +685,11 @@ unsigned char *vgpu_canvas(int width, int height, int *row) {
     // touched again only after two newer frames were handed to the screen,
     // and vita2d lets at most two wait.
     canvas_turn = (canvas_turn + 1) % VGPU_CANVASES;
-    // its side buffer starts the frame cleared by the first scene's side pass
+    // its side buffer is made the canvas again by the frame's first scene
     side_wanted[canvas_turn] = side_pixels[canvas_turn] != NULL;
-    side_drawn[canvas_turn] = 0;
+    side_sets[canvas_turn].drawn = 0;
 #ifdef VITA_PROFILE
-    if (vprof_variant == 0) // the frames without the side pass, to time it
+    if (vprof_variant == 0) // the 8-bit way throughout, to time the smooth one against
         side_wanted[canvas_turn] = 0;
 #endif
     return canvas_pixels[canvas_turn];
@@ -621,7 +702,7 @@ void vgpu_canvas_smooth(int on) {
 
 // ---- render targets --------------------------------------------------------
 
-// The side pass draws on a target of its own, so that neither has more scenes
+// The smooth scenes draw on a target of their own, so that neither has more scenes
 // a frame than a target takes (scenesPerFrame).
 static gpu_target *target_for(int w, int h, int side) {
     SceGxmRenderTargetParams params;
@@ -695,7 +776,8 @@ static void vgpu_finish(void) {
     scene_out = 0;
 }
 
-static void side_clear(int w, int h);
+static void full_quad(vgpu_vertex out[4], int w, int h, int tex_w, int tex_h);
+static int add_polygon(const SceGxmTexture *texture, int kind, int n, const vgpu_vertex *verts);
 
 // What a scene's draws have to start from: polygons drawn back to front,
 // whichever way they face, over everything.
@@ -735,24 +817,27 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
         refused("no render target", bits, w, h, row, 0);
         return 0;
     }
-    // Drawn again into the canvas's side buffer, if it has one this frame,
-    // on a target of its own, found before the scene begins (making one may
-    // wait for the GPU). Without that target, no side pass: the canvas is
-    // drawn all the same.
+    // Smooth, if the canvas has a side buffer this frame: drawn there, on a
+    // target of its own, found before the scene begins (making one may wait
+    // for the GPU). Without that target, the 8-bit way.
+    scene_target = t;
+    scene_w = target_w;
+    scene_h = target_h;
     scene_canvas = canvas_index(bits);
-    scene_side = NULL;
+    scene_set = NULL;
     if (scene_canvas >= 0 && side_wanted[scene_canvas])
-        scene_side = &side_surfaces[scene_canvas];
-    else if (scene_canvas < 0 && check_side != NULL && bits == check_side_bits)
-        scene_side = check_side;
-    scene_side_target = scene_side != NULL ? target_for(target_w, target_h, 1) : NULL;
-    if (scene_side != NULL && scene_side_target == NULL) {
+        scene_set = &side_sets[scene_canvas];
+    else if (scene_canvas < 0 && check_set != NULL && bits == check_side_bits)
+        scene_set = check_set;
+    scene_side_target = scene_set != NULL ? target_for(target_w, target_h, 1) : NULL;
+    if (scene_set != NULL && scene_side_target == NULL) {
         if (side_errors_logged++ < 5)
-            gpu_err("no render target for the side pass: the original shadows this frame");
-        scene_side = NULL;
+            gpu_err("no render target for the smooth scenes: the original shadows this frame");
+        scene_set = NULL;
         if (scene_canvas >= 0)
-            side_wanted[scene_canvas] = side_drawn[scene_canvas] = 0;
+            side_wanted[scene_canvas] = 0;
     }
+    // the canvas: drawn into on the 8-bit way, the extract's on the smooth one
     err = sceGxmColorSurfaceInit(&scene_color, SCE_GXM_COLOR_FORMAT_U8_R, SCE_GXM_COLOR_SURFACE_LINEAR,
                                  SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, target_w,
                                  target_h, row, bits);
@@ -764,7 +849,20 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     // replaced.
     if (tables != NULL && tables_pixels != NULL)
         memcpy(tables_pixels, tables, (size_t)rows * 256);
-    err = sceGxmBeginScene(context, 0, t->target, NULL, NULL, NULL, &scene_color, &t->depth_stencil);
+    err = -1;
+    if (scene_set != NULL) {
+        err = sceGxmBeginScene(context, 0, scene_side_target->target, NULL, NULL, NULL, &scene_set->surface,
+                               &scene_side_target->depth_stencil);
+        if (err < 0) {
+            if (side_errors_logged++ < 5)
+                gpu_err("begin smooth scene failed: 0x%08x: the original shadows this frame", (unsigned)err);
+            scene_set = NULL;
+            if (scene_canvas >= 0)
+                side_wanted[scene_canvas] = 0;
+        }
+    }
+    if (scene_set == NULL)
+        err = sceGxmBeginScene(context, 0, t->target, NULL, NULL, NULL, &scene_color, &t->depth_stencil);
     if (err < 0) {
         if (begin_errors_logged++ < 5)
             gpu_err("begin scene failed: 0x%08x", (unsigned)err);
@@ -780,9 +878,14 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     to_clip_x = 2.0f / (float)target_w;
     to_clip_y = 2.0f / (float)target_h;
 
-    // the frame's first scene in a side buffer clears it first
-    if (scene_side != NULL && scene_canvas >= 0 && !side_drawn[scene_canvas])
-        side_clear(target_w, target_h);
+    // A smooth scene starts from the canvas as it is now (see
+    // import_clear_fragment_source).
+    if (scene_set != NULL) {
+        vgpu_vertex q[4];
+
+        full_quad(q, target_w, target_h, scene_set->tex_w, scene_set->tex_h);
+        add_polygon(&scene_set->canvas, scene_set->drawn ? DRAW_IMPORT_KEEP : DRAW_IMPORT_CLEAR, 4, q);
+    }
     return 1;
 }
 
@@ -895,11 +998,11 @@ static int vgpu_flat(int n, const rastq_gpu_vertex *v, int color) {
     return add_polygon(NULL, DRAW_FLAT, n, out);
 }
 
-// The side buffer, all of it, to a pixel that isn't marked lit: past its
-// edges, so that every pixel's centre is inside.
-static void side_clear(int w, int h) {
+// A quad over the whole target, `w` by `h`, past its edges so that every
+// pixel's centre is inside, for the textured vertex program: pixel (x, y)
+// reads the middle of texel (x, y) of a texture `tex_w` by `tex_h`.
+static void full_quad(vgpu_vertex out[4], int w, int h, int tex_w, int tex_h) {
     rastq_gpu_vertex v[4];
-    vgpu_vertex out[4];
     int i;
 
     memset(v, 0, sizeof(v));
@@ -909,9 +1012,10 @@ static void side_clear(int w, int h) {
     v[2].y = v[3].y = (float)(h + 1);
     for (i = 0; i < 4; i++) {
         place(&out[i], &v[i]);
-        out[i].u = 0.25f / 255.0f; // index 0, as the flat shader writes it
+        out[i].u = (v[i].x + 0.5f) / (float)tex_w;
+        out[i].v = (v[i].y + 0.5f) / (float)tex_h;
+        out[i].w = out[i].width = out[i].depth = 1.0f;
     }
-    add_polygon(NULL, DRAW_SIDE_CLEAR, 4, out);
 }
 
 static int vgpu_shaded(int n, const rastq_gpu_vertex *v) {
@@ -989,9 +1093,10 @@ static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_ver
     return add_polygon(texture, (flags & RASTQ_GPU_TRANS) ? DRAW_TRANS : DRAW_TMAP, n, out);
 }
 
-// The scene's draws, into the canvas, or into its side buffer (`side`): the
-// same, but for the side clear and the textured shaders, the side pass's.
-static void issue_draws(int side) {
+// The scene's draws, into the canvas, or the smooth way into its 32-bit
+// buffer (`smooth`): the same, but for the import and, for the textured
+// polygons, the side shaders, which add the texel, the light and the mark.
+static void issue_draws(int smooth) {
     int last = -1;
     unsigned k;
 
@@ -1000,12 +1105,13 @@ static void issue_draws(int side) {
         const gpu_draw *d = &draws[k];
         int kind = d->kind;
 
-        if (kind == DRAW_SIDE_CLEAR) {
-            if (!side)
-                continue;
-            kind = DRAW_FLAT;
-        }
-        if (kind == DRAW_FLAT) {
+        if (kind == DRAW_IMPORT_CLEAR || kind == DRAW_IMPORT_KEEP) {
+            int keep = kind == DRAW_IMPORT_KEEP;
+
+            sceGxmSetVertexProgram(context, tmap_vertex_program);
+            sceGxmSetFragmentProgram(context, keep ? import_keep_program : import_clear_program);
+            sceGxmSetFragmentTexture(context, keep ? import_keep_unit : import_clear_unit, d->texture);
+        } else if (kind == DRAW_FLAT) {
             if (last != DRAW_FLAT) {
                 sceGxmSetVertexProgram(context, flat_vertex_program);
                 sceGxmSetFragmentProgram(context, flat_fragment_program);
@@ -1031,7 +1137,7 @@ static void issue_draws(int side) {
                 sceGxmSetFragmentProgram(context, tluc_fragment_programs[tluc_way]);
                 sceGxmSetFragmentTexture(context, (unsigned)tluc_units[tluc_way], &tables_texture);
             }
-        } else if (side) {
+        } else if (smooth) {
             int trans = kind == DRAW_TRANS;
             if (last != DRAW_TMAP && last != DRAW_TRANS)
                 sceGxmSetVertexProgram(context, tmap_vertex_program);
@@ -1051,27 +1157,39 @@ static void issue_draws(int side) {
     }
 }
 
-// The scene again, into the side buffer, on the side pass's target. The canvas's
-// side buffer is no good this frame if that can't be done.
-static void side_scene(void) {
+// After a smooth scene: its indices into the 8-bit canvas, in a scene of
+// its own on the canvas's target, one quad drawn from the vertices' spare
+// room. If that scene can't begin, the canvas misses this one's drawing, and
+// the frame goes on the 8-bit way.
+static void extract_scene(void) {
     long long start = sceKernelGetProcessTimeWide();
+    vgpu_vertex *q = &vertices[MAX_VERTICES];
+    uint16_t *qi = &indices[MAX_INDICES];
     int err;
 
-    err = sceGxmBeginScene(context, 0, scene_side_target->target, NULL, NULL, NULL, scene_side,
-                           &scene_side_target->depth_stencil);
+    full_quad(q, scene_w, scene_h, scene_set->tex_w, scene_set->tex_h);
+    qi[0] = qi[3] = MAX_VERTICES;
+    qi[1] = MAX_VERTICES + 1;
+    qi[2] = qi[4] = MAX_VERTICES + 2;
+    qi[5] = MAX_VERTICES + 3;
+    err = sceGxmBeginScene(context, 0, scene_target->target, NULL, NULL, NULL, &scene_color,
+                           &scene_target->depth_stencil);
     if (err < 0) {
         if (side_errors_logged++ < 5)
-            gpu_err("side scene failed: 0x%08x", (unsigned)err);
+            gpu_err("extract scene failed: 0x%08x", (unsigned)err);
         if (scene_canvas >= 0)
-            side_wanted[scene_canvas] = side_drawn[scene_canvas] = 0;
+            side_wanted[scene_canvas] = 0;
+        scene_set->drawn = 0;
         return;
     }
     scene_state();
-    if (index_count != 0)
-        issue_draws(1);
+    sceGxmSetVertexStream(context, 0, vertices);
+    sceGxmSetVertexProgram(context, tmap_vertex_program);
+    sceGxmSetFragmentProgram(context, extract_program);
+    sceGxmSetFragmentTexture(context, extract_unit, &scene_set->view);
+    sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, qi, 6);
     sceGxmEndScene(context, NULL, NULL);
-    if (scene_canvas >= 0)
-        side_drawn[scene_canvas] = 1;
+    scene_set->drawn = 1;
     vgpu_counters.side_scenes++;
     vgpu_counters.side_draw_us += (unsigned long long)(sceKernelGetProcessTimeWide() - start);
 }
@@ -1082,12 +1200,12 @@ static void vgpu_end(void) {
     if (!in_scene)
         return;
     if (index_count != 0)
-        issue_draws(0);
+        issue_draws(scene_set != NULL);
     vgpu_counters.draws += draw_count;
     vgpu_counters.draw_us += (unsigned long long)(sceKernelGetProcessTimeWide() - start);
     sceGxmEndScene(context, NULL, NULL);
-    if (scene_side != NULL)
-        side_scene();
+    if (scene_set != NULL)
+        extract_scene();
     // The GPU has the scene. Whoever touches the canvas next waits for it
     // (vgpu_finish); until then the CPU is free for something else.
     scene_out = 1;
@@ -1229,7 +1347,7 @@ static void vgpu_compared_now(const uchar *gpu, const uchar *cpu, int w, int h, 
     // The side buffer against the GPU's picture: where it is marked lit, the
     // index there must be the canvas's, or the screen would light a pixel
     // that isn't the one drawn.
-    if (side >= 0 && !(side_wanted[side] && side_drawn[side]))
+    if (side >= 0 && !(side_wanted[side] && side_sets[side].drawn))
         side = -1;
     if (side >= 0 && 4 * w > (int)sizeof(side_row))
         side = -1;
@@ -1478,7 +1596,7 @@ static int make_tlucbm_programs(void) {
     return 1;
 }
 
-// The side pass's two textured shaders, right after the translucent bitmaps'
+// The smooth scenes' two textured shaders, right after the translucent bitmaps'
 // ones: they take the textured ones' vertex program too. 0 if either doesn't
 // compile.
 static int make_side_programs(void) {
@@ -1511,6 +1629,40 @@ static int make_side_programs(void) {
     side_tables_unit = (unsigned)units[1];
     side_trans_bitmap_unit = (unsigned)units[2];
     side_trans_tables_unit = (unsigned)units[3];
+    return 1;
+}
+
+// The smooth scenes' import and extract shaders, right after the side ones,
+// with the textured vertex program again. 0 if any of them doesn't compile.
+static int make_single_pass_programs(void) {
+    static const char *const names[] = {"aPosition", "aTex", "aLight", "aDepth"};
+    static const size_t offsets[] = {offsetof(vgpu_vertex, x), offsetof(vgpu_vertex, u), offsetof(vgpu_vertex, left),
+                                     offsetof(vgpu_vertex, depth)};
+    static const int sizes[] = {2, 3, 4, 1};
+    static const struct {
+        const char *what, *source, *sampler;
+        SceGxmFragmentProgram **program;
+        unsigned *unit;
+    } shaders[] = {
+        {"import clear", import_clear_fragment_source, "uCanvas", &import_clear_program, &import_clear_unit},
+        {"import keep", import_keep_fragment_source, "uCanvas", &import_keep_program, &import_keep_unit},
+        {"extract", extract_fragment_source, "uView", &extract_program, &extract_unit},
+    };
+    size_t k;
+
+    for (k = 0; k < sizeof(shaders) / sizeof(shaders[0]); k++) {
+        const SceGxmProgram *fragment = NULL;
+        int unit;
+
+        if (!make_programs(shaders[k].what, tmap_vertex_source, shaders[k].source, names, offsets, sizes, 4,
+                           &tmap_vertex_program, shaders[k].program, &fragment))
+            return 0;
+        unit = sampler_unit(fragment, shaders[k].sampler);
+        gpu_log("texture unit: %s, %s %d", shaders[k].what, shaders[k].sampler, unit);
+        if (unit < 0)
+            return 0;
+        *shaders[k].unit = (unsigned)unit;
+    }
     return 1;
 }
 
@@ -1757,30 +1909,42 @@ static int texture_check(int bad[CHECK_BANDS]) {
     return 1;
 }
 
-// The side pass, into a side buffer of its own, on four bands of the check
-// canvas, a first scene drawing them all and a second one over the last:
-//   lit:   the light band of texture_check: in column x, red the light
-//          table's entry, green the texel x, blue the level in sixteenths,
-//          x, and the mark; the canvas as texture_check has it
-//   plain: texel x through the row that leaves it as it is: red x, no mark
-//   flat:  one palette index: red that index, no mark
-//   tluc:  the lit band again, and in the second scene a translucent polygon
-//          over it, if the translucent shaders draw: no mark (and red,
-//          logged only, the table's entry passed through the polygon's row).
-//          Without them, as the lit band: the side buffer keeps what a scene
-//          doesn't draw over.
-// Sets the number of wrong columns of each band. Returns 0 if nothing could
-// be drawn.
+// The smooth scenes, on four bands of the check canvas and its 32-bit
+// buffer, both filled beforehand with values a draw wouldn't leave (the
+// buffer with marks: the first import must take them away). Two scenes,
+// with a CPU write to the canvas between them, as the queue does when it
+// draws a call itself:
+//   lit:   the light band of texture_check: in column x the canvas has the
+//          light table's entry, the buffer that, the texel x, the level in
+//          sixteenths, x, and the mark
+//   plain: texel x through the row that leaves it as it is, on the left
+//          half; nothing drawn on the right, which keeps the canvas's 0xEE
+//   tluc:  a flat colour on the left half, the lit band on the right, and in
+//          the second scene a translucent polygon over that, if the
+//          translucent shaders draw: the table's entry through its row
+//   cpu:   the lit band, the CPU writing 0x44 over its left half before the
+//          second scene: the left the CPU's, the right still lit
+// The canvas must hold the buffer's red everywhere, and only lit pixels the
+// mark. Sets the number of wrong columns of each band. Returns 0 if nothing
+// could be drawn.
 #define SIDE_BANDS 4
 static int side_check(int bad[SIDE_BANDS]) {
-    enum { ROW_A = RASTQ_GPU_PLAIN_ROW + 1, ROWS, BAND_H = CHECK_H / SIDE_BANDS, FLAT = 0x33 };
+    enum {
+        ROW_A = RASTQ_GPU_PLAIN_ROW + 1,
+        ROWS,
+        BAND_H = CHECK_H / SIDE_BANDS,
+        HALF = CHECK_W / 2,
+        FLAT = 0x33,
+        BEFORE = 0xEE,
+        BY_CPU = 0x44
+    };
     static uchar ramp[8 * 256], tables[ROWS * 256];
+    static smooth_set set;
     uchar *canvas = vgpu_alloc(CHECK_W * CHECK_H);
     uchar *side = vgpu_alloc(CHECK_W * 4 * CHECK_H);
-    SceGxmColorSurface surface;
     rastq_gpu_vertex v[4];
     grs_bitmap ramp_bm;
-    int band, scene, x, i, k, tluc_drawn = 0, red_wrong = 0, ok = 0;
+    int band, scene, x, y, i, k, tluc_drawn = 0, ok = 0;
 
     for (band = 0; band < SIDE_BANDS; band++)
         bad[band] = -1;
@@ -1798,26 +1962,27 @@ static int side_check(int bad[SIDE_BANDS]) {
     ramp_bm.bits = ramp;
     ramp_bm.w = ramp_bm.row = 256;
     ramp_bm.h = 8;
-    if (sceGxmColorSurfaceInit(&surface, SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR, SCE_GXM_COLOR_SURFACE_LINEAR,
-                               SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, CHECK_W, CHECK_H,
-                               CHECK_W, side) < 0) {
-        gpu_err("side check: no 32-bit color surface");
+    if (!smooth_set_init(&set, side, canvas, CHECK_W, CHECK_H, CHECK_W))
         goto done;
-    }
-    memset(canvas, 0xEE, CHECK_W * CHECK_H);
-    memset(side, 0xEE, CHECK_W * 4 * CHECK_H);
-    check_side = &surface;
+    memset(canvas, BEFORE, CHECK_W * CHECK_H);
+    memset(side, SIDE_LIT, CHECK_W * 4 * CHECK_H);
+    check_set = &set;
     check_side_bits = canvas;
 
     for (scene = 0; scene < 2; scene++) {
-        if (scene == 1 && tluc_way < 0)
-            break;
+        if (scene == 1) {
+            // the CPU draws on the canvas between two scenes
+            for (y = 3 * BAND_H; y < 4 * BAND_H; y++)
+                memset(canvas + y * CHECK_W, BY_CPU, HALF);
+        }
         if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS, NULL))
             goto done;
         for (band = 0; band < SIDE_BANDS; band++) {
-            corners(v, 0, CHECK_W, band * BAND_H, (band + 1) * BAND_H);
+            int y0 = band * BAND_H, y1 = y0 + BAND_H;
+
             if (scene == 1) {
-                if (band == 3) {
+                if (band == 2 && tluc_way >= 0) {
+                    corners(v, HALF, CHECK_W, y0, y1);
                     for (i = 0; i < 4; i++)
                         v[i].left = ROW_A + 0.5f;
                     vgpu_tluc(4, v);
@@ -1826,9 +1991,10 @@ static int side_check(int bad[SIDE_BANDS]) {
                 continue;
             }
             if (band == 2) {
+                corners(v, 0, HALF, y0, y1);
                 vgpu_flat(4, v, FLAT);
-                continue;
             }
+            corners(v, band == 2 ? HALF : 0, band == 1 ? HALF : CHECK_W, y0, y1);
             for (i = 0; i < 4; i++) {
                 // the middle of texel x in column x, and of row 0
                 v[i].u = v[i].x + 0.5f;
@@ -1848,34 +2014,35 @@ static int side_check(int bad[SIDE_BANDS]) {
     }
 
     for (band = 0; band < SIDE_BANDS; band++) {
-        int y = band * BAND_H + BAND_H / 2;
-
+        y = band * BAND_H + BAND_H / 2;
         bad[band] = 0;
         for (x = 0; x < 256; x++) {
             const uchar *p = side + ((size_t)y * CHECK_W + x) * 4;
-            int drawn = canvas[y * CHECK_W + x], entry = tables[(x / 16) * 256 + x], wrong;
+            int drawn = canvas[y * CHECK_W + x], entry = tables[(x / 16) * 256 + x], left = x < HALF, want = -1;
+            int lit = 0, wrong;
 
-            if (band == 0 || (band == 3 && !tluc_drawn))
-                wrong = p[0] != entry || p[1] != x || p[2] != x || p[3] != SIDE_LIT || drawn != entry;
-            else if (band == 1)
-                wrong = p[0] != x || p[3] == SIDE_LIT || drawn != x;
-            else if (band == 2)
-                wrong = p[0] != FLAT || p[3] == SIDE_LIT || drawn != FLAT;
-            else {
-                wrong = p[3] == SIDE_LIT;
-                if (p[0] != tables[ROW_A * 256 + entry] && red_wrong++ == 0)
-                    gpu_log("side check, translucent band: column %d holds %d, not %d (not counted)", x, p[0],
-                            tables[ROW_A * 256 + entry]);
+            if (band == 0 || (band >= 2 && !left && !(band == 2 && tluc_drawn))) {
+                want = entry;
+                lit = 1;
+            } else if (band == 1) {
+                want = left ? x : BEFORE;
+            } else if (band == 2) {
+                want = left ? FLAT : tables[ROW_A * 256 + entry];
+            } else {
+                want = BY_CPU;
             }
+            wrong = drawn != want || p[0] != want || (p[3] == SIDE_LIT) != lit;
+            if (lit)
+                wrong |= p[1] != x || p[2] != x;
             if (wrong && bad[band]++ < 2)
-                gpu_err("side check, band %d: column %d holds %d %d %d %d, canvas %d", band, x, p[0], p[1], p[2],
-                        p[3], drawn);
+                gpu_err("side check, band %d: column %d holds %d %d %d %d, canvas %d, not %d%s", band, x, p[0], p[1],
+                        p[2], p[3], drawn, want, lit ? " lit" : "");
         }
     }
     ok = 1;
 
 done:
-    check_side = NULL;
+    check_set = NULL;
     check_side_bits = NULL;
     if (canvas != NULL)
         vgpu_free(canvas);
@@ -2235,13 +2402,14 @@ void vgpu_init(void) {
         return;
     }
 
-    vertices = vgpu_alloc(MAX_VERTICES * sizeof(vgpu_vertex) + MAX_INDICES * sizeof(uint16_t));
+    // and room past the scenes' for the extract's quad (extract_scene)
+    vertices = vgpu_alloc((MAX_VERTICES + 4) * sizeof(vgpu_vertex) + (MAX_INDICES + 6) * sizeof(uint16_t));
     if (vertices == NULL) {
         shark_end();
         snprintf(report, sizeof(report), "gpu: no memory for vertices");
         return;
     }
-    indices = (uint16_t *)(vertices + MAX_VERTICES);
+    indices = (uint16_t *)(vertices + MAX_VERTICES + 4);
     ready = 1;
 
     gpu_log("drawing the index check");
@@ -2268,10 +2436,10 @@ void vgpu_init(void) {
             gpu_log("translucent bitmap check drawn: %d %d %d %d wrong", tlucbm_bad[0], tlucbm_bad[1], tlucbm_bad[2],
                     tlucbm_bad[3]);
         }
-        // The smooth shadows' side pass: the same vertex program again.
+        // The smooth shadows' shaders: the same vertex program again.
         if (shadows_wanted) {
-            gpu_log("compiling the side pass's shaders");
-            side_made = make_side_programs();
+            gpu_log("compiling the smooth shadows' shaders");
+            side_made = make_side_programs() && make_single_pass_programs();
         }
     }
     if (textured) {

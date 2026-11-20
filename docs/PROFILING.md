@@ -81,8 +81,8 @@ commit `1eb33db0`.
 - **It draws as the game does**: on the GPU, or on three cores when
   the GPU can't be used. With Variants on Alternate it switches between
   two ways of doing something under test, twenty seconds each: at
-  present the smooth shadows' side pass left out (`var=0`) against
-  drawn (`var=1`, what the game does; docs/SHADOWS.md). The log says
+  present the view drawn the 8-bit way (`var=0`) against the smooth
+  shadows' way (`var=1`, what the game does; docs/SHADOWS.md). The log says
   which was on (`var=`). That is what makes two ways comparable: same
   place, same moment, same capture.
 - **It writes its log from a thread of its own**, a few times a second.
@@ -265,7 +265,7 @@ All zero in the seconds the CPU draws.
 | `gpudraw`, `gpudraws` | of `gpuwait`: issuing the draws, and how many |
 | `gpuoverlap` | time the main thread used for something else while the GPU drew |
 | `gpufallbacks` | total: lists the GPU refused, drawn by the CPU instead |
-| `side=a/b` | the smooth shadows' side pass (docs/SHADOWS.md): scenes drawn a second time, into a canvas's side buffer, and the time to send them, which isn't in `gpudraw`. As many as `gpuscenes` in the station; 0 in cyberspace and with `shadows = original`. Last in the line, with `sidecheck=` |
+| `side=a/b` | the smooth shadows (docs/SHADOWS.md): scenes drawn the smooth way, into a canvas's 32-bit side buffer, and the time to send their extracts into the canvas, which isn't in `gpudraw`. As many as `gpuscenes` in the station; 0 in cyberspace and with `shadows = original`. Last in the line, with `sidecheck=` |
 
 ### The HUD and loading
 
@@ -613,8 +613,8 @@ the two ways part:
 `defined(__vita__) && defined(VITA_PROFILE)` instead)
 
 and every log line says which was on. At present it is read in
-`vgpu_canvas` in `src/MacSrc/VitaGpu.c`: 0 leaves the smooth shadows'
-side pass out, 1 draws it (docs/SHADOWS.md). Each piece of work redefines what the values mean; raise
+`vgpu_canvas` in `src/MacSrc/VitaGpu.c`: 0 draws the view the 8-bit way,
+1 the smooth shadows' way (docs/SHADOWS.md). Each piece of work redefines what the values mean; raise
 `VPROF_VARIANT_COUNT` to compare three. On 1 only, the build stays on
 1, so 1 should be what the game does.
 
