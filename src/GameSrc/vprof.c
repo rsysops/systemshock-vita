@@ -1008,7 +1008,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
                 "applog=%u:%.2f applogmax=%08x:%.2f | at=%s | amap=%.2f/%.2f amaps=%d amapmax=%.2f | "
                 "lateswap=%d light=%d onmcb=%d/%d nearmcb=%d/%d prevmcb=%d/%d mcb0=%u mcbmax=%.2f vbllag=%.2f aprio=%d amask=%x mprio=%d "
-                "mmask=%x cutwait=%.2f/%.2f | side=%.2f/%.2f sidecheck=%llu/%llu/%llu cmpms=%.2f dumpms=%.0f shown=%.2f lut=%.2f/%.3f/%.1f\n",
+                "mmask=%x cutwait=%.2f/%.2f | side=%.2f/%.2f sidecheck=%llu/%llu/%llu cmpms=%.2f dumpms=%.0f shown=%.2f lut=%.2f/%.3f/%.1f shownover=%.2f\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -1152,7 +1152,8 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)vgpu_counters.smooth_frames / g_frame_samples,
                 (double)vgpu_counters.lut_builds / g_frame_samples,
                 us_to_ms((SceInt64)vgpu_counters.lut_us) / g_frame_samples,
-                (double)vgpu_counters.lut_texels / g_frame_samples);
+                (double)vgpu_counters.lut_texels / g_frame_samples,
+                (double)vgpu_counters.copied_frames / g_frame_samples);
         __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
         g_res_max_us = 0;
         g_res_max_id = 0;

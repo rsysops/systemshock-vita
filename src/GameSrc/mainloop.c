@@ -96,6 +96,7 @@ void (*exit_modes[])(void) = {screen_exit, fullscreen_exit, NULL, NULL, setup_ex
 void loopmode_switch(short *cmode) {
     // Actually switch mode
     VitaSyncView(); // the screens from here on are drawn on the screen buffer
+    vgpu_view_forget(); // and they aren't the view: no smooth shadows over them
     _last_mode = *cmode;
     (*exit_modes[_last_mode])();
     *cmode = _new_mode;

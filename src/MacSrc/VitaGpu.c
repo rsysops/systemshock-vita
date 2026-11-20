@@ -139,6 +139,7 @@ static int shades;   // and the shaded ones
 // The views' canvases: see vgpu_set_canvases
 static uchar *canvas_pixels[VGPU_CANVASES];
 static int canvas_w, canvas_h, canvas_stride, canvas_turn;
+static unsigned canvas_serial[VGPU_CANVASES], canvas_serials; // how many times each was handed out
 
 // The smooth shadows (vgpu_set_shadows, docs/SHADOWS.md). A smooth scene is
 // drawn once, into the canvas's 32-bit side buffer: its first draw imports
@@ -370,16 +371,20 @@ static const char extract_fragment_source[] =
 // light from the table of colours (ShadeLut.h): u in the middle of the
 // texel's column, v the level in rows over the table's 16, read between two
 // rows' middles. Elsewhere the view as it was, its index through the palette.
-// %d is SIDE_LIT.
+// The view and its indices are read at the first coordinates, the side buffer
+// at the second (vLight.xy): the same for a view shown from its canvas; the
+// screen's and the view's for one copied into the screen buffer. %d is
+// SIDE_LIT.
 static const char display_fragment_source[] =
     "float4 main(\n"
     "    float2 vTex : TEXCOORD0,\n"
+    "    float4 vLight : TEXCOORD1,\n"
     "    uniform sampler2D uView : TEXUNIT0,\n"
     "    uniform sampler2D uIndex : TEXUNIT1,\n"
     "    uniform sampler2D uSide : TEXUNIT2,\n"
     "    uniform sampler2D uColours : TEXUNIT3)\n"
     "{\n"
-    "    float4 side = tex2D(uSide, vTex);\n"
+    "    float4 side = tex2D(uSide, vLight.xy);\n"
     "    float index = tex2D(uIndex, vTex).x;\n"
     "    if (abs(side.w - %d.0f / 255.0f) < 0.5f / 255.0f && abs(side.x - index) < 0.5f / 255.0f)\n"
     "        return tex2D(uColours, float2(side.y * (255.0f / 256.0f) + 0.5f / 256.0f, side.z * (255.0f / 256.0f)));\n"
@@ -762,6 +767,7 @@ unsigned char *vgpu_canvas(int width, int height, int *row) {
     // touched again only after two newer frames were handed to the screen,
     // and vita2d lets at most two wait.
     canvas_turn = (canvas_turn + 1) % VGPU_CANVASES;
+    canvas_serial[canvas_turn] = ++canvas_serials; // a view copied from it before is gone
     // its side buffer is made the canvas again by the frame's first scene
     side_wanted[canvas_turn] = side_pixels[canvas_turn] != NULL;
     side_sets[canvas_turn].drawn = 0;
@@ -1400,10 +1406,10 @@ static void colours_make(void) {
 }
 
 // The screen's quad, a strip of 4 vertices: (x0, y0) to (x1, y1) on a
-// target `target_w` by `target_h`, reading (0, 0) to (u1, v1) of the
-// textures.
-static void display_quad(vgpu_vertex v[4], float x0, float y0, float x1, float y1, float u1, float v1, int target_w,
-                         int target_h) {
+// target `target_w` by `target_h`, reading (u0, v0) to (u1, v1) of the view
+// and its indices, and (0, 0) to (s1, t1) of the side buffer.
+static void display_quad(vgpu_vertex v[4], float x0, float y0, float x1, float y1, float u0, float v0, float u1,
+                         float v1, float s1, float t1, int target_w, int target_h) {
     int i;
 
     memset(v, 0, 4 * sizeof(v[0]));
@@ -1412,17 +1418,22 @@ static void display_quad(vgpu_vertex v[4], float x0, float y0, float x1, float y
 
         v[i].x = 2.0f * x / (float)target_w - 1.0f;
         v[i].y = 1.0f - 2.0f * y / (float)target_h;
-        v[i].u = i & 1 ? u1 : 0.0f;
-        v[i].v = i & 2 ? v1 : 0.0f;
+        v[i].u = i & 1 ? u1 : u0;
+        v[i].v = i & 2 ? v1 : v0;
+        v[i].left = i & 1 ? s1 : 0.0f;
+        v[i].span = i & 2 ? t1 : 0.0f;
         v[i].w = v[i].width = v[i].depth = 1.0f;
     }
 }
 
-static void display_draw(const SceGxmTexture *view, const smooth_set *set, const vgpu_vertex *v, const uint16_t *idx) {
+// The view's colours through its palette, its indices, and the side buffer
+// it was drawn with
+static void display_draw(const SceGxmTexture *view, const SceGxmTexture *indices_of, const smooth_set *set,
+                         const vgpu_vertex *v, const uint16_t *idx) {
     sceGxmSetVertexProgram(context, tmap_vertex_program);
     sceGxmSetFragmentProgram(context, display_program);
     sceGxmSetFragmentTexture(context, display_units[0], view);
-    sceGxmSetFragmentTexture(context, display_units[1], &set->canvas);
+    sceGxmSetFragmentTexture(context, display_units[1], indices_of);
     sceGxmSetFragmentTexture(context, display_units[2], &set->view);
     sceGxmSetFragmentTexture(context, display_units[3], &colour_textures[colour_turn]);
     sceGxmSetVertexStream(context, 0, v);
@@ -1448,12 +1459,87 @@ int vgpu_draw_view(const void *texture, const void *bits, int tex_w, float x, fl
     idx = vita2d_pool_memalign(4 * sizeof(uint16_t), sizeof(uint16_t));
     if (v == NULL || idx == NULL)
         return 0;
-    display_quad(v, x, y, x + (float)w * sx, y + (float)h * sy, (float)w / (float)set->tex_w,
-                 (float)h / (float)set->tex_h, SCREEN_W, SCREEN_H);
+    display_quad(v, x, y, x + (float)w * sx, y + (float)h * sy, 0.0f, 0.0f, (float)w / (float)set->tex_w,
+                 (float)h / (float)set->tex_h, (float)w / (float)set->tex_w, (float)h / (float)set->tex_h, SCREEN_W,
+                 SCREEN_H);
     for (i = 0; i < 4; i++)
         idx[i] = (uint16_t)i;
-    display_draw((const SceGxmTexture *)texture, set, v, idx);
+    display_draw((const SceGxmTexture *)texture, &set->canvas, set, v, idx);
     vgpu_counters.smooth_frames++;
+    return 1;
+}
+
+// ---- the view copied into the screen buffer ----------------------------------
+//
+// Paused, under the zoom rectangle, or before the game draws over it, the
+// view goes to the screen through the screen buffer (frsetup.c,
+// VitaSyncView). Its canvas's side buffer still says which pixels are lit:
+// where the screen buffer holds the same index there, the screen shows it
+// smooth (vgpu_draw_copied_view).
+
+static SceGxmTexture screen_indices; // the screen buffer, its indices
+static int screen_tex_w, screen_tex_h, screen_ok;
+static struct {
+    int canvas; // -1: none
+    unsigned serial;
+    int x, y, w, h;
+} copied = {-1};
+
+void vgpu_set_screen(const void *pixels, int width, int height, int stride) {
+    screen_ok = pixels != NULL &&
+                sceGxmTextureInitLinear(&screen_indices, pixels, SCE_GXM_TEXTURE_FORMAT_U8_RRRR, stride, height, 0) >= 0;
+    if (screen_ok)
+        point_and_clamp(&screen_indices);
+    screen_tex_w = stride;
+    screen_tex_h = height;
+    (void)width;
+    vgpu_view_forget();
+}
+
+void vgpu_view_copied(const void *bits, int x, int y, int w, int h) {
+    int i = canvas_index(bits);
+
+    copied.canvas = i;
+    if (i < 0)
+        return;
+    copied.serial = canvas_serial[i];
+    copied.x = x;
+    copied.y = y;
+    copied.w = w;
+    copied.h = h;
+}
+
+void vgpu_view_forget(void) { copied.canvas = -1; }
+
+int vgpu_draw_copied_view(const void *screen_texture, int tex_w, float x, float y, float sx, float sy) {
+    int i = copied.canvas;
+    const smooth_set *set;
+    vgpu_vertex *v;
+    uint16_t *idx;
+
+    // the canvas still holds that view, drawn the smooth way
+    if (!display_on || !screen_ok || i < 0 || canvas_serial[i] != copied.serial || !side_wanted[i] ||
+        !side_sets[i].drawn || !have_palette || !have_ltab)
+        return 0;
+    set = &side_sets[i];
+    if (tex_w != screen_tex_w || copied.x < 0 || copied.y < 0 || copied.x + copied.w > screen_tex_w ||
+        copied.y + copied.h > screen_tex_h || copied.w > set->tex_w || copied.h > set->tex_h)
+        return 0;
+    if (colour_turn < 0 || palette_changed || ltab_changed)
+        colours_make();
+    v = vita2d_pool_memalign(4 * sizeof(vgpu_vertex), sizeof(void *));
+    idx = vita2d_pool_memalign(4 * sizeof(uint16_t), sizeof(uint16_t));
+    if (v == NULL || idx == NULL)
+        return 0;
+    display_quad(v, x + (float)copied.x * sx, y + (float)copied.y * sy, x + (float)(copied.x + copied.w) * sx,
+                 y + (float)(copied.y + copied.h) * sy, (float)copied.x / (float)screen_tex_w,
+                 (float)copied.y / (float)screen_tex_h, (float)(copied.x + copied.w) / (float)screen_tex_w,
+                 (float)(copied.y + copied.h) / (float)screen_tex_h, (float)copied.w / (float)set->tex_w,
+                 (float)copied.h / (float)set->tex_h, SCREEN_W, SCREEN_H);
+    for (i = 0; i < 4; i++)
+        idx[i] = (uint16_t)i;
+    display_draw((const SceGxmTexture *)screen_texture, &screen_indices, set, v, idx);
+    vgpu_counters.copied_frames++;
     return 1;
 }
 
@@ -2388,10 +2474,11 @@ static int display_check(int bad[DISPLAY_BANDS]) {
     if (sceGxmBeginScene(context, 0, t->target, NULL, NULL, NULL, &surface, &t->depth_stencil) < 0)
         goto done;
     scene_state();
-    display_quad(vertices, 0.0f, 0.0f, (float)CHECK_W, (float)CHECK_H, 1.0f, 1.0f, CHECK_W, CHECK_H);
+    display_quad(vertices, 0.0f, 0.0f, (float)CHECK_W, (float)CHECK_H, 0.0f, 0.0f, 1.0f, 1.0f, 1.0f, 1.0f, CHECK_W,
+                 CHECK_H);
     for (x = 0; x < 4; x++)
         indices[x] = (uint16_t)x;
-    display_draw(&p8, &set, vertices, indices);
+    display_draw(&p8, &set.canvas, &set, vertices, indices);
     sceGxmEndScene(context, NULL, NULL);
     sceGxmFinish(context);
 
@@ -2814,7 +2901,7 @@ static void timing_side(void) {
 static SceGxmTexture timing_p8;
 
 static void timing_show(void) {
-    display_draw(&timing_p8, &side_sets[0], &vertices[8], &indices[12]);
+    display_draw(&timing_p8, &side_sets[0].canvas, &side_sets[0], &vertices[8], &indices[12]);
 }
 
 static int timing_compare(const void *a, const void *b) { return *(const int *)a - *(const int *)b; }
@@ -2927,8 +3014,8 @@ static void smooth_timing(void) {
                                 0) >= 0 &&
         sceGxmTextureSetPalette(&timing_p8, check_palette) >= 0) {
         point_and_clamp(&timing_p8);
-        display_quad(&vertices[8], 0.0f, 0.0f, (float)w, (float)h, (float)w / (float)set->tex_w,
-                     (float)h / (float)set->tex_h, w, h);
+        display_quad(&vertices[8], 0.0f, 0.0f, (float)w, (float)h, 0.0f, 0.0f, (float)w / (float)set->tex_w,
+                     (float)h / (float)set->tex_h, (float)w / (float)set->tex_w, (float)h / (float)set->tex_h, w, h);
         for (i = 0; i < 4; i++)
             indices[12 + i] = (uint16_t)(8 + i);
         colour_turn = 0;

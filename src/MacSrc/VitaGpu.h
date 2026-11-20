@@ -68,6 +68,21 @@ int vgpu_draw_view(const void *texture, const void *bits, int tex_w, float x, fl
 // smooth shadows (cyberspace).
 void vgpu_canvas_smooth(int on);
 
+// The screen buffer (vita2d's P8 texture the game's screen is shown through):
+// its pixels, `width` by `height`, `stride` a row. Again after a resize.
+void vgpu_set_screen(const void *pixels, int width, int height, int stride);
+// A view in a GPU canvas (`bits`) was copied into the screen buffer, its top
+// left `w` by `h` at (x, y): vgpu_draw_copied_view can show it smooth there,
+// as long as its canvas holds it. Forgotten when a view is shown from its
+// canvas again, and when other screens follow (a loop change).
+void vgpu_view_copied(const void *bits, int x, int y, int w, int h);
+void vgpu_view_forget(void);
+// In SDLDraw, after the screen buffer is drawn at (x, y) stretched by (sx,
+// sy): that view over it with smooth shadows, where the screen buffer still
+// holds its pixels. `screen_texture` is the screen buffer's SceGxmTexture,
+// `tex_w` its width. 0 if there is none to show.
+int vgpu_draw_copied_view(const void *screen_texture, int tex_w, float x, float y, float sx, float sy);
+
 // In Shock.c: whether a finished view in a GPU canvas, to go at (x, y) on
 // the screen, will be shown from there, so that it needn't be copied to the
 // screen buffer: alone if it fills the screen, laid over the screen buffer's
@@ -97,6 +112,7 @@ typedef struct {
     unsigned lut_builds;           // the colours' table made again
     unsigned long long lut_us;     // making it
     unsigned long long lut_texels; // the texels made again (256 for the whole table)
+    unsigned copied_frames;        // views shown smooth over the screen buffer
     // And the longest comparison of the window, on the game's thread: the
     // side buffer's check, and a frame dump's copy when there is one.
     unsigned compare_max_us;

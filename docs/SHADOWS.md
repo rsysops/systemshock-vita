@@ -20,6 +20,7 @@ and read its captures is in [PROFILING.md](PROFILING.md).
 - [Step 2c: a lighter side shader](#step-2c-a-lighter-side-shader)
 - [Step 3: on the screen](#step-3-on-the-screen)
 - [Step 3b: the table of colours, only what changed](#step-3b-the-table-of-colours-only-what-changed)
+- [Step 4: the view through the screen buffer](#step-4-the-view-through-the-screen-buffer)
 
 ## Starting point
 
@@ -146,7 +147,7 @@ the user found the fitted way better.
 | 1 | The prefs setting; the side buffers and the side pass; a start-up check; counters, and the side buffer in the frame dumps; a preview of the look on a PC from a dump | correct (0 mismatches in 84.8 M pixels), the smooth look in the previews; the GPU's work doubled: `gpuwait` 8.6 ms against 0.3-3.9, 53 s of 233 under 50 fps |
 | 2 | One pass: each scene drawn once, into the 32-bit buffer, with an import and an extract (replaces "the main thread waits for the canvas only") | correct (0 mismatches in 83.2 M pixels); `gpuwait` +4 ms against the 8-bit way at the same spot, whatever the scene: half of step 1's worst, still a frame rate of 52 in heavy places. 2b times its parts at start-up: the side shader is most of it; 2c makes it lighter: **+1.4 ms**, at a frame rate 3 to 4 lower where the frame is already short of time |
 | 3 | The table of colours, the screen's shader, its start-up check, a PC test of the table: smooth shadows on the screen | on the screen and right (0 mismatches in 172 M pixels), dark rooms a dim teal as in the Enhanced Edition; the table made again every frame, 1.0 ms. 3b: made again only where the palette changed, 0.04 ms; `table` dropped |
-| 4 | Where the view is copied to the screen buffer: paused, the options panel and its gamma slider, the zoom rectangle | |
+| 4 | Where the view is copied to the screen buffer: paused, the options panel and its gamma slider, the zoom rectangle | smooth there too, the panel, the rectangle and the overlays as before; nothing smooth on the menus or in a cutscene |
 | 5 | Tuning: the dark floor and the curve, a light fraction for objects, translucent surfaces over lit ones | |
 
 ## How it is checked
@@ -464,7 +465,7 @@ What it does: the smooth shadows on the screen.
   the screen's shader over the whole canvas.
 - Not yet: the view while the game is paused (the options panel, its
   gamma slider) and under the zoom rectangle is copied into the screen
-  buffer and shown with its palette (step 4).
+  buffer and shown with its palette (step 4 does them).
 
 What a capture should show:
 
@@ -557,3 +558,58 @@ Alternate, level 1).**
 - One smooth window at the start (t=112) had `gpuwait` 4.6 ms where the
   one before it had 1.7 at the same place: not explained, not seen
   again.
+
+## Step 4: the view through the screen buffer
+
+Why: the view reaches the screen through the 8-bit screen buffer, not
+from its GPU canvas, when `VitaShowView` turns it down (the game paused:
+the options panel and its gamma slider; the zoom rectangle on its way in
+the paneled view; `frsetup.c` then copies the canvas there) and when
+`VitaSyncView` copies it before the game draws over it (the pause, the
+cursor, a video mail, the help overlay). The screen then showed it
+through the palette, the original look.
+
+What it does:
+
+- **The copy is remembered** (`vgpu_view_copied`, from `frsetup.c` and
+  `VitaSyncView`): which canvas, its hand-out serial (`vgpu_canvas`
+  counts them), and where it went. It holds while that canvas isn't
+  handed out again and was drawn the smooth way; it is forgotten when a
+  view is shown from its canvas again (`VitaShowView`) and at a loop
+  change (`mainloop.c`), whose other screens follow.
+- **`vgpu_draw_copied_view`**, in `SDLDraw` right after the screen buffer
+  is drawn: the screen's shader over that rectangle, reading the screen
+  buffer's colours and indices at the screen's coordinates
+  (`vgpu_set_screen`) and the canvas's side buffer at the view's. A pixel
+  the game drew over the view (the panel, the text, the cursor, the zoom
+  rectangle, a video mail) holds another index, and shows its palette's
+  colour. One that holds the same index by chance shows that texel at its
+  light: the same colour within a light step.
+- The shader reads the side buffer at a second pair of coordinates
+  (`vLight.xy`); for a view shown from its canvas both pairs are the same.
+- `shownover=` in the log: views shown smooth over the screen buffer, a
+  frame.
+
+What a capture should show:
+
+| where | expected |
+|---|---|
+| the options panel, full screen and paneled | the view behind it smooth; the panel as before; the gamma slider's changes on the smooth view |
+| the zoom rectangle (an object picked up in the paneled view) | the view smooth, the rectangle drawn right |
+| a video mail, the help overlay, the cursor | drawn right over a smooth view |
+| the map, the main menu, a cutscene, cyberspace | no smooth pixels anywhere |
+| the log | `shownover=` about 1 a frame while paused, 0 in play; every check 0 wrong |
+
+**Results (2026-11-20, the profile build, 561 s: the paneled and the full
+screen views, the options panel, the gamma slider, the zoom rectangle, the
+main menu, a cutscene).**
+
+- The user: everything looks right: the view smooth behind the panel and
+  under the zoom rectangle, the gamma slider followed, the panel, the
+  rectangle and the overlays as before, nothing stray on the other
+  screens.
+- Every start-up check passed.
+- `shownover=`: about 1 a frame in 105 s, 39 in the paneled view and 66
+  in full screen, the seconds paused or with the rectangle flying (25 of
+  them shared with `shown=`, the game going back and forth). 0 in the
+  15 s on the main menu and in the cutscene.

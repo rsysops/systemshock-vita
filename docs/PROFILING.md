@@ -267,6 +267,7 @@ All zero in the seconds the CPU draws.
 | `gpufallbacks` | total: lists the GPU refused, drawn by the CPU instead |
 | `side=a/b` | the smooth shadows (docs/SHADOWS.md): scenes drawn the smooth way, into a canvas's 32-bit side buffer, and the time to send their extracts into the canvas, which isn't in `gpudraw`. As many as `gpuscenes` in the station; 0 in cyberspace and with `shadows = original`. Last in the line, with `sidecheck=` |
 | `shown=`, `lut=a/b/c` | the smooth shadows on the screen: views drawn with them by the screen's shader (`vgpu_draw_view`), a frame (1 in the station, 0 in cyberspace, when paused and with `shadows = original`); the table of colours made again, a frame, the time it took, in ms, and the texels made again, a frame (256 for a whole table: at the start, a gamma change, a fade, infrared; a few where the palette cycles). At the end of the line |
+| `shownover=` | views shown with smooth shadows over the screen buffer (`vgpu_draw_copied_view`), a frame: about 1 while the game is paused (the options panel) or the zoom rectangle flies, 0 in play. At the end of the line |
 
 ### The HUD and loading
 

@@ -457,6 +457,7 @@ int VitaShowView(const unsigned char *bits, int x, int y, int width, int height)
             height <= (int)vita2d_texture_get_height(t)) {
             shownView = t;
             shownPlace = place;
+            vgpu_view_forget(); // the screen buffer's copy, if any, is old
             return 1;
         }
     }
@@ -482,6 +483,7 @@ void VitaSyncView(void)
     to = (uint8_t *)drawSurface->pixels + place.y * drawSurface->pitch + place.x;
     for (y = 0; y < place.h; y++)
         memcpy(to + y * drawSurface->pitch, from + y * stride, place.w);
+    vgpu_view_copied(from, place.x, place.y, place.w, place.h);
 }
 
 // The screen's texture, cleared. Without it there is nothing to show the game
@@ -499,6 +501,8 @@ static void MakeScreenTexture(int width, int height)
     }
     palettedTexturePointer = (uint8_t*)(vita2d_texture_get_datap(texBuffer));
     memset(palettedTexturePointer, 0, vita2d_texture_get_stride(texBuffer) * height);
+    // a view copied here can be shown smooth (vgpu_draw_copied_view)
+    vgpu_set_screen(palettedTexturePointer, width, height, vita2d_texture_get_stride(texBuffer));
 }
 
 void InitVita2D(int width, int height)
@@ -661,8 +665,12 @@ void SDLDraw() {
     vita2d_start_drawing();
 
     vita2d_draw_rectangle(0, 0, VITA_FULLSCREEN_WIDTH, VITA_FULLSCREEN_HEIGHT, 0xff000000);
-    if (view == NULL || !FillsScreen(&lastPlace))
+    if (view == NULL || !FillsScreen(&lastPlace)) {
         vita2d_draw_texture_scale(texBuffer, destRect.x, destRect.y, scaleX, scaleY);
+        // a view copied into the screen buffer, with smooth shadows
+        vgpu_draw_copied_view(&texBuffer->gxm_tex, vita2d_texture_get_width(texBuffer), destRect.x, destRect.y, scaleX,
+                              scaleY);
+    }
     // the view with smooth shadows if it has them, else from its palette
     if (view != NULL && FillsScreen(&lastPlace)) {
         if (!vgpu_draw_view(&view->gxm_tex, vita2d_texture_get_datap(view), vita2d_texture_get_width(view),
