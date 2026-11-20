@@ -100,6 +100,8 @@ def main():
         outputs['original'] += bytes(colour)
         if mark == SIDE_LIT and red == index:
             lit += 1
+            # the level in sixteenths, rounded down or to the nearest (since
+            # step 2c, as the GPU's output rounds): half a sixteenth either way
             level = (level16 + 0.5) / 16.0
             outputs['fitted'] += bytes(fitted(texel, level))
             outputs['table'] += bytes(table(texel, level))

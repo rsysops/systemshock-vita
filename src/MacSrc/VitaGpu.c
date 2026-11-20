@@ -82,6 +82,8 @@ typedef struct {
 enum {
     DRAW_TMAP,   // a bitmap through the tables
     DRAW_TRANS,  // the same, texel 0 leaving the pixel alone
+    DRAW_LIT,    // DRAW_TMAP through the light table: the side shader in a smooth scene
+    DRAW_LIT_TRANS, // the same, texel 0 leaving the pixel alone
     DRAW_FLAT,   // one palette index
     DRAW_SHADED, // between colours, through the colours' table
     DRAW_TLUC,   // what the canvas holds, through a row of the tables
@@ -160,7 +162,8 @@ static gpu_block blocks[MAX_BLOCKS];
 static gpu_target targets[MAX_TARGETS];
 static SceGxmColorSurface scene_color;
 static gpu_target *scene_target, *scene_side_target; // the 8-bit canvas's, the 32-bit buffer's
-static int scene_w, scene_h;
+static int scene_w, scene_h;           // the target's
+static int scene_view_w, scene_view_h; // the view's, in its top left
 static int scene_canvas;       // which canvas the scene draws into; -1: none of them
 static smooth_set *scene_set; // the scene is smooth, drawn there; NULL: the 8-bit way
 static int in_scene;
@@ -265,14 +268,16 @@ static const char tmap_fragment_source[] =
     "}\n";
 static const char trans_fragment_lines[] = "    if (pal < 0.5f / 255.0f) discard;\n";
 
-// The textured shader of a smooth scene (docs/SHADOWS.md), into the 32-bit
-// buffer: its pixel, worked out in the same words, and what the screen needs
-// to light it in full colour. Red is the palette index the canvas gets, green
-// the texel, blue the light level in sixteenths of a row (0 to 255), and
-// alpha SIDE_LIT where the level is one of the light table's rows. The other
-// shaders, drawn into the buffer as they are, write 255 there. %s is what
-// a transparent bitmap adds; then the tables' height, the light table's, and
-// SIDE_LIT.
+// The textured shader of a smooth scene (docs/SHADOWS.md), for its lit
+// polygons only, into the 32-bit buffer: its pixel, worked out in the same
+// words, and what the screen needs to light it in full colour. Red is the
+// palette index the canvas gets, green the texel, blue the light level in
+// sixteenths of a row (0 to 255, rounded as the output rounds), and alpha
+// SIDE_LIT. A lit polygon's level is always one of the light table's rows
+// (gpu_classify leaves the others to the CPU): nothing to compare. Every
+// other shader, drawn into the buffer as it is, writes 255 there; so do
+// the textured polygons of one table row, drawn by the textured shader. %s
+// is what a transparent bitmap adds; then the tables' height, and SIDE_LIT.
 static const char side_fragment_source[] =
     "float4 main(\n"
     "    float2 vTex : TEXCOORD0,\n"
@@ -287,9 +292,7 @@ static const char side_fragment_source[] =
     "    float tab = (vLight.x + vLight.y * part) / vDepth;\n"
     "    float2 lut = float2(pal * (255.0f / 256.0f) + 0.5f / 256.0f, tab / %d.0f);\n"
     "    float shade = tex2D(uTables, lut).x + 0.25f / 255.0f;\n"
-    "    float level = clamp(floor(tab * 16.0f), 0.0f, 255.0f);\n"
-    "    float lit = (tab >= 0.0f && tab < %d.0f) ? %d.25f / 255.0f : 0.0f;\n"
-    "    return float4(shade, pal + 0.25f / 255.0f, (level + 0.25f) / 255.0f, lit);\n"
+    "    return float4(shade, pal + 0.25f / 255.0f, tab * (16.0f / 255.0f), %d.25f / 255.0f);\n"
     "}\n";
 
 // A smooth scene's first draw, over all of it, the canvas texel for pixel:
@@ -831,6 +834,8 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     scene_target = t;
     scene_w = target_w;
     scene_h = target_h;
+    scene_view_w = w;
+    scene_view_h = h;
     scene_canvas = canvas_index(bits);
     scene_set = NULL;
     if (scene_canvas >= 0 && side_wanted[scene_canvas])
@@ -991,12 +996,38 @@ static void fill(vgpu_vertex *out, const rastq_gpu_vertex *in, float u, float v,
     out->depth = in->depth * depth;
 }
 
+// Whether a polygon covers all of the view: a rectangle from its top left
+// to its bottom right, or more.
+static int covers_view(int n, const rastq_gpu_vertex *v) {
+    float x0 = v[0].x, x1 = v[0].x, y0 = v[0].y, y1 = v[0].y;
+    int i;
+
+    if (n != 4)
+        return 0;
+    for (i = 1; i < 4; i++) {
+        x0 = v[i].x < x0 ? v[i].x : x0;
+        x1 = v[i].x > x1 ? v[i].x : x1;
+        y0 = v[i].y < y0 ? v[i].y : y0;
+        y1 = v[i].y > y1 ? v[i].y : y1;
+    }
+    // and nothing but a rectangle: each corner on two of its sides
+    for (i = 0; i < 4; i++)
+        if ((v[i].x != x0 && v[i].x != x1) || (v[i].y != y0 && v[i].y != y1))
+            return 0;
+    return x0 <= 0.0f && y0 <= 0.0f && x1 >= (float)scene_view_w && y1 >= (float)scene_view_h;
+}
+
 static int vgpu_flat(int n, const rastq_gpu_vertex *v, int color) {
     vgpu_vertex out[RASTQ_GPU_VERTS];
     int i;
 
     if (n > RASTQ_GPU_VERTS)
         return 1;
+    // The view's clear, the frame's first draw: everything the clear import
+    // would have brought in is drawn over, so it goes. What the view
+    // doesn't cover is never shown.
+    if (scene_set != NULL && draw_count == 1 && draws[0].kind == DRAW_IMPORT_CLEAR && covers_view(n, v))
+        vertex_count = index_count = draw_count = 0;
     for (i = 0; i < n; i++) {
         // The 8-bit target stores round or floor of 255 times the output:
         // a quarter above the index gives the index either way.
@@ -1089,7 +1120,7 @@ static int vgpu_tluc_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gp
 static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_vertex *v) {
     const SceGxmTexture *texture;
     vgpu_vertex out[RASTQ_GPU_VERTS];
-    int i;
+    int i, lit, kind;
 
     if (n > RASTQ_GPU_VERTS)
         return 1;
@@ -1098,7 +1129,16 @@ static int vgpu_tmap(const grs_bitmap *bm, int flags, int n, const rastq_gpu_ver
         return 0;
     for (i = 0; i < n; i++)
         fill(&out[i], &v[i], v[i].u, v[i].v, bm->w, bm->h);
-    return add_polygon(texture, (flags & RASTQ_GPU_TRANS) ? DRAW_TRANS : DRAW_TMAP, n, out);
+    // Lit: its light level is one of the light table's rows (see rastq.h; a
+    // polygon of one row of another table has that row and a half)
+    lit = (v[0].left + v[0].span * v[0].along / (v[0].width != 0.0f ? v[0].width : 1.0f)) /
+              (v[0].depth != 0.0f ? v[0].depth : 1.0f) <
+          (float)RASTQ_GPU_LIGHT_ROWS;
+    if (flags & RASTQ_GPU_TRANS)
+        kind = lit ? DRAW_LIT_TRANS : DRAW_TRANS;
+    else
+        kind = lit ? DRAW_LIT : DRAW_TMAP;
+    return add_polygon(texture, kind, n, out);
 }
 
 // The scene's draws, into the canvas, or the smooth way into its 32-bit
@@ -1145,16 +1185,16 @@ static void issue_draws(int smooth) {
                 sceGxmSetFragmentProgram(context, tluc_fragment_programs[tluc_way]);
                 sceGxmSetFragmentTexture(context, (unsigned)tluc_units[tluc_way], &tables_texture);
             }
-        } else if (smooth) {
-            int trans = kind == DRAW_TRANS;
-            if (last != DRAW_TMAP && last != DRAW_TRANS)
+        } else if (smooth && (kind == DRAW_LIT || kind == DRAW_LIT_TRANS)) {
+            int trans = kind == DRAW_LIT_TRANS;
+            if (last < DRAW_TMAP || last > DRAW_LIT_TRANS)
                 sceGxmSetVertexProgram(context, tmap_vertex_program);
             sceGxmSetFragmentProgram(context, trans ? side_trans_fragment_program : side_fragment_program);
             sceGxmSetFragmentTexture(context, trans ? side_trans_bitmap_unit : side_bitmap_unit, d->texture);
             sceGxmSetFragmentTexture(context, trans ? side_trans_tables_unit : side_tables_unit, &tables_texture);
         } else {
-            int trans = kind == DRAW_TRANS;
-            if (last != DRAW_TMAP && last != DRAW_TRANS)
+            int trans = kind == DRAW_TRANS || kind == DRAW_LIT_TRANS;
+            if (last < DRAW_TMAP || last > DRAW_LIT_TRANS)
                 sceGxmSetVertexProgram(context, tmap_vertex_program);
             sceGxmSetFragmentProgram(context, trans ? trans_fragment_program : tmap_fragment_program);
             sceGxmSetFragmentTexture(context, trans ? trans_bitmap_unit : bitmap_unit, d->texture);
@@ -1616,12 +1656,11 @@ static int make_side_programs(void) {
     const SceGxmProgram *opaque = NULL, *trans = NULL;
     int units[4];
 
-    snprintf(source, sizeof(source), side_fragment_source, "", RASTQ_GPU_TABLE_ROWS, RASTQ_GPU_LIGHT_ROWS, SIDE_LIT);
+    snprintf(source, sizeof(source), side_fragment_source, "", RASTQ_GPU_TABLE_ROWS, SIDE_LIT);
     if (!make_programs("side", tmap_vertex_source, source, names, offsets, sizes, 4, &tmap_vertex_program,
                        &side_fragment_program, &opaque))
         return 0;
-    snprintf(source, sizeof(source), side_fragment_source, trans_fragment_lines, RASTQ_GPU_TABLE_ROWS,
-             RASTQ_GPU_LIGHT_ROWS, SIDE_LIT);
+    snprintf(source, sizeof(source), side_fragment_source, trans_fragment_lines, RASTQ_GPU_TABLE_ROWS, SIDE_LIT);
     if (!make_programs("side transparent", tmap_vertex_source, source, names, offsets, sizes, 4,
                        &tmap_vertex_program, &side_trans_fragment_program, &trans))
         return 0;
@@ -1919,14 +1958,15 @@ static int texture_check(int bad[CHECK_BANDS]) {
 
 // The smooth scenes, on four bands of the check canvas and its 32-bit
 // buffer, both filled beforehand with values a draw wouldn't leave (the
-// buffer with marks: the first import must take them away). Two scenes,
-// with a CPU write to the canvas between them, as the queue does when it
-// draws a call itself:
-//   lit:   the light band of texture_check: in column x the canvas has the
-//          light table's entry, the buffer that, the texel x, the level in
-//          sixteenths, x, and the mark
+// buffer with marks). Two scenes, with a CPU write to the canvas between
+// them, as the queue does when it draws a call itself. The first begins as
+// a view does, with a flat clear over all of it, which takes the place of
+// the clear import:
+//   lit:   the light band of texture_check, at level (x + 0.25) / 16: in
+//          column x the canvas has the light table's entry, the buffer
+//          that, the texel x, the level in sixteenths, x, and the mark
 //   plain: texel x through the row that leaves it as it is, on the left
-//          half; nothing drawn on the right, which keeps the canvas's 0xEE
+//          half; nothing drawn on the right, which keeps the clear's 0xEE
 //   tluc:  a flat colour on the left half, the lit band on the right, and in
 //          the second scene a translucent polygon over that, if the
 //          translucent shaders draw: the table's entry through its row
@@ -1943,7 +1983,8 @@ static int side_check(int bad[SIDE_BANDS]) {
         BAND_H = CHECK_H / SIDE_BANDS,
         HALF = CHECK_W / 2,
         FLAT = 0x33,
-        BEFORE = 0xEE,
+        BEFORE = 0xEE, // the clear
+        FILLED = 0xDD, // the canvas before it
         BY_CPU = 0x44
     };
     static uchar ramp[8 * 256], tables[ROWS * 256];
@@ -1972,7 +2013,7 @@ static int side_check(int bad[SIDE_BANDS]) {
     ramp_bm.h = 8;
     if (!smooth_set_init(&set, side, canvas, CHECK_W, CHECK_H, CHECK_W))
         goto done;
-    memset(canvas, BEFORE, CHECK_W * CHECK_H);
+    memset(canvas, FILLED, CHECK_W * CHECK_H);
     memset(side, SIDE_LIT, CHECK_W * 4 * CHECK_H);
     check_set = &set;
     check_side_bits = canvas;
@@ -1985,6 +2026,10 @@ static int side_check(int bad[SIDE_BANDS]) {
         }
         if (!vgpu_begin(canvas, CHECK_W, CHECK_H, CHECK_W, tables, ROWS, NULL))
             goto done;
+        if (scene == 0) {
+            corners(v, 0, CHECK_W, 0, CHECK_H);
+            vgpu_flat(4, v, BEFORE);
+        }
         for (band = 0; band < SIDE_BANDS; band++) {
             int y0 = band * BAND_H, y1 = y0 + BAND_H;
 
@@ -2008,8 +2053,9 @@ static int side_check(int bad[SIDE_BANDS]) {
                 v[i].u = v[i].x + 0.5f;
                 v[i].v = 0.5f;
                 if (band != 1) {
-                    // level (x + 0.5) / 16 in column x
-                    v[i].left = 0.5f / 16.0f;
+                    // level (x + 0.25) / 16 in column x: x sixteenths,
+                    // whether the output rounds or truncates
+                    v[i].left = 0.25f / 16.0f;
                     v[i].span = 16.0f;
                     v[i].along = v[i].x;
                     v[i].width = (float)CHECK_W;
@@ -2379,6 +2425,14 @@ static void timing_flat(void) {
     sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices + 6, 6);
 }
 
+// A flat colour over all of it: the view's own clear, which now replaces the
+// clear import when it comes first
+static void timing_flat_full(void) {
+    sceGxmSetVertexProgram(context, flat_vertex_program);
+    sceGxmSetFragmentProgram(context, flat_fragment_program);
+    timing_full();
+}
+
 static void timing_clear(void) {
     sceGxmSetVertexProgram(context, tmap_vertex_program);
     sceGxmSetFragmentProgram(context, import_clear_program);
@@ -2509,6 +2563,7 @@ static void smooth_timing(void) {
     timing_case(line, sizeof(line), "empty32t", t32, tiled, timing_flat);
     timing_texture = &set->canvas;
     timing_case(line, sizeof(line), "clear", t32, &set->surface, timing_clear);
+    timing_case(line, sizeof(line), "flat32", t32, &set->surface, timing_flat_full);
     timing_case(line, sizeof(line), "keep", t32, &set->surface, timing_keep);
     timing_texture = &set->view;
     timing_case(line, sizeof(line), "extract", t8, &surface8, timing_extract);
@@ -2517,6 +2572,7 @@ static void smooth_timing(void) {
     timing_case(line, sizeof(line), "extractt", t8, tiled != NULL ? &surface8 : NULL, timing_extract);
     timing_quad(set->tex_w, set->tex_h);
     timing_case(line, sizeof(line), "tmap8", t8, &surface8, timing_tmap);
+    timing_case(line, sizeof(line), "tmap32", t32, &set->surface, timing_tmap);
     timing_case(line, sizeof(line), "side32", t32, &set->surface, timing_side);
     timing_case(line, sizeof(line), "side32t", t32, tiled, timing_side);
 
