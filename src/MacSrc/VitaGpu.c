@@ -12,6 +12,7 @@
 #include <vita2d.h>
 #include <vitashark.h>
 
+#include "ShadeLut.h"
 #include "Shock.h"
 #include "VitaGpu.h"
 #include "rastq.h"
@@ -20,7 +21,7 @@
 
 #define SHACCCG_PATH "ur0:data/libshacccg.suprx"
 #define GPU_BLOCK_ALIGN (256 * 1024) // CDRAM blocks come in multiples of this
-#define MAX_BLOCKS 12
+#define MAX_BLOCKS 16
 // The canvases' size and the start-up checks', each for the canvas and for
 // its side buffer (see target_for)
 #define MAX_TARGETS 4
@@ -44,6 +45,13 @@
 // What a smooth scene's textured shader writes in alpha where the light is one
 // of the light table's levels; every other shader writes 255 (docs/SHADOWS.md)
 #define SIDE_LIT 0x5A
+// The Vita's screen, which vgpu_draw_view draws on
+#define SCREEN_W 960
+#define SCREEN_H 544
+// The smooth shadows' tables of colours (ShadeLut.h), in turn: one is made
+// while the screen may still be drawing from the two before
+#define COLOUR_TABLES 3
+#define COLOUR_TABLE_BYTES (SHADE_ROWS * 256 * 4)
 
 // What the vertex shaders get.
 // - The textured shader leaves the perspective division to the GPU: x and y
@@ -149,6 +157,31 @@ static SceGxmFragmentProgram *side_fragment_program, *side_trans_fragment_progra
 static unsigned side_bitmap_unit, side_tables_unit, side_trans_bitmap_unit, side_trans_tables_unit;
 static SceGxmFragmentProgram *import_clear_program, *import_keep_program, *extract_program;
 static unsigned import_clear_unit, import_keep_unit, extract_unit;
+// The screen's side (vgpu_draw_view): its program and its four textures'
+// units (the view through its palette, the canvas, the side buffer, the
+// colours), whether its check passed, and the colours: the tables, made from
+// the palette and the light table when either changes, and a palette of the
+// start-up check's
+static SceGxmFragmentProgram *display_program;
+static unsigned display_units[4];
+static int display_on;
+static uchar *colour_block;
+static uchar *colour_pixels[COLOUR_TABLES];
+static SceGxmTexture colour_textures[COLOUR_TABLES];
+static int colour_turn = -1; // the one made last; -1: none yet
+static uint32_t *check_palette;
+static uchar pal_raw[768], pal_gamma[256];
+static int pal_black, have_palette, palette_changed;
+static uchar ltab_seen[SHADE_ROWS * 256];
+static int have_ltab, ltab_changed;
+static float lut_k[SHADE_ROWS];
+static uchar lut_constant[256];
+// The table as last made, in RAM, and the palette it was made from: a
+// palette that cycles changes a few entries, and only the texels that use
+// them are made again before the whole is copied to the next texture
+static uchar lut_master[COLOUR_TABLE_BYTES];
+static uchar built_raw[768], built_gamma[256];
+static int built_black, built_valid;
 static uchar *side_block; // all of them
 static uchar *side_pixels[VGPU_CANVASES];
 static smooth_set side_sets[VGPU_CANVASES];
@@ -330,6 +363,27 @@ static const char extract_fragment_source[] =
     "{\n"
     "    float index = tex2D(uView, vTex).x;\n"
     "    return float4(index + 0.25f / 255.0f, 0.0f, 0.0f, 1.0f);\n"
+    "}\n";
+
+// The screen's: the view with smooth shadows. Where the side buffer marks the
+// pixel lit and holds the canvas's index there, the texel's colour at that
+// light from the table of colours (ShadeLut.h): u in the middle of the
+// texel's column, v the level in rows over the table's 16, read between two
+// rows' middles. Elsewhere the view as it was, its index through the palette.
+// %d is SIDE_LIT.
+static const char display_fragment_source[] =
+    "float4 main(\n"
+    "    float2 vTex : TEXCOORD0,\n"
+    "    uniform sampler2D uView : TEXUNIT0,\n"
+    "    uniform sampler2D uIndex : TEXUNIT1,\n"
+    "    uniform sampler2D uSide : TEXUNIT2,\n"
+    "    uniform sampler2D uColours : TEXUNIT3)\n"
+    "{\n"
+    "    float4 side = tex2D(uSide, vTex);\n"
+    "    float index = tex2D(uIndex, vTex).x;\n"
+    "    if (abs(side.w - %d.0f / 255.0f) < 0.5f / 255.0f && abs(side.x - index) < 0.5f / 255.0f)\n"
+    "        return tex2D(uColours, float2(side.y * (255.0f / 256.0f) + 0.5f / 256.0f, side.z * (255.0f / 256.0f)));\n"
+    "    return tex2D(uView, vTex);\n"
     "}\n";
 
 // A polygon shaded between colours: red, green and blue from 0 to 256, each
@@ -579,6 +633,18 @@ static int vgpu_free(void *block) {
 }
 
 void vgpu_set_shadows(int on) { shadows_wanted = on; }
+
+// Called each time the game sets its palette, which is every frame where
+// part of it cycles: only a palette that differs marks the colours stale.
+void vgpu_set_palette(const unsigned char raw[768], const unsigned char gamma[256], int black255) {
+    if (have_palette && pal_black == black255 && memcmp(pal_raw, raw, sizeof(pal_raw)) == 0 &&
+        memcmp(pal_gamma, gamma, sizeof(pal_gamma)) == 0)
+        return;
+    memcpy(pal_raw, raw, sizeof(pal_raw));
+    memcpy(pal_gamma, gamma, sizeof(pal_gamma));
+    pal_black = black255;
+    have_palette = palette_changed = 1;
+}
 
 static void side_free(void) {
     int i;
@@ -862,6 +928,12 @@ static int vgpu_begin(uchar *bits, int w, int h, int row, const uchar *tables, i
     // replaced.
     if (tables != NULL && tables_pixels != NULL)
         memcpy(tables_pixels, tables, (size_t)rows * 256);
+    // the light table a smooth view is drawn with: the colours follow it
+    if (scene_set != NULL && scene_canvas >= 0 && tables != NULL && rows >= SHADE_ROWS &&
+        (!have_ltab || memcmp(ltab_seen, tables, sizeof(ltab_seen)) != 0)) {
+        memcpy(ltab_seen, tables, sizeof(ltab_seen));
+        have_ltab = ltab_changed = 1;
+    }
     err = -1;
     if (scene_set != NULL) {
         err = sceGxmBeginScene(context, 0, scene_side_target->target, NULL, NULL, NULL, &scene_set->surface,
@@ -1258,6 +1330,131 @@ static void vgpu_end(void) {
     // (vgpu_finish); until then the CPU is free for something else.
     scene_out = 1;
     in_scene = 0;
+}
+
+// ---- the screen's side of the smooth shadows ---------------------------------
+
+// The tables of colours and the start-up check's palette, in GPU memory. 0
+// if there is no room.
+static int make_colour_tables(void) {
+    int i;
+
+    colour_block = vgpu_alloc(COLOUR_TABLES * COLOUR_TABLE_BYTES + 256 * 4);
+    if (colour_block == NULL) {
+        gpu_err("no memory for the tables of colours");
+        return 0;
+    }
+    for (i = 0; i < COLOUR_TABLES; i++) {
+        colour_pixels[i] = colour_block + i * COLOUR_TABLE_BYTES;
+        memset(colour_pixels[i], 0, COLOUR_TABLE_BYTES);
+        if (sceGxmTextureInitLinear(&colour_textures[i], colour_pixels[i], SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, 256,
+                                    SHADE_ROWS, 0) < 0)
+            return 0;
+        // read between two rows; at a texel's middle across, so that only
+        // the rows blend
+        sceGxmTextureSetMinFilter(&colour_textures[i], SCE_GXM_TEXTURE_FILTER_LINEAR);
+        sceGxmTextureSetMagFilter(&colour_textures[i], SCE_GXM_TEXTURE_FILTER_LINEAR);
+        sceGxmTextureSetUAddrMode(&colour_textures[i], SCE_GXM_TEXTURE_ADDR_CLAMP);
+        sceGxmTextureSetVAddrMode(&colour_textures[i], SCE_GXM_TEXTURE_ADDR_CLAMP);
+    }
+    // 64-byte aligned, as a palette must be: it follows 3 tables of 16 KB
+    check_palette = (uint32_t *)(colour_block + COLOUR_TABLES * COLOUR_TABLE_BYTES);
+    return 1;
+}
+
+// The table of colours as the palette and the light table are now: all of
+// it when the light table, the gamma or index 255 changed (or there is none
+// yet), else only the texels whose palette entries changed, in RAM; then
+// copied to the next texture, in one go, if anything changed.
+static void colours_make(void) {
+    long long t0 = sceKernelGetProcessTimeWide();
+    uchar changed[256], only[256];
+    int i, n, next;
+
+    if (ltab_changed)
+        shade_lut_ratios(lut_k, lut_constant, pal_raw, ltab_seen);
+    if (!built_valid || ltab_changed || built_black != pal_black ||
+        memcmp(built_gamma, pal_gamma, sizeof(built_gamma)) != 0) {
+        shade_lut_fill(lut_master, lut_k, lut_constant, pal_raw, ltab_seen, pal_gamma, pal_black, NULL);
+        n = 256;
+    } else {
+        for (i = 0; i < 256; i++)
+            changed[i] = memcmp(&built_raw[3 * i], &pal_raw[3 * i], 3) != 0;
+        n = shade_lut_affected(only, changed, ltab_seen);
+        if (n != 0)
+            shade_lut_fill(lut_master, lut_k, lut_constant, pal_raw, ltab_seen, pal_gamma, pal_black, only);
+    }
+    memcpy(built_raw, pal_raw, sizeof(built_raw));
+    memcpy(built_gamma, pal_gamma, sizeof(built_gamma));
+    built_black = pal_black;
+    built_valid = 1;
+    ltab_changed = palette_changed = 0;
+    if (n == 0 && colour_turn >= 0)
+        return; // the colours the screen has are still right
+    next = (colour_turn + 1) % COLOUR_TABLES;
+    memcpy(colour_pixels[next], lut_master, COLOUR_TABLE_BYTES);
+    colour_turn = next;
+    vgpu_counters.lut_builds++;
+    vgpu_counters.lut_texels += (unsigned long long)n;
+    vgpu_counters.lut_us += (unsigned long long)(sceKernelGetProcessTimeWide() - t0);
+}
+
+// The screen's quad, a strip of 4 vertices: (x0, y0) to (x1, y1) on a
+// target `target_w` by `target_h`, reading (0, 0) to (u1, v1) of the
+// textures.
+static void display_quad(vgpu_vertex v[4], float x0, float y0, float x1, float y1, float u1, float v1, int target_w,
+                         int target_h) {
+    int i;
+
+    memset(v, 0, 4 * sizeof(v[0]));
+    for (i = 0; i < 4; i++) {
+        float x = i & 1 ? x1 : x0, y = i & 2 ? y1 : y0;
+
+        v[i].x = 2.0f * x / (float)target_w - 1.0f;
+        v[i].y = 1.0f - 2.0f * y / (float)target_h;
+        v[i].u = i & 1 ? u1 : 0.0f;
+        v[i].v = i & 2 ? v1 : 0.0f;
+        v[i].w = v[i].width = v[i].depth = 1.0f;
+    }
+}
+
+static void display_draw(const SceGxmTexture *view, const smooth_set *set, const vgpu_vertex *v, const uint16_t *idx) {
+    sceGxmSetVertexProgram(context, tmap_vertex_program);
+    sceGxmSetFragmentProgram(context, display_program);
+    sceGxmSetFragmentTexture(context, display_units[0], view);
+    sceGxmSetFragmentTexture(context, display_units[1], &set->canvas);
+    sceGxmSetFragmentTexture(context, display_units[2], &set->view);
+    sceGxmSetFragmentTexture(context, display_units[3], &colour_textures[colour_turn]);
+    sceGxmSetVertexStream(context, 0, v);
+    sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLE_STRIP, SCE_GXM_INDEX_FORMAT_U16, idx, 4);
+}
+
+int vgpu_draw_view(const void *texture, const void *bits, int tex_w, float x, float y, float sx, float sy, int w,
+                   int h) {
+    int i = canvas_index(bits);
+    const smooth_set *set;
+    vgpu_vertex *v;
+    uint16_t *idx;
+
+    // a view drawn the smooth way this frame, all of it
+    if (!display_on || i < 0 || !side_wanted[i] || !side_sets[i].drawn || !have_palette || !have_ltab)
+        return 0;
+    set = &side_sets[i];
+    if (tex_w != set->tex_w || w > set->tex_w || h > set->tex_h)
+        return 0;
+    if (colour_turn < 0 || palette_changed || ltab_changed)
+        colours_make();
+    v = vita2d_pool_memalign(4 * sizeof(vgpu_vertex), sizeof(void *));
+    idx = vita2d_pool_memalign(4 * sizeof(uint16_t), sizeof(uint16_t));
+    if (v == NULL || idx == NULL)
+        return 0;
+    display_quad(v, x, y, x + (float)w * sx, y + (float)h * sy, (float)w / (float)set->tex_w,
+                 (float)h / (float)set->tex_h, SCREEN_W, SCREEN_H);
+    for (i = 0; i < 4; i++)
+        idx[i] = (uint16_t)i;
+    display_draw((const SceGxmTexture *)texture, set, v, idx);
+    vgpu_counters.smooth_frames++;
+    return 1;
 }
 
 #ifdef VITA_PROFILE
@@ -1710,6 +1907,25 @@ static int make_single_pass_programs(void) {
             return 0;
         *shaders[k].unit = (unsigned)unit;
     }
+    // the screen's, with its four textures
+    {
+        static const char *const samplers[4] = {"uView", "uIndex", "uSide", "uColours"};
+        static char source[2048];
+        const SceGxmProgram *fragment = NULL;
+
+        snprintf(source, sizeof(source), display_fragment_source, SIDE_LIT);
+        if (!make_programs("display", tmap_vertex_source, source, names, offsets, sizes, 4, &tmap_vertex_program,
+                           &display_program, &fragment))
+            return 0;
+        for (k = 0; k < 4; k++) {
+            int unit = sampler_unit(fragment, samplers[k]);
+            if (unit < 0)
+                return 0;
+            display_units[k] = (unsigned)unit;
+        }
+        gpu_log("texture units: display: view %u, index %u, side %u, colours %u", display_units[0], display_units[1],
+                display_units[2], display_units[3]);
+    }
     return 1;
 }
 
@@ -2105,6 +2321,128 @@ done:
     return ok;
 }
 
+// The screen's shader, into a 32-bit buffer of its own, from a check canvas
+// whose column x holds index x, seen through a palette of its own, and a side
+// buffer the CPU fills, on three bands:
+//   lit:      marked, the canvas's index, texel x, x sixteenths of a row:
+//             the table of colours read between its two rows there, as the
+//             CPU works it out (within 3 a channel)
+//   mismatch: marked, but another index: the palette's colour
+//   unmarked: the palette's colour
+// The table is one made up for it. Sets the number of wrong columns of each
+// band. Returns 0 if nothing could be drawn.
+#define DISPLAY_BANDS 3
+static int display_check(int bad[DISPLAY_BANDS]) {
+    enum { BAND_H = CHECK_H / 4 };
+    static smooth_set set;
+    uchar *canvas = vgpu_alloc(CHECK_W * CHECK_H);
+    uchar *side = vgpu_alloc(CHECK_W * 4 * CHECK_H);
+    uchar *out = vgpu_alloc(CHECK_W * 4 * CHECK_H);
+    uchar *table = colour_pixels[0];
+    SceGxmColorSurface surface;
+    SceGxmTexture p8;
+    gpu_target *t = target_for(CHECK_W, CHECK_H, 1);
+    int band, x, y, c, ok = 0;
+
+    for (band = 0; band < DISPLAY_BANDS; band++)
+        bad[band] = -1;
+    if (canvas == NULL || side == NULL || out == NULL || t == NULL || table == NULL)
+        goto done;
+    if (!smooth_set_init(&set, side, canvas, CHECK_W, CHECK_H, CHECK_W))
+        goto done;
+    if (sceGxmColorSurfaceInit(&surface, SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR, SCE_GXM_COLOR_SURFACE_LINEAR,
+                               SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, CHECK_W, CHECK_H,
+                               CHECK_W, out) < 0 ||
+        sceGxmTextureInitLinear(&p8, canvas, SCE_GXM_TEXTURE_FORMAT_P8_ABGR, CHECK_W, CHECK_H, 0) < 0 ||
+        sceGxmTextureSetPalette(&p8, check_palette) < 0) {
+        gpu_err("display check: no surface or no paletted texture");
+        goto done;
+    }
+    point_and_clamp(&p8);
+    for (x = 0; x < 256; x++) {
+        // red x, green 255 - x, blue 3x
+        check_palette[x] = (uint32_t)x | (uint32_t)(255 - x) << 8 | (uint32_t)((x * 3) & 255) << 16 | 0xFF000000u;
+        for (y = 0; y < SHADE_ROWS; y++) {
+            uchar *o = &table[(y * 256 + x) * 4];
+            o[0] = (uchar)x;
+            o[1] = (uchar)(y * 17);
+            o[2] = (uchar)(255 - x);
+            o[3] = 255;
+        }
+    }
+    for (y = 0; y < CHECK_H; y++) {
+        band = y / BAND_H;
+        for (x = 0; x < CHECK_W; x++) {
+            uchar *p = side + ((size_t)y * CHECK_W + x) * 4;
+
+            canvas[y * CHECK_W + x] = (uchar)x;
+            p[0] = (uchar)(band == 1 ? x ^ 1 : x);
+            p[1] = (uchar)x;
+            p[2] = (uchar)x;
+            p[3] = band == 2 ? 0xFF : SIDE_LIT;
+        }
+    }
+    memset(out, 0, CHECK_W * 4 * CHECK_H);
+    colour_turn = 0;
+
+    if (sceGxmBeginScene(context, 0, t->target, NULL, NULL, NULL, &surface, &t->depth_stencil) < 0)
+        goto done;
+    scene_state();
+    display_quad(vertices, 0.0f, 0.0f, (float)CHECK_W, (float)CHECK_H, 1.0f, 1.0f, CHECK_W, CHECK_H);
+    for (x = 0; x < 4; x++)
+        indices[x] = (uint16_t)x;
+    display_draw(&p8, &set, vertices, indices);
+    sceGxmEndScene(context, NULL, NULL);
+    sceGxmFinish(context);
+
+    for (band = 0; band < DISPLAY_BANDS; band++) {
+        y = band * BAND_H + BAND_H / 2;
+        bad[band] = 0;
+        for (x = 0; x < 256; x++) {
+            const uchar *o = out + ((size_t)y * CHECK_W + x) * 4;
+            int want[3], wrong = 0;
+
+            if (band == 0) {
+                // level x / 16 rows; row r's colour is at r + 0.5
+                float at = (float)x / 16.0f - 0.5f, part;
+                int r0, r1;
+
+                if (at < 0.0f)
+                    at = 0.0f;
+                if (at > SHADE_ROWS - 1)
+                    at = SHADE_ROWS - 1;
+                r0 = (int)at;
+                r1 = r0 + 1 < SHADE_ROWS ? r0 + 1 : r0;
+                part = at - (float)r0;
+                for (c = 0; c < 3; c++) {
+                    float a = table[(r0 * 256 + x) * 4 + c], b = table[(r1 * 256 + x) * 4 + c];
+                    want[c] = (int)(a + (b - a) * part + 0.5f);
+                }
+            } else {
+                want[0] = x;
+                want[1] = 255 - x;
+                want[2] = (x * 3) & 255;
+            }
+            for (c = 0; c < 3; c++)
+                wrong |= o[c] - want[c] > 3 || want[c] - o[c] > 3;
+            if (wrong && bad[band]++ < 2)
+                gpu_err("display check, band %d: column %d shows %d %d %d, not %d %d %d", band, x, o[0], o[1], o[2],
+                        want[0], want[1], want[2]);
+        }
+    }
+    ok = 1;
+
+done:
+    colour_turn = -1; // the game's table is made when it is needed
+    if (canvas != NULL)
+        vgpu_free(canvas);
+    if (side != NULL)
+        vgpu_free(side);
+    if (out != NULL)
+        vgpu_free(out);
+    return ok;
+}
+
 // Draws with the shaded shaders, in three bands, each with one of red, green
 // and blue going from 0 to 256 across the 256 columns while the other two
 // stay put, and compares each column with the colours' table. The value
@@ -2471,6 +2809,14 @@ static void timing_side(void) {
     timing_full();
 }
 
+// The screen's shader over the whole canvas: canvas 0's side buffer, its
+// canvas through the check's palette, the first table of colours
+static SceGxmTexture timing_p8;
+
+static void timing_show(void) {
+    display_draw(&timing_p8, &side_sets[0], &vertices[8], &indices[12]);
+}
+
 static int timing_compare(const void *a, const void *b) { return *(const int *)a - *(const int *)b; }
 
 // One case: "name=min/median" added to `line`, -1/-1 if its scene won't begin
@@ -2575,6 +2921,22 @@ static void smooth_timing(void) {
     timing_case(line, sizeof(line), "tmap32", t32, &set->surface, timing_tmap);
     timing_case(line, sizeof(line), "side32", t32, &set->surface, timing_side);
     timing_case(line, sizeof(line), "side32t", t32, tiled, timing_side);
+    // the screen's shader, into canvas 1's side buffer as if it were the screen
+    if (display_on && side_pixels[1] != NULL &&
+        sceGxmTextureInitLinear(&timing_p8, canvas_pixels[0], SCE_GXM_TEXTURE_FORMAT_P8_ABGR, set->tex_w, set->tex_h,
+                                0) >= 0 &&
+        sceGxmTextureSetPalette(&timing_p8, check_palette) >= 0) {
+        point_and_clamp(&timing_p8);
+        display_quad(&vertices[8], 0.0f, 0.0f, (float)w, (float)h, (float)w / (float)set->tex_w,
+                     (float)h / (float)set->tex_h, w, h);
+        for (i = 0; i < 4; i++)
+            indices[12 + i] = (uint16_t)(8 + i);
+        colour_turn = 0;
+        timing_case(line, sizeof(line), "show", t32, &side_sets[1].surface, timing_show);
+        colour_turn = -1;
+    } else {
+        timing_case(line, sizeof(line), "show", NULL, NULL, timing_show);
+    }
 
     if (tiled_pixels != NULL)
         vgpu_free(tiled_pixels);
@@ -2599,6 +2961,9 @@ static void vgpu_release(void) {
     vgpu_free(colours_pixels);
     vgpu_free(matrix_pixels);
     vgpu_free(texture_heap);
+    if (colour_block != NULL)
+        vgpu_free(colour_block);
+    colour_block = NULL;
     vertices = NULL;
     indices = NULL;
     tables_pixels = colours_pixels = matrix_pixels = texture_heap = NULL;
@@ -2613,6 +2978,7 @@ void vgpu_init(void) {
     int fill_in_place = -1, fill_copied = -1;
     int tlucbm_bad[TLUCBM_BANDS] = {-1, -1, -1, -1};
     int side_bad[SIDE_BANDS] = {-1, -1, -1, -1}, side_made = 0;
+    int display_bad[DISPLAY_BANDS] = {-1, -1, -1};
     int gpu_write = -1, gpu_read = -1, ram_write = -1, ram_read = -1;
     uchar *gpu_mem, *ram_mem;
     int err;
@@ -2713,6 +3079,16 @@ void vgpu_init(void) {
         side_on = side_check(side_bad) && !side_bad[0] && !side_bad[1] && !side_bad[2] && !side_bad[3];
         gpu_log("side check drawn: %d %d %d %d wrong", side_bad[0], side_bad[1], side_bad[2], side_bad[3]);
     }
+    // Without the screen's side the side buffers would be no use: the
+    // shadows are the original ones.
+    if (side_on) {
+        gpu_log("drawing the display check");
+        display_on = make_colour_tables() && display_check(display_bad) && !display_bad[0] && !display_bad[1] &&
+                     !display_bad[2];
+        gpu_log("display check drawn: %d %d %d wrong", display_bad[0], display_bad[1], display_bad[2]);
+        if (!display_on)
+            side_on = 0;
+    }
     if (textured && shades) {
         gpu_log("drawing the colour check");
         if (!colour_check(colour_bad))
@@ -2739,14 +3115,14 @@ void vgpu_init(void) {
              "of 256) | 512KB us: gpu_write=%d gpu_read=%d ram_write=%d ram_read=%d | tluc=%s:%d/%d "
              "tluc_check under=%d twice=%d kept=%d mixed=%d | 64KB tluc_fill us: in_place=%d copied=%d | "
              "tlucbm=%s tlucbm_check opaque=%d trans=%d table=%d twice=%d | side=%s side_check lit=%d plain=%d "
-             "flat=%d tluc=%d",
+             "flat=%d tluc=%d display_check lit=%d mismatch=%d unmarked=%d",
              bad, first_bad, got, kept, !textured ? "off (GPU not used)" : shades ? "on" : "on, not the shaded ones",
              tex_bad[0], tex_bad[1], tex_bad[2],
              tex_bad[3], colour_bad[0], colour_bad[1], colour_bad[2], gpu_write, gpu_read, ram_write, ram_read,
              tluc_way >= 0 ? "on" : "off (CPU)", tluc_way, tluc_made, tluc_bad[0], tluc_bad[1], tluc_bad[2],
              tluc_bad[3], fill_in_place, fill_copied, tlucbm_on ? "on" : "off (CPU)", tlucbm_bad[0], tlucbm_bad[1],
              tlucbm_bad[2], tlucbm_bad[3], !shadows_wanted ? "off (original)" : side_on ? "on" : "off (failed)",
-             side_bad[0], side_bad[1], side_bad[2], side_bad[3]);
+             side_bad[0], side_bad[1], side_bad[2], side_bad[3], display_bad[0], display_bad[1], display_bad[2]);
     // anything less than everything on is something wrong
     if (bad != 0 || !kept || !textured || !shades || tluc_way < 0 || !tlucbm_on || (shadows_wanted && !side_on))
         gpu_err("%s", report);

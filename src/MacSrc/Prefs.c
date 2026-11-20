@@ -132,7 +132,8 @@ void SetDefaultPrefs(void) {
     gShockPrefs.goOnScreenHelp = true;
     gShockPrefs.doGamma = 29;    // Default gamma (29 out of 100).
     // Smooth. A hidden setting: no menu has it, the prefs file's "shadows"
-    // does ("smooth", or "original" for the light table's rows as they are).
+    // does ("smooth", or "original" for the light table's rows as they are;
+    // anything else is smooth).
     // Read at start-up only. Without the GPU the shadows are the original ones.
     gShockPrefs.doShadows = SHADOWS_SMOOTH;
     gShockPrefs.goDoubleClick = DCLICK_DEFAULT;

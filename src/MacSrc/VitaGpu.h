@@ -53,6 +53,17 @@ unsigned char *vgpu_canvas(int width, int height, int *row);
 // which the screen gets the light in full colour. The indices then go to the
 // canvas, which holds what it always held.
 void vgpu_set_shadows(int on);
+// Each time the palette changes: the palette before its gamma (256 times red,
+// green, blue), the gamma row the screen's colours went through, and whether
+// index 255 is shown black. The smooth shadows' colours follow.
+void vgpu_set_palette(const unsigned char raw[768], const unsigned char gamma[256], int black255);
+// In SDLDraw, inside vita2d's drawing: the view in a GPU canvas, its pixels
+// at `bits` (a texture `tex_w` wide whose SceGxmTexture is `texture`, P8 with
+// the palette), its top left `w` by `h` drawn at (x, y) on the screen,
+// stretched by (sx, sy), with smooth shadows. 0 if this view has none: the
+// caller draws it as before.
+int vgpu_draw_view(const void *texture, const void *bits, int tex_w, float x, float y, float sx, float sy, int w,
+                   int h);
 // Called after vgpu_canvas handed out a canvas: 0 if this view has no use for
 // smooth shadows (cyberspace).
 void vgpu_canvas_smooth(int on);
@@ -82,6 +93,10 @@ typedef struct {
     // pixels with a side buffer, those marked lit there, and of those, the
     // ones whose index there isn't the canvas's. The profiler keeps these.
     unsigned long long side_pixels, side_lit, side_mismatch;
+    unsigned smooth_frames;        // views shown with smooth shadows
+    unsigned lut_builds;           // the colours' table made again
+    unsigned long long lut_us;     // making it
+    unsigned long long lut_texels; // the texels made again (256 for the whole table)
     // And the longest comparison of the window, on the game's thread: the
     // side buffer's check, and a frame dump's copy when there is one.
     unsigned compare_max_us;

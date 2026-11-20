@@ -40,17 +40,24 @@ def median(values):
 
 
 def row_ratios(ltab, pal):
-    """Each row's brightness against row 0's, the median over the texels."""
+    """Each row's brightness against row 0's, the median over the texels, as
+    the game works it out (shade_lut_ratios, src/MacSrc/ShadeLut.c)."""
+    constant = [all(ltab[r * 256 + t] == ltab[t] for r in range(ROWS)) for t in range(256)]
     ratios = []
     for r in range(ROWS):
         found = []
         for t in range(1, 255):
             base = brightness(pal[ltab[t]])
-            if base >= 16:
+            if base >= 16 and not constant[t]:
                 found.append(brightness(pal[ltab[r * 256 + t]]) / base)
         ratios.append(median(found))
-    # row 15 is black for nearly everything: carry on from rows 13 and 14
-    ratios[ROWS - 1] = max(2 * ratios[ROWS - 2] - ratios[ROWS - 3], DARK_FLOOR)
+    # row 15 is black for nearly everything: carry on from rows 13 and 14;
+    # then none under the floor, none brighter than the row above
+    ratios[ROWS - 1] = 2 * ratios[ROWS - 2] - ratios[ROWS - 3]
+    for r in range(ROWS):
+        ratios[r] = min(max(ratios[r], DARK_FLOOR), 1.0)
+        if r > 0:
+            ratios[r] = min(ratios[r], ratios[r - 1])
     return ratios
 
 

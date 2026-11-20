@@ -18,6 +18,8 @@ and read its captures is in [PROFILING.md](PROFILING.md).
 - [Step 2: one pass](#step-2-one-pass)
 - [Step 2b: what the full-screen work costs](#step-2b-what-the-full-screen-work-costs)
 - [Step 2c: a lighter side shader](#step-2c-a-lighter-side-shader)
+- [Step 3: on the screen](#step-3-on-the-screen)
+- [Step 3b: the table of colours, only what changed](#step-3b-the-table-of-colours-only-what-changed)
 
 ## Starting point
 
@@ -133,8 +135,9 @@ brightness ratio above, the ratios joined between the rows' middles, the
 gamma after. Row 15 is replaced by a dim floor, to be tuned on the Vita,
 in place of black. Texels the same in every row stay the same. Built
 again when the palette changes (gamma, fades, the palette's cycling) or
-the light table does (infrared). A "table" way, the colours of two rows
-blended, is kept to compare.
+the light table does (infrared). A "table" way, the light table's own
+colours blended between two rows, was tried in step 3 and dropped in 3b:
+the user found the fitted way better.
 
 ## Roadmap
 
@@ -142,7 +145,7 @@ blended, is kept to compare.
 |---|---|---|
 | 1 | The prefs setting; the side buffers and the side pass; a start-up check; counters, and the side buffer in the frame dumps; a preview of the look on a PC from a dump | correct (0 mismatches in 84.8 M pixels), the smooth look in the previews; the GPU's work doubled: `gpuwait` 8.6 ms against 0.3-3.9, 53 s of 233 under 50 fps |
 | 2 | One pass: each scene drawn once, into the 32-bit buffer, with an import and an extract (replaces "the main thread waits for the canvas only") | correct (0 mismatches in 83.2 M pixels); `gpuwait` +4 ms against the 8-bit way at the same spot, whatever the scene: half of step 1's worst, still a frame rate of 52 in heavy places. 2b times its parts at start-up: the side shader is most of it; 2c makes it lighter: **+1.4 ms**, at a frame rate 3 to 4 lower where the frame is already short of time |
-| 3 | The table of colours, the screen's shader, its start-up check, a PC test of the table: smooth shadows on the screen | |
+| 3 | The table of colours, the screen's shader, its start-up check, a PC test of the table: smooth shadows on the screen | on the screen and right (0 mismatches in 172 M pixels), dark rooms a dim teal as in the Enhanced Edition; the table made again every frame, 1.0 ms. 3b: made again only where the palette changed, 0.04 ms; `table` dropped |
 | 4 | Where the view is copied to the screen buffer: paused, the options panel and its gamma slider, the zoom rectangle | |
 | 5 | Tuning: the dark floor and the curve, a light fraction for objects, translucent surfaces over lit ones | |
 
@@ -421,3 +424,136 @@ then 212 s with Variants on Alternate, levels 1 and 2).**
   way (46 to 54 fps), and the smooth way takes 3 to 4 fps more; where the
   8-bit way holds 60 fps, the smooth way does too. What is left: the
   extract (0.65 ms and a scene) and the side shader's other outputs.
+
+## Step 3: on the screen
+
+What it does: the smooth shadows on the screen.
+
+- **The table of colours**, `src/MacSrc/ShadeLut.c` (plain C, tested on a
+  PC by `tests/shadelut/run.sh [DATA folder]`):
+  - `shade_lut_ratios`, once per light table: each row's brightness
+    against row 0's, the median over the texels that change; the last
+    row carried on from the two before it; none under
+    `SHADE_DARK_FLOOR` (0.07, dim rather than black, as the Enhanced
+    Edition) and none brighter than the row above. On the game's table:
+    1.00 1.00 .861 .798 .733 .662 .595 .528 .464 .394 .332 .266 .200
+    .131 .070 .070. A texel the same index in every row (fullbright
+    colours, the whole infrared table) keeps its colour.
+  - `shade_lut_fill`, at each change of the palette: 16 rows of 256
+    colours, row r the colour at level r + 0.5. **Fitted** (the default):
+    the texel's colour at row 0 times row r's ratio, then the gamma.
+    **Table** (`shadows = table`, to compare, dropped in 3b): the light
+    table's own colours. Index 255 black, as the game shows it.
+- **The screen's shader** (`display_fragment_source`, `vgpu_draw_view`
+  in `src/MacSrc/VitaGpu.c`), called by `SDLDraw` (`src/MacSrc/Shock.c`)
+  for the full-screen view and the paneled view's window, inside vita2d's
+  drawing. Where the side buffer marks a pixel lit and holds the canvas's
+  index, the table read at the texel's column and the level's place
+  between two rows; elsewhere the view's P8 texture, its palette's colour.
+  A view without smooth shadows (cyberspace, a frame that went the 8-bit
+  way, `shadows = original`) is drawn by vita2d as before.
+- **The tables**: three in turn in GPU memory, one made while the screen
+  may still be drawing from the others. `SetSDLPalette` gives
+  `vgpu_set_palette` the palette before its gamma and the gamma row; the
+  light table is the one a smooth view's scene was given.
+- **A start-up check** of the screen's shader (`display_check`): a lit
+  band against the table read between rows as the CPU works it out, a
+  marked band with another index and an unmarked one against the
+  palette. If it fails, the shadows stay original.
+- `shown=` and `lut=` in the log; a `show` case in the start-up timing,
+  the screen's shader over the whole canvas.
+- Not yet: the view while the game is paused (the options panel, its
+  gamma slider) and under the zoom rectangle is copied into the screen
+  buffer and shown with its palette (step 4).
+
+What a capture should show:
+
+| where | expected |
+|---|---|
+| the screen | walls, floors and objects shaded smoothly, the darkest dim; the HUD, the paneled view's frame, translucent surfaces as before; cyberspace and the options panel as before |
+| `gpu.txt` | every check 0 wrong, `display check drawn: 0 0 0 wrong`, `side=on`; `show` in the timing line |
+| Checks on | `sidecheck=` with no mismatch; `shown=1.00` in the station |
+| `lut=` | about 0 a frame but at fades and in places whose palette cycles |
+| `gpuwait`, Variants on Alternate | variant 1 within about 1.5 ms of variant 0, as in 2c |
+
+**Results (2026-11-20, the profile build: one session in the smooth way,
+366 s with Checks on, then 411 s with Variants on Alternate, levels 1 and
+2; one short session with `shadows = table`).**
+
+- Every start-up check passed, `display check drawn: 0 0 0 0 wrong` in
+  both sessions; `sidecheck=` 0 mismatches in 172 M pixels; five dumps,
+  0 mismatches each; `gpudiff=` 8.5%.
+- **On the screen** (the user's screenshots, at the start of level 1,
+  lights on and off): the smooth shadows show, the HUD and the help
+  labels as before. With the lights off, the dark room on the right is a
+  dim teal in the fitted way, close to the Enhanced Edition's, and darker
+  in the table way.
+- The start-up timing: `show=1286/1320` µs, the screen's shader over the
+  whole canvas, 0.48 ms over a scene's fixed cost.
+- `shown=1.00` a frame in the station.
+- **`lut=1.00/1.0`: the table of colours is made again every frame, at
+  1.0 ms of the main thread's time**, 0.9 in the table way. The game
+  cycles part of its palette every frame, and each change made the whole
+  table again.
+- **The cost**, the two ways in turn, 20 s each:
+
+  | window | spot | `gpuwait`, 8-bit | smooth | fps, 8-bit | smooth |
+  |---|---|---|---|---|---|
+  | t=580-640 | level 1, the start | 0.36 | 1.75 | 60.0 | 60.0 |
+  | t=680-741 | level 1, 17.46,23.26, still | 3.72 / 3.69 | 5.40 / 5.09 | 53.6 / 53.7 | 47.4 / 47.4 |
+  | t=903-943 | level 2, 25.68,29.58, still | 4.71 / 4.72 | 6.35 | 60.0 | 60.0 |
+
+  The GPU's share is 2c's, +1.4 ms. At the heavy spot the smooth way
+  loses 6 fps where 2c lost 3.7: the table's 1.0 ms every frame on the
+  main thread.
+
+## Step 3b: the table of colours, only what changed
+
+Why: step 3's log had the table of colours made again every frame, 1.0 ms
+of the main thread's time, because the game cycles part of its palette
+every frame; and the user, from the screenshots of both ways (lights on
+and off at the start of level 1), found the fitted way better than the
+table way.
+
+What it does:
+
+- **`table` is gone**: `shadows = smooth` or `original`; any other value,
+  `table` included, is smooth, and the next save writes `smooth`.
+  `shade_lut_fill` has no mode any more.
+- **`vgpu_set_palette`** marks the colours stale only when the palette,
+  the gamma or index 255's black differ from the last ones given.
+- **The table is made in RAM** and copied to the next texture in one go,
+  in place of byte by byte into GPU memory. All of it when the light
+  table, the gamma or index 255 changed; else only the texels whose row-0
+  palette entry changed (`shade_lut_affected`); no copy when none did.
+- `tests/shadelut/` checks that the texels made again after a change give
+  the whole table made from the new palette.
+- `lut=a/b/c` in the log: tables made, ms, texels made again, a frame.
+
+What a capture should show: `lut=` near 0 ms, a few texels a frame where
+the palette cycles; at the heavy spot, the smooth way 3 to 4 fps under
+the 8-bit way, as in 2c, not 6; the look unchanged.
+
+**Results (2026-11-20, the profile build, 320 s with Variants on
+Alternate, level 1).**
+
+- Every start-up check passed. The user's `prefs.txt` said `table`, and
+  the game wrote it back as `smooth`.
+- **`lut=`** in the smooth seconds: 0.33 to 0.49 tables a frame,
+  **0.036 to 0.054 ms**, 2.1 to 2.5 texels: a few palette entries
+  cycling, a few texels made again, where step 3 made the whole table
+  every frame in 1.0 ms. Nothing in the 8-bit seconds.
+- **The cost**, the two ways in turn, 20 s each:
+
+  | window | spot | `gpuwait`, 8-bit | smooth | fps, 8-bit | smooth |
+  |---|---|---|---|---|---|
+  | t=61-92 | level 1, the start | 0.36 / 0.36 | 1.69 | 60.0 | 60.0 |
+  | t=172-212 | level 1, 17.95,23.35, still | 3.59 / 3.59 | 4.95 | 60.0 | 60.0 |
+  | t=289-294 | level 1, 17.50,23.30, still | 3.59 | 5.00 | 60.0 | 58.6 |
+
+  The GPU's share stays +1.4 ms; the main thread no longer pays the
+  table. At the heavy spot both ways held the screen's rate this time,
+  the smooth way down 1.4 fps at most.
+- One smooth window at the start (t=112) had `gpuwait` 4.6 ms where the
+  one before it had 1.7 at the same place: not explained, not seen
+  again.

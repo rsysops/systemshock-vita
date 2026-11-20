@@ -85,6 +85,7 @@ set(MAC_SRC
 	src/MacSrc/Shock.c
 	src/MacSrc/Prefs.c
 	src/MacSrc/VitaGpu.c
+	src/MacSrc/ShadeLut.c
 	src/MacSrc/MacTune.c
 	src/MacSrc/SDLSound.c
 	src/MacSrc/Modding.c

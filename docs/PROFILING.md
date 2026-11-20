@@ -266,6 +266,7 @@ All zero in the seconds the CPU draws.
 | `gpuoverlap` | time the main thread used for something else while the GPU drew |
 | `gpufallbacks` | total: lists the GPU refused, drawn by the CPU instead |
 | `side=a/b` | the smooth shadows (docs/SHADOWS.md): scenes drawn the smooth way, into a canvas's 32-bit side buffer, and the time to send their extracts into the canvas, which isn't in `gpudraw`. As many as `gpuscenes` in the station; 0 in cyberspace and with `shadows = original`. Last in the line, with `sidecheck=` |
+| `shown=`, `lut=a/b/c` | the smooth shadows on the screen: views drawn with them by the screen's shader (`vgpu_draw_view`), a frame (1 in the station, 0 in cyberspace, when paused and with `shadows = original`); the table of colours made again, a frame, the time it took, in ms, and the texels made again, a frame (256 for a whole table: at the start, a gamma change, a fade, infrared; a few where the palette cycles). At the end of the line |
 
 ### The HUD and loading
 

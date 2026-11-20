@@ -510,7 +510,7 @@ void InitVita2D(int width, int height)
     MakeScreenTexture(width, height);
 
     // the prefs are loaded by now (main)
-    vgpu_set_shadows(gShockPrefs.doShadows == SHADOWS_SMOOTH);
+    vgpu_set_shadows(gShockPrefs.doShadows != SHADOWS_ORIGINAL);
     vgpu_init();
     MakeViewTextures(width, height);
 
@@ -577,6 +577,8 @@ bool UseCutscenePalette = FALSE; // see cutsloop.c
 void SetSDLPalette(int index, int count, uchar *pal) {
     static bool gammalut_init = 0;
     static uchar gammalut[100 - 10 + 1][256];
+    // the palette before the gamma, for the smooth shadows' colours
+    static uchar raw[256 * 3];
     if (!gammalut_init) {
         double factor = 2.2;
         int i, j;
@@ -600,6 +602,8 @@ void SetSDLPalette(int index, int count, uchar *pal) {
         gam = 100;
     gam -= 10;
 
+    if (index >= 0 && count > 0 && index + count <= 256)
+        memcpy(raw + 3 * index, pal, (size_t)3 * count);
     for (int i = index; i < index + count; i++) {
         gamePalette[i].r = gammalut[gam][*pal++];
         gamePalette[i].g = gammalut[gam][*pal++];
@@ -633,6 +637,7 @@ void SetSDLPalette(int index, int count, uchar *pal) {
     for (int i = 0; i < VGPU_CANVASES; i++)
         if (viewTextures[i] != NULL)
             memcpy(vita2d_texture_get_palette(viewTextures[i]), palette32Bit, sizeof(uint32_t) * 256);
+    vgpu_set_palette(raw, gammalut[gam], !UseCutscenePalette);
 }
 
 void SDLDraw() {
@@ -658,11 +663,18 @@ void SDLDraw() {
     vita2d_draw_rectangle(0, 0, VITA_FULLSCREEN_WIDTH, VITA_FULLSCREEN_HEIGHT, 0xff000000);
     if (view == NULL || !FillsScreen(&lastPlace))
         vita2d_draw_texture_scale(texBuffer, destRect.x, destRect.y, scaleX, scaleY);
-    if (view != NULL && FillsScreen(&lastPlace))
-        vita2d_draw_texture_scale(view, destRect.x, destRect.y, scaleX, scaleY);
-    else if (view != NULL) // the paneled view's window, over the panels
-        vita2d_draw_texture_part_scale(view, destRect.x + lastPlace.x * scaleX, destRect.y + lastPlace.y * scaleY, 0, 0,
-                                       lastPlace.w, lastPlace.h, scaleX, scaleY);
+    // the view with smooth shadows if it has them, else from its palette
+    if (view != NULL && FillsScreen(&lastPlace)) {
+        if (!vgpu_draw_view(&view->gxm_tex, vita2d_texture_get_datap(view), vita2d_texture_get_width(view),
+                            destRect.x, destRect.y, scaleX, scaleY, lastPlace.w, lastPlace.h))
+            vita2d_draw_texture_scale(view, destRect.x, destRect.y, scaleX, scaleY);
+    } else if (view != NULL) { // the paneled view's window, over the panels
+        float x = destRect.x + lastPlace.x * scaleX, y = destRect.y + lastPlace.y * scaleY;
+
+        if (!vgpu_draw_view(&view->gxm_tex, vita2d_texture_get_datap(view), vita2d_texture_get_width(view), x, y,
+                            scaleX, scaleY, lastPlace.w, lastPlace.h))
+            vita2d_draw_texture_part_scale(view, x, y, 0, 0, lastPlace.w, lastPlace.h, scaleX, scaleY);
+    }
 #ifdef VITA_PROFILE
     vprof_overlay_draw();
 #endif
