@@ -16,6 +16,7 @@ and read its captures is in [PROFILING.md](PROFILING.md).
 - [How it is checked](#how-it-is-checked)
 - [Step 1: the side pass](#step-1-the-side-pass)
 - [Step 2: one pass](#step-2-one-pass)
+- [Step 2b: what the full-screen work costs](#step-2b-what-the-full-screen-work-costs)
 
 ## Starting point
 
@@ -139,7 +140,7 @@ blended, is kept to compare.
 | Step | What | Result |
 |---|---|---|
 | 1 | The prefs setting; the side buffers and the side pass; a start-up check; counters, and the side buffer in the frame dumps; a preview of the look on a PC from a dump | correct (0 mismatches in 84.8 M pixels), the smooth look in the previews; the GPU's work doubled: `gpuwait` 8.6 ms against 0.3-3.9, 53 s of 233 under 50 fps |
-| 2 | One pass: each scene drawn once, into the 32-bit buffer, with an import and an extract (replaces "the main thread waits for the canvas only") | correct (0 mismatches in 83.2 M pixels); `gpuwait` +4 ms against the 8-bit way at the same spot, whatever the scene: half of step 1's worst, still a frame rate of 52 in heavy places |
+| 2 | One pass: each scene drawn once, into the 32-bit buffer, with an import and an extract (replaces "the main thread waits for the canvas only") | correct (0 mismatches in 83.2 M pixels); `gpuwait` +4 ms against the 8-bit way at the same spot, whatever the scene: half of step 1's worst, still a frame rate of 52 in heavy places. 2b times its parts at start-up |
 | 3 | The table of colours, the screen's shader, its start-up check, a PC test of the table: smooth shadows on the screen | |
 | 4 | Where the view is copied to the screen buffer: paused, the options panel and its gamma slider, the zoom rectangle | |
 | 5 | Tuning: the dark floor and the curve, a light fraction for objects, translucent surfaces over lit ones | |
@@ -284,3 +285,61 @@ with Variants on Alternate, in the station, on levels 0 to 2).**
   buffer as a texture and is a scene of its own. Which of these the
   4 ms are is not known yet: GXM can't skip loading a colour surface,
   but has tiled surfaces and textures, usually faster than linear ones.
+
+## Step 2b: what the full-screen work costs
+
+What it does: in the profile build only, once the side buffers are made,
+`smooth_timing` (`src/MacSrc/VitaGpu.c`) times each part of a smooth
+frame's full-screen work on canvas 0 and its side buffer, before the game
+draws anything, and writes one line to `gpu.txt`:
+`smooth timing us min/median: ...`. A case is one scene, begun, drawn,
+ended and waited for, ten times over; the minimum and the median, in µs.
+The game itself doesn't change.
+
+| case | target | drawn | tells |
+|---|---|---|---|
+| `empty8` | the 8-bit canvas | one pixel | a scene's fixed cost, loading and storing 0.5 MB |
+| `empty32` | the 32-bit side buffer, linear | one pixel | the same with 2 MB |
+| `empty32t` | a 32-bit buffer, tiled | one pixel | the same, tiled |
+| `clear`, `keep` | the side buffer | the clear or the keep import | the imports |
+| `extract` | the canvas | the extract, from the side buffer | the extract scene |
+| `extractt` | the canvas | the extract, from the tiled buffer | the same, tiled |
+| `tmap8` | the canvas | a full-screen textured polygon, the 8-bit shader | a pixel's work, 8 bits |
+| `side32`, `side32t` | the side buffer, the tiled one | the same, the side shader | a pixel's work, 32 bits |
+
+Read as differences: `empty32 - empty8` is what the 32-bit buffer's load
+and store add; `clear` or `keep - empty32` the import's; `extract -
+empty8` the extract's; `side32 - tmap8` what a pixel costs more; the tiled
+cases against the linear ones. Their sum, for the parts a smooth frame
+has, should come near step 2's +4 ms.
+
+What a capture should show: start "System Shock Profile", wait for the
+main menu, quit; `gpu.txt` has the line, every case a number (or `-1/-1`
+with the error logged if a tiled surface or texture is refused).
+
+**Results (2026-11-20, one start-up).** In µs, minimum / median of ten:
+
+```
+empty8=802/827 empty32=798/807 empty32t=802/811 clear=1443/1459 keep=2988/3016
+extract=1444/1456 extractt=1452/1465 tmap8=2745/2764 side32=5145/5179 side32t=5157/5587
+```
+
+| part | cost |
+|---|---|
+| a scene, begun, ended and waited for, whatever its target | 0.80 ms, the same for the 8-bit canvas, the 32-bit buffer and a tiled one |
+| loading and storing 2 MB in place of 0.5 MB | nothing measurable |
+| tiled in place of linear | nothing, for the buffer or for the extract's reading |
+| the clear import | 0.65 ms |
+| the keep import (reads the target) | 2.19 ms, in a frame's later scenes only, which are rare |
+| the extract | 0.64 ms, and a scene of its own |
+| a screen of textured pixels, the 8-bit shader | 1.94 ms |
+| the same, the side shader | 4.35 ms: **2.24 times**, +2.4 ms a screen |
+
+A smooth frame pays the clear import (0.65), the extract (0.64 and a
+scene) and its pixels' extra, a screen or a little more of them (+2.4 or
+more): about the +4 ms step 2 measured. **The side shader is most of
+it.** It does the textured shader's work and then a floor, a clamp, a
+compare for the mark and four outputs (652 bytes compiled against 452).
+The buffer's size and layout cost nothing. Most of the rest is the clear
+import, which a view whose first draw is a clear of the whole canvas
+doesn't need.

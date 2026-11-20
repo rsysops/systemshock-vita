@@ -647,6 +647,10 @@ static void side_make(int width, int height, int stride) {
             (unsigned)(one * VGPU_CANVASES));
 }
 
+#ifdef VITA_PROFILE
+static void smooth_timing(void);
+#endif
+
 void vgpu_set_canvases(void *const *pixels, int width, int height, int stride) {
     int i;
 
@@ -663,6 +667,10 @@ void vgpu_set_canvases(void *const *pixels, int width, int height, int stride) {
         gpu_log("%d canvases %dx%d, %d bytes a row, the first at %p", VGPU_CANVASES, width, height, stride, pixels[0]);
     if (pixels != NULL && side_on && vgpu_available())
         side_make(width, height, stride);
+#ifdef VITA_PROFILE
+    if (side_pixels[0] != NULL)
+        smooth_timing();
+#endif
 }
 
 // Which canvas `bits` is: -1 if none.
@@ -2348,6 +2356,178 @@ static void time_tluc_fill(uchar *p, size_t size, int *in_place_us, int *copied_
     *in_place_us = (int)(t1 - t0);
     *copied_us = (int)(t2 - t1);
 }
+
+#ifdef VITA_PROFILE
+// ---- what a smooth frame's full-screen work costs (docs/SHADOWS.md, 2b) ----
+//
+// Each case is one scene on canvas 0 or its side buffer, begun, drawn,
+// ended and waited for, TIMING_RUNS times: the minimum and the median of
+// the times from the begin to the end of the wait. The draws come from the
+// start of the vertex buffer: a full-screen quad (vertices 0-3, indices
+// 0-5) and a one-pixel one (4-7, 6-11).
+#define TIMING_RUNS 10
+
+static const SceGxmTexture *timing_texture; // what the import or the extract reads
+
+static void timing_full(void) {
+    sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices, 6);
+}
+
+static void timing_flat(void) {
+    sceGxmSetVertexProgram(context, flat_vertex_program);
+    sceGxmSetFragmentProgram(context, flat_fragment_program);
+    sceGxmDraw(context, SCE_GXM_PRIMITIVE_TRIANGLES, SCE_GXM_INDEX_FORMAT_U16, indices + 6, 6);
+}
+
+static void timing_clear(void) {
+    sceGxmSetVertexProgram(context, tmap_vertex_program);
+    sceGxmSetFragmentProgram(context, import_clear_program);
+    sceGxmSetFragmentTexture(context, import_clear_unit, timing_texture);
+    timing_full();
+}
+
+static void timing_keep(void) {
+    sceGxmSetVertexProgram(context, tmap_vertex_program);
+    sceGxmSetFragmentProgram(context, import_keep_program);
+    sceGxmSetFragmentTexture(context, import_keep_unit, timing_texture);
+    timing_full();
+}
+
+static void timing_extract(void) {
+    sceGxmSetVertexProgram(context, tmap_vertex_program);
+    sceGxmSetFragmentProgram(context, extract_program);
+    sceGxmSetFragmentTexture(context, extract_unit, timing_texture);
+    timing_full();
+}
+
+// A full-screen textured polygon, the tables as its bitmap too, at light 0
+static void timing_tmap(void) {
+    sceGxmSetVertexProgram(context, tmap_vertex_program);
+    sceGxmSetFragmentProgram(context, tmap_fragment_program);
+    sceGxmSetFragmentTexture(context, bitmap_unit, &tables_texture);
+    sceGxmSetFragmentTexture(context, tables_unit, &tables_texture);
+    timing_full();
+}
+
+static void timing_side(void) {
+    sceGxmSetVertexProgram(context, tmap_vertex_program);
+    sceGxmSetFragmentProgram(context, side_fragment_program);
+    sceGxmSetFragmentTexture(context, side_bitmap_unit, &tables_texture);
+    sceGxmSetFragmentTexture(context, side_tables_unit, &tables_texture);
+    timing_full();
+}
+
+static int timing_compare(const void *a, const void *b) { return *(const int *)a - *(const int *)b; }
+
+// One case: "name=min/median" added to `line`, -1/-1 if its scene won't begin
+// (or there is nothing to draw it on).
+static void timing_case(char *line, size_t size, const char *name, gpu_target *target, SceGxmColorSurface *surface,
+                        void (*draws)(void)) {
+    int us[TIMING_RUNS], i, n = 0;
+    size_t at = strlen(line);
+
+    for (i = 0; i < TIMING_RUNS && target != NULL && surface != NULL; i++) {
+        long long t0 = sceKernelGetProcessTimeWide();
+        int err = sceGxmBeginScene(context, 0, target->target, NULL, NULL, NULL, surface, &target->depth_stencil);
+
+        if (err < 0) {
+            gpu_err("smooth timing, %s: begin scene failed: 0x%08x", name, (unsigned)err);
+            break;
+        }
+        scene_state();
+        sceGxmSetVertexStream(context, 0, vertices);
+        draws();
+        sceGxmEndScene(context, NULL, NULL);
+        sceGxmFinish(context);
+        us[n++] = (int)(sceKernelGetProcessTimeWide() - t0);
+    }
+    if (n == 0) {
+        snprintf(line + at, size - at, " %s=-1/-1", name);
+        return;
+    }
+    qsort(us, (size_t)n, sizeof(us[0]), timing_compare);
+    snprintf(line + at, size - at, " %s=%d/%d", name, us[0], us[n / 2]);
+}
+
+// The quad over the whole canvas, reading a texture tex_w by tex_h texel for
+// pixel
+static void timing_quad(int tex_w, int tex_h) {
+    full_quad(&vertices[0], canvas_w, canvas_h, tex_w, tex_h);
+}
+
+static void smooth_timing(void) {
+    int w = canvas_w, h = canvas_h, tiled_w = (canvas_w + 31) & ~31, tiled_h = (canvas_h + 31) & ~31, i;
+    smooth_set *set = &side_sets[0];
+    gpu_target *t8 = target_for(w, h, 0), *t32 = target_for(w, h, 1);
+    SceGxmColorSurface surface8, tiled_surface, *tiled = NULL;
+    SceGxmTexture tiled_texture;
+    uchar *tiled_pixels = vgpu_alloc((size_t)tiled_w * tiled_h * 4);
+    rastq_gpu_vertex v[4];
+    char line[600] = "smooth timing us min/median:";
+
+    gpu_log("smooth timing: start, %d runs a case", TIMING_RUNS);
+    sceGxmFinish(context);
+    to_clip_x = 2.0f / (float)w;
+    to_clip_y = 2.0f / (float)h;
+    // the one-pixel quad, palette index 0
+    memset(v, 0, sizeof(v));
+    v[1].x = v[2].x = 1.0f;
+    v[2].y = v[3].y = 1.0f;
+    for (i = 0; i < 4; i++) {
+        place(&vertices[4 + i], &v[i]);
+        vertices[4 + i].u = 0.25f / 255.0f;
+    }
+    for (i = 0; i < 2; i++) {
+        uint16_t first = (uint16_t)(4 * i);
+        indices[6 * i + 0] = indices[6 * i + 3] = first;
+        indices[6 * i + 1] = first + 1;
+        indices[6 * i + 2] = indices[6 * i + 4] = first + 2;
+        indices[6 * i + 5] = first + 3;
+    }
+    if (sceGxmColorSurfaceInit(&surface8, SCE_GXM_COLOR_FORMAT_U8_R, SCE_GXM_COLOR_SURFACE_LINEAR,
+                               SCE_GXM_COLOR_SURFACE_SCALE_NONE, SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, w, h,
+                               canvas_stride, canvas_pixels[0]) < 0)
+        t8 = NULL;
+    if (tiled_pixels != NULL) {
+        int err = sceGxmColorSurfaceInit(&tiled_surface, SCE_GXM_COLOR_FORMAT_U8U8U8U8_ABGR,
+                                         SCE_GXM_COLOR_SURFACE_TILED, SCE_GXM_COLOR_SURFACE_SCALE_NONE,
+                                         SCE_GXM_OUTPUT_REGISTER_SIZE_32BIT, w, h, tiled_w, tiled_pixels);
+        if (err >= 0)
+            err = sceGxmTextureInitTiled(&tiled_texture, tiled_pixels, SCE_GXM_TEXTURE_FORMAT_U8U8U8U8_ABGR, tiled_w,
+                                         tiled_h, 0);
+        if (err < 0) {
+            gpu_err("smooth timing: no tiled surface or texture: 0x%08x", (unsigned)err);
+        } else {
+            point_and_clamp(&tiled_texture);
+            tiled = &tiled_surface;
+        }
+    }
+
+    timing_quad(set->tex_w, set->tex_h);
+    timing_case(line, sizeof(line), "empty8", t8, &surface8, timing_flat);
+    timing_case(line, sizeof(line), "empty32", t32, &set->surface, timing_flat);
+    timing_case(line, sizeof(line), "empty32t", t32, tiled, timing_flat);
+    timing_texture = &set->canvas;
+    timing_case(line, sizeof(line), "clear", t32, &set->surface, timing_clear);
+    timing_case(line, sizeof(line), "keep", t32, &set->surface, timing_keep);
+    timing_texture = &set->view;
+    timing_case(line, sizeof(line), "extract", t8, &surface8, timing_extract);
+    timing_quad(tiled_w, tiled_h);
+    timing_texture = &tiled_texture;
+    timing_case(line, sizeof(line), "extractt", t8, tiled != NULL ? &surface8 : NULL, timing_extract);
+    timing_quad(set->tex_w, set->tex_h);
+    timing_case(line, sizeof(line), "tmap8", t8, &surface8, timing_tmap);
+    timing_case(line, sizeof(line), "side32", t32, &set->surface, timing_side);
+    timing_case(line, sizeof(line), "side32t", t32, tiled, timing_side);
+
+    if (tiled_pixels != NULL)
+        vgpu_free(tiled_pixels);
+    // the canvas as it was made: the game's first frame starts from it
+    for (i = 0; i < h; i++)
+        memset(canvas_pixels[0] + (size_t)i * canvas_stride, 0, (size_t)w);
+    gpu_log("%s", line);
+}
+#endif
 
 // The GPU's memory, given back when it turns itself off after its set-up:
 // nothing draws with it then (vgpu_canvas says no, and the queue never gets
