@@ -21,6 +21,7 @@ and read its captures is in [PROFILING.md](PROFILING.md).
 - [Step 3: on the screen](#step-3-on-the-screen)
 - [Step 3b: the table of colours, only what changed](#step-3b-the-table-of-colours-only-what-changed)
 - [Step 4: the view through the screen buffer](#step-4-the-view-through-the-screen-buffer)
+- [The heavy hallway](#the-heavy-hallway)
 
 ## Starting point
 
@@ -613,3 +614,33 @@ main menu, a cutscene).**
   in full screen, the seconds paused or with the rectangle flying (25 of
   them shared with `shown=`, the game going back and forth). 0 in the
   15 s on the main menu and in the cutscene.
+
+## The heavy hallway
+
+The user saw 2 to 3 fps lost behind the bulkhead door by the medical room
+(level 1), the view down the hallway, and 5 to 10 in front of it with the
+door open (the door shuts itself every few seconds, and the fps goes from
+50 back to 60 each time). A capture with Variants on Alternate, standing
+still at both, 2026-11-21:
+
+| spot | way | fps | `gpuwait` | `render3d` | pieces |
+|---|---|---|---|---|---|
+| behind the bulkhead, 18.7,23.28, the hallway | 8-bit | 60.0 | 3.70 | 13.1 | 389 |
+| | smooth | 58.4 | 5.07 | 14.7 | 389 |
+| in front of it, 18.0,22.07, the door open | 8-bit | 55.3 / 54.7 | 5.50 / 5.63 | 15.6 | 404 |
+| | smooth | 51.0 / 50.7 | 7.02 / 7.18 | 17.1 | 404 |
+
+Nothing new: the smooth way adds its +1.4 to 1.6 ms of GPU work, a little
+more where the view is drawn over more times, and the main thread waits
+for it. What differs is the room left: behind the bulkhead the 8-bit frame
+fits in its 16.7 ms with little to spare, and the smooth one costs 1.6
+fps; in front of it the 8-bit frame is already over (55 fps, the place's
+own weight, as S11 and S13 found for the heaviest places), and the same
+1.5 ms more is 4 to 5 fps. The parts of those 1.5 ms (2b, 2c): the extract,
+0.64 ms and a scene; the side shader, +0.44 ms per screen of pixels, the
+hallway drawing its view over about twice.
+
+The user chose to win the time back for both ways rather than shave the
+smooth way's own: the full-screen HUD, 1.8 ms after that wait, drawn
+during it instead (PERFORMANCE.md, S14).
+

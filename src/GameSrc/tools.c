@@ -701,19 +701,94 @@ void zoom_rect(LGRect *start, LGRect *end)
 }
 
 //called just before and after SDLDraw() in mainloop()
+//
+// The box is plain white in both views (the game drew it in XOR, its colour
+// changing with what was under it; the full-screen look below was preferred,
+// 2026-11-21, docs/PERFORMANCE.md S14). How it goes away:
+// - in full screen the view is shown from a GPU canvas, over the screen
+//   buffer, which would hide a box drawn there: it goes into the picture the
+//   screen shows this frame (VitaShownViewPixels: the HUD's overlay, or the
+//   view's canvas), the screen canvas's pixels pointed at it for that time,
+//   so that it is scaled as on the screen. That picture is drawn afresh each
+//   frame: nothing to erase.
+// - otherwise it goes on the screen buffer, whose pixels under it are kept
+//   before and put back after SDLDraw. Without room to keep them, it is
+//   drawn and erased in XOR as the game did.
 void ZoomDrawProc(int erase)
 {
+  enum { ZOOM_NONE, ZOOM_IN_VIEW, ZOOM_KEPT, ZOOM_XOR };
+  static int drawn = ZOOM_NONE; // how this frame's box was drawn
+  static uchar *kept;           // the screen canvas's pixels under it
+  static size_t kept_size;
+  uchar *view = NULL, *screen_bits = NULL;
+  int view_row = 0, y;
+  ushort screen_row = 0;
+  grs_bitmap *bm;
+
   if (!ZoomEnable) return;
 
-  if (!erase)
+  if (erase)
+  {
+    int how = drawn;
+
+    drawn = ZOOM_NONE;
+    if (how == ZOOM_NONE || how == ZOOM_IN_VIEW)
+      return;
+    bm = &grd_canvas->bm;
+    if (how == ZOOM_KEPT)
+    {
+      for (y = 0; y < bm->h; y++)
+        memcpy(bm->bits + (size_t)y * bm->row, kept + (size_t)y * bm->w, bm->w);
+      return;
+    }
+    // ZOOM_XOR: drawn again below, which takes it away
+  }
+  else
   {
     ZoomI = SDL_GetTicks() - ZoomTicks;
-    if (ZoomI >= ZOOM_MS) {ZoomEnable = 0; return;}
+    if (ZoomI >= ZOOM_MS) {ZoomEnable = 0; drawn = ZOOM_NONE; return;}
+    view = full_game_3d ? VitaShownViewPixels(&view_row) : NULL;
+    if (view != NULL)
+    {
+      drawn = ZOOM_IN_VIEW;
+    }
+    else
+    {
+      size_t need;
+
+      bm = &grd_canvas->bm;
+      need = (size_t)bm->w * bm->h;
+      if (need > kept_size)
+      {
+        free(kept);
+        kept = malloc(need);
+        kept_size = kept != NULL ? need : 0;
+      }
+      if (kept != NULL)
+      {
+        for (y = 0; y < bm->h; y++)
+          memcpy(kept + (size_t)y * bm->w, bm->bits + (size_t)y * bm->row, bm->w);
+        drawn = ZOOM_KEPT;
+      }
+      else
+      {
+        drawn = ZOOM_XOR;
+      }
+    }
+  }
+
+  if (view != NULL)
+  {
+    screen_bits = grd_screen_canvas->bm.bits;
+    screen_row = grd_screen_canvas->bm.row;
+    grd_screen_canvas->bm.bits = view;
+    grd_screen_canvas->bm.row = (ushort)view_row;
+    gr_push_canvas(grd_screen_canvas);
   }
 
   int ft = gr_get_fill_type();
   int c = gr_get_fcolor();
-  gr_set_fill_type(FILL_XOR);
+  gr_set_fill_type(drawn == ZOOM_XOR || erase ? FILL_XOR : FILL_NORM);
   gr_set_fcolor(WHITE);
 
   short ulx = INTERP(ZoomStart.ul.x, ZoomEnd.ul.x, ZoomI);
@@ -725,6 +800,13 @@ void ZoomDrawProc(int erase)
 
   gr_set_fill_type(ft);
   gr_set_fcolor(c);
+
+  if (view != NULL)
+  {
+    gr_pop_canvas();
+    grd_screen_canvas->bm.bits = screen_bits;
+    grd_screen_canvas->bm.row = screen_row;
+  }
 }
 
 // Returns the angle of difference between look_facing and the true direction

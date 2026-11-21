@@ -5278,3 +5278,91 @@ good"), by `var=`:
   notes stay for when it comes back.
 - `VPROF_ALTERNATE` is back to 0: the cure is on in every build, all
   the time.
+
+### S14: the full-screen HUD while the GPU draws
+
+Why: with the smooth shadows (docs/SHADOWS.md), the heavy hallway by the
+medical room on level 1 lost 4 to 5 fps where the 8-bit way was already at
+55 ("The heavy hallway" there). A full-screen frame there runs its parts
+one after another: the walk and the hand-over to the GPU, 7.8 ms; the main
+thread waiting for the GPU with nothing to do, 3.7 ms (5.1 smooth,
+`gpuoverlap=0.02`); then the HUD, 1.8 ms, drawn into the view's canvas,
+which is why it had to wait.
+
+No piece of the HUD reads the view's pixels: the hand, the compass and the
+messages, the help label, the target boxes, the buttons, the side panels,
+the inventory, the vitals, the meters, the icons only write theirs, and
+index 0 is already their "nothing drawn" (every transparent copy, the
+panels' canvases, hudkeep). So in full screen it can be drawn while the GPU
+draws the view, into a picture of its own the screen lays over the view.
+
+What it does:
+
+- **An overlay per view canvas** (`src/MacSrc/Shock.c`): an 8-bit
+  paletted texture the canvas's size, its palette the game's with index 0
+  see-through (`VitaViewOverlay`, `OverlayPalette` in `SetSDLPalette`).
+- **`fr_send_view`** (`src/GameSrc/frsetup.c`), when the GPU draws the
+  view in full screen (`hud_overlay_wanted`): after the help scan and
+  before the wait, the overlay is cleared and the HUD drawn into it, then
+  the cursor, the canvas's pixels pointed at the overlay for that time
+  (`draw_hud_in_overlay`), so every HUD path draws as it always did. Then
+  the wait. Not with a screen effect (static, shield, teleport, SHODAN,
+  vertical hold: they draw over the HUD, and static writes index 0), nor
+  with the inventory's rear view (an opaque picture, its black index 0),
+  nor paused: those frames go as before.
+- **The screen**: `SDLDraw` lays the overlay over the full-screen view,
+  smooth or not; `VitaSyncView` and the copy when the view can't be shown
+  from its canvas put the overlay's drawn pixels into the screen buffer
+  (`VitaOverlayComposite`).
+- **A check** with Profile on Checks: one overlay in 64 starts as 255, and
+  the pixels the HUD drew in index 0 (opaque black, which the overlay
+  would show as see-through) are counted: `hudzero=`.
+- `hudover=` in the log; the profiler's variants now put the HUD after the
+  wait (0) or in its overlay (1).
+- **The zoom rectangle in full screen** (an object opened or picked up,
+  `ZoomDrawProc` in `src/GameSrc/tools.c`), missing since G6 because it
+  was drawn on the screen buffer under the view: in full screen it goes
+  into the picture the screen shows this frame (`VitaShownViewPixels`:
+  the overlay, or the view's canvas when the HUD isn't in an overlay),
+  the screen canvas's pixels pointed there for its two boxes, so that
+  they are scaled as on the screen. That picture is drawn afresh each
+  frame, so the box isn't erased there. The paneled view keeps the
+  screen buffer. The box is plain white in both views, the full-screen
+  look the user preferred: the game drew it in XOR, its colour changing
+  with what was under it. On the screen buffer a solid box can't be
+  taken away by drawing it again, so its pixels are kept before it and
+  put back after `SDLDraw` (about 0.2 ms a frame for the box's 286 ms;
+  XOR as before if there is no room to keep them).
+
+What a capture should show: `hudzero=0/n`; the HUD as before (side panels
+open and closed, inventory, vitals, hand, compass and messages, label,
+target boxes, cursor; damage static and the rear view, which go the old
+way); the zoom rectangle a white box in full screen (the briefcase at the
+start) and in the paneled view, with no trail left on the panels; at the
+hallway, variant 1's `gpuwait` and frame shorter than
+variant 0's by about the HUD's time.
+
+**Results (2026-11-21, the profile build with smooth shadows: 386 s with
+Checks on, then 360 s with Variants on Alternate at the two hallway spots
+by the medical room, full screen; the zoom rectangle tried in both views
+afterwards).**
+
+- `hudzero=0/239`: in 239 checked overlays the HUD never drew index 0;
+  every start-up check passed, `sidecheck=` 0 mismatches in 176 M pixels.
+- The user: the HUD as before; the zoom rectangle back in full screen,
+  white in both views ("Perfect"). A step-4 build confirmed the
+  full-screen rectangle had been missing before S14, since G6.
+- `hudover=1.00` a frame in full screen, the HUD 1.37 to 1.48 ms.
+- **The gain**, variant 0 (the HUD after the wait) against 1 (in its
+  overlay during it), 20 s each:
+
+  | spot | `gpuwait`, after | during | `render3d`, after | during | fps, after | during |
+  |---|---|---|---|---|---|---|
+  | the hallway, 18.73,23.25, still | 5.05 to 5.39 | 2.73 to 3.03 | 17.5 to 18.3 | 16.1 to 16.8 | 47.8 to 49.9 | 51.5 to 53.8 |
+  | by the door, 17.97,21.61, still | 6.85 to 6.92 | 4.50 to 4.54 | 19.1 to 19.2 | 17.6 to 17.7 | 45.0 to 46.2 | 47.3 to 49.6 |
+
+  The wait shrinks by 2.3 ms, the HUD's time and the overlay's clearing,
+  which now happen during it; the frame by 1.4 to 1.7 ms; about 4 fps at
+  both spots, with the smooth shadows on. Where the frame isn't waiting
+  on the GPU there is nothing to gain, and nothing is lost.
+

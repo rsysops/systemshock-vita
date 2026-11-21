@@ -771,10 +771,6 @@ unsigned char *vgpu_canvas(int width, int height, int *row) {
     // its side buffer is made the canvas again by the frame's first scene
     side_wanted[canvas_turn] = side_pixels[canvas_turn] != NULL;
     side_sets[canvas_turn].drawn = 0;
-#ifdef VITA_PROFILE
-    if (vprof_variant == 0) // the 8-bit way throughout, to time the smooth one against
-        side_wanted[canvas_turn] = 0;
-#endif
     return canvas_pixels[canvas_turn];
 }
 

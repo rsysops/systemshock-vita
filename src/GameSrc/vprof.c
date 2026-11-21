@@ -598,6 +598,8 @@ static void vprof_window_reset(SceInt64 now, short loop_mode) {
         vgpu_counters.side_pixels = kept.side_pixels;
         vgpu_counters.side_lit = kept.side_lit;
         vgpu_counters.side_mismatch = kept.side_mismatch;
+        vgpu_counters.hud_checks = kept.hud_checks;
+        vgpu_counters.hud_zeros = kept.hud_zeros;
     }
     // the checks' counts run on, like the other self-checks'
     hudkeep_stats.text_hits = hudkeep_stats.text_misses = 0;
@@ -1008,7 +1010,7 @@ static void vprof_window_flush(SceInt64 now) {
                 "outlined=%.2f/%.2f resimg=%d/%d resimgmb=%.1f resimgms=%d resmax=%s#%x:%.2f "
                 "applog=%u:%.2f applogmax=%08x:%.2f | at=%s | amap=%.2f/%.2f amaps=%d amapmax=%.2f | "
                 "lateswap=%d light=%d onmcb=%d/%d nearmcb=%d/%d prevmcb=%d/%d mcb0=%u mcbmax=%.2f vbllag=%.2f aprio=%d amask=%x mprio=%d "
-                "mmask=%x cutwait=%.2f/%.2f | side=%.2f/%.2f sidecheck=%llu/%llu/%llu cmpms=%.2f dumpms=%.0f shown=%.2f lut=%.2f/%.3f/%.1f shownover=%.2f\n",
+                "mmask=%x cutwait=%.2f/%.2f | side=%.2f/%.2f sidecheck=%llu/%llu/%llu cmpms=%.2f dumpms=%.0f shown=%.2f lut=%.2f/%.3f/%.1f shownover=%.2f hudover=%.2f hudzero=%llu/%llu\n",
                 (long long)(now / 1000000),
                 g_window_loop_mode,
                 vprof_variant,
@@ -1153,7 +1155,9 @@ static void vprof_window_flush(SceInt64 now) {
                 (double)vgpu_counters.lut_builds / g_frame_samples,
                 us_to_ms((SceInt64)vgpu_counters.lut_us) / g_frame_samples,
                 (double)vgpu_counters.lut_texels / g_frame_samples,
-                (double)vgpu_counters.copied_frames / g_frame_samples);
+                (double)vgpu_counters.copied_frames / g_frame_samples,
+                (double)vgpu_counters.hud_overlays / g_frame_samples,
+                vgpu_counters.hud_zeros, vgpu_counters.hud_checks);
         __atomic_store_n(&g_applog_max_from, NULL, __ATOMIC_RELAXED);
         g_res_max_us = 0;
         g_res_max_id = 0;
@@ -1286,6 +1290,8 @@ void vprof_frame_end(void) {
         vgpu_counters.side_pixels = now_gpu.side_pixels;
         vgpu_counters.side_lit = now_gpu.side_lit;
         vgpu_counters.side_mismatch = now_gpu.side_mismatch;
+        vgpu_counters.hud_checks = now_gpu.hud_checks;
+        vgpu_counters.hud_zeros = now_gpu.hud_zeros;
         // a comparison is what makes a frame be left out: its time stays
         vgpu_counters.compare_max_us = now_gpu.compare_max_us;
         g_skipped++;

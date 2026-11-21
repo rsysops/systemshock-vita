@@ -90,6 +90,26 @@ int vgpu_draw_copied_view(const void *screen_texture, int tex_w, float x, float 
 // buffer, which is then what is shown.
 int VitaShowView(const unsigned char *bits, int x, int y, int width, int height);
 
+// In Shock.c: the full-screen HUD's overlay of a view canvas (`bits`), an
+// 8-bit picture the same size and row, in which index 0 shows the view under
+// it; NULL if `bits` isn't a GPU canvas. In full screen the HUD is drawn
+// there while the GPU draws the view (fr_send_view, docs/PERFORMANCE.md S14),
+// and the screen lays it over the view.
+unsigned char *VitaViewOverlay(const unsigned char *bits);
+// Whether this frame's HUD went into that canvas's overlay (1) or into the
+// canvas itself (0): fr_send_view says so each frame, before VitaShowView.
+void VitaOverlayDrawn(const unsigned char *bits, int drawn);
+// The overlay's drawn pixels copied over the screen buffer where the view of
+// `bits` was copied, (x, y) `w` by `h`, if this frame's HUD is in it.
+void VitaOverlayComposite(const unsigned char *bits, int x, int y, int w, int h);
+
+// In Shock.c: the picture the next SDLDraw shows over the whole screen from a
+// GPU canvas, `*row` bytes a row (the full-screen HUD's overlay if this
+// frame's HUD is there, else the view's canvas); NULL if the screen buffer is
+// what it shows. Drawing there shows on the screen this frame only: the
+// zoom rectangle in full screen (ZoomDrawProc).
+unsigned char *VitaShownViewPixels(int *row);
+
 // In Shock.c: to be called before the game draws on the screen without having
 // drawn the view first (a pause, a panel, another screen). If the view was
 // last shown from a GPU canvas, the screen buffer gets it.
@@ -113,6 +133,11 @@ typedef struct {
     unsigned long long lut_us;     // making it
     unsigned long long lut_texels; // the texels made again (256 for the whole table)
     unsigned copied_frames;        // views shown smooth over the screen buffer
+    unsigned hud_overlays;         // full-screen HUDs drawn into an overlay, during the GPU's work
+    // In the checks: overlays checked, and the pixels found where the HUD
+    // drew index 0 (opaque black the overlay would show as see-through).
+    // The profiler keeps these.
+    unsigned long long hud_checks, hud_zeros;
     // And the longest comparison of the window, on the game's thread: the
     // side buffer's check, and a frame dump's copy when there is one.
     unsigned compare_max_us;

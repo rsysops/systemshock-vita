@@ -46,9 +46,10 @@ typedef enum {
 #include <psp2/kernel/processmgr.h>
 #include <psp2/kernel/threadmgr.h>
 
-// Variants of the code under test. Currently the smooth shadows' side pass
-// (vgpu_canvas in VitaGpu.c): 0 = not drawn, 1 = drawn (docs/SHADOWS.md,
-// step 1). With the Profiler page's Variants on Alternate they take turns every
+// Variants of the code under test. Currently where the full-screen HUD is
+// drawn (hud_overlay_wanted in frsetup.c): 0 = into the view after the wait
+// for the GPU, as it was, 1 = into its overlay while the GPU draws
+// (docs/PERFORMANCE.md, S14). With the Profiler page's Variants on Alternate they take turns every
 // VPROF_WINDOWS_PER_VARIANT 1 s windows, so that they can be compared within
 // one session. Otherwise the build stays on variant 1, which is what the game
 // does.

@@ -81,8 +81,9 @@ commit `1eb33db0`.
 - **It draws as the game does**: on the GPU, or on three cores when
   the GPU can't be used. With Variants on Alternate it switches between
   two ways of doing something under test, twenty seconds each: at
-  present the view drawn the 8-bit way (`var=0`) against the smooth
-  shadows' way (`var=1`, what the game does; docs/SHADOWS.md). The log says
+  present the full-screen HUD drawn after the wait for the GPU (`var=0`)
+  against into its overlay during it (`var=1`, what the game does;
+  PERFORMANCE.md, S14). The log says
   which was on (`var=`). That is what makes two ways comparable: same
   place, same moment, same capture.
 - **It writes its log from a thread of its own**, a few times a second.
@@ -268,6 +269,7 @@ All zero in the seconds the CPU draws.
 | `side=a/b` | the smooth shadows (docs/SHADOWS.md): scenes drawn the smooth way, into a canvas's 32-bit side buffer, and the time to send their extracts into the canvas, which isn't in `gpudraw`. As many as `gpuscenes` in the station; 0 in cyberspace and with `shadows = original`. Last in the line, with `sidecheck=` |
 | `shown=`, `lut=a/b/c` | the smooth shadows on the screen: views drawn with them by the screen's shader (`vgpu_draw_view`), a frame (1 in the station, 0 in cyberspace, when paused and with `shadows = original`); the table of colours made again, a frame, the time it took, in ms, and the texels made again, a frame (256 for a whole table: at the start, a gamma change, a fade, infrared; a few where the palette cycles). At the end of the line |
 | `shownover=` | views shown with smooth shadows over the screen buffer (`vgpu_draw_copied_view`), a frame: about 1 while the game is paused (the options panel) or the zoom rectangle flies, 0 in play. At the end of the line |
+| `hudover=`, `hudzero=a/b` | full-screen HUDs drawn into their overlay while the GPU drew the view, a frame (PERFORMANCE.md, S14: 1 in full screen, 0 paneled, paused, with a screen effect or the rear view, and in variant 0); total, with Profile on Checks: pixels found where the HUD drew index 0, which the overlay shows as see-through, over the overlays checked (one in 64). `a` must be 0. At the end of the line |
 
 ### The HUD and loading
 
@@ -615,8 +617,10 @@ the two ways part:
 `defined(__vita__) && defined(VITA_PROFILE)` instead)
 
 and every log line says which was on. At present it is read in
-`vgpu_canvas` in `src/MacSrc/VitaGpu.c`: 0 draws the view the 8-bit way,
-1 the smooth shadows' way (docs/SHADOWS.md). Each piece of work redefines what the values mean; raise
+`hud_overlay_wanted` in `src/GameSrc/frsetup.c`: 0 draws the full-screen
+HUD into the view after the wait for the GPU, 1 into its overlay during it
+(PERFORMANCE.md, S14). Until S14 it was the 8-bit way (0) against the
+smooth shadows' (1). Each piece of work redefines what the values mean; raise
 `VPROF_VARIANT_COUNT` to compare three. On 1 only, the build stays on
 1, so 1 should be what the game does.
 

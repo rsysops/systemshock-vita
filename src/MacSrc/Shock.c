@@ -393,10 +393,80 @@ typedef struct {
 } ViewPlace;
 static vita2d_texture *shownView, *lastView;
 static ViewPlace shownPlace, lastPlace;
+// The full-screen HUD's overlay of each canvas (VitaViewOverlay), paletted
+// like them, index 0 see-through; whether this frame's HUD is in it; and the
+// one the next SDLDraw lays over its view, and the last one it did.
+static vita2d_texture *overlayTextures[VGPU_CANVASES];
+static int overlayDrawn[VGPU_CANVASES];
+static vita2d_texture *shownOverlay, *lastOverlay;
+
+static int CanvasIndex(const unsigned char *bits)
+{
+    int i;
+
+    for (i = 0; i < VGPU_CANVASES; i++)
+        if (viewTextures[i] != NULL && bits == vita2d_texture_get_datap(viewTextures[i]))
+            return i;
+    return -1;
+}
+
+// The game's palette, with index 0 see-through: an overlay's
+static void OverlayPalette(vita2d_texture *t, const uint32_t *palette)
+{
+    uint32_t *to = vita2d_texture_get_palette(t);
+
+    memcpy(to, palette, sizeof(uint32_t) * 256);
+    to[0] &= 0x00FFFFFFu;
+}
+
+unsigned char *VitaViewOverlay(const unsigned char *bits)
+{
+    int i = CanvasIndex(bits);
+    return i >= 0 && overlayTextures[i] != NULL ? vita2d_texture_get_datap(overlayTextures[i]) : NULL;
+}
+
+void VitaOverlayDrawn(const unsigned char *bits, int drawn)
+{
+    int i = CanvasIndex(bits);
+    if (i >= 0)
+        overlayDrawn[i] = drawn && overlayTextures[i] != NULL;
+}
+
+void VitaOverlayComposite(const unsigned char *bits, int x, int y, int w, int h)
+{
+    static uint8_t row[2048];
+    int i = CanvasIndex(bits), stride, r, c;
+    const uint8_t *from;
+    uint8_t *to;
+
+    if (i < 0 || !overlayDrawn[i] || drawSurface == NULL || w > (int)sizeof(row))
+        return;
+    from = vita2d_texture_get_datap(overlayTextures[i]);
+    stride = vita2d_texture_get_stride(overlayTextures[i]);
+    to = (uint8_t *)drawSurface->pixels + y * drawSurface->pitch + x;
+    for (r = 0; r < h; r++) {
+        // a row out of GPU memory in one go: byte by byte it is slow
+        memcpy(row, from + r * stride, w);
+        for (c = 0; c < w; c++)
+            if (row[c] != 0)
+                to[r * drawSurface->pitch + c] = row[c];
+    }
+}
 
 static int FillsScreen(const ViewPlace *place)
 {
     return place->x == 0 && place->y == 0 && place->w == gScreenWide && place->h == gScreenHigh;
+}
+
+unsigned char *VitaShownViewPixels(int *row)
+{
+    vita2d_texture *t;
+
+    if (shownView == NULL || !FillsScreen(&shownPlace))
+        return NULL;
+    t = shownOverlay != NULL ? shownOverlay : shownView;
+    *row = vita2d_texture_get_stride(t);
+    return vita2d_texture_get_datap(t);
 }
 
 static void MakeViewTextures(int width, int height)
@@ -407,10 +477,14 @@ static void MakeViewTextures(int width, int height)
     vgpu_set_canvases(NULL, 0, 0, 0);
     vita2d_wait_rendering_done();
     shownView = lastView = NULL;
+    shownOverlay = lastOverlay = NULL;
     for (i = 0; i < VGPU_CANVASES; i++) {
         if (viewTextures[i] != NULL)
             vita2d_free_texture(viewTextures[i]);
-        viewTextures[i] = NULL;
+        if (overlayTextures[i] != NULL)
+            vita2d_free_texture(overlayTextures[i]);
+        viewTextures[i] = overlayTextures[i] = NULL;
+        overlayDrawn[i] = 0;
     }
     vita2d_texture_set_alloc_memblock_type( SCE_KERNEL_MEMBLOCK_TYPE_USER_CDRAM_RW );
     for (i = 0; i < VGPU_CANVASES; i++) {
@@ -420,6 +494,18 @@ static void MakeViewTextures(int width, int height)
         pixels[i] = vita2d_texture_get_datap(viewTextures[i]);
         memset(pixels[i], 0, vita2d_texture_get_stride(viewTextures[i]) * height);
         memcpy(vita2d_texture_get_palette(viewTextures[i]), vita2d_texture_get_palette(texBuffer), sizeof(uint32_t) * 256);
+        // its HUD overlay, the same size; without it the HUD stays in the canvas
+        overlayTextures[i] = vita2d_create_empty_texture_format(width, height, SCE_GXM_TEXTURE_FORMAT_P8_ABGR);
+        if (overlayTextures[i] != NULL) {
+            if (vita2d_texture_get_stride(overlayTextures[i]) != vita2d_texture_get_stride(viewTextures[i])) {
+                vita2d_free_texture(overlayTextures[i]);
+                overlayTextures[i] = NULL;
+            } else {
+                memset(vita2d_texture_get_datap(overlayTextures[i]), 0,
+                       vita2d_texture_get_stride(overlayTextures[i]) * height);
+                OverlayPalette(overlayTextures[i], vita2d_texture_get_palette(texBuffer));
+            }
+        }
         made++;
     }
     if (made == VGPU_CANVASES)
@@ -444,6 +530,7 @@ int VitaShowView(const unsigned char *bits, int x, int y, int width, int height)
     int i;
 
     shownView = lastView = NULL;
+    shownOverlay = lastOverlay = NULL;
     if (game_paused)
         return 0;
     if (!FillsScreen(&place) && ZoomEnable)
@@ -457,6 +544,7 @@ int VitaShowView(const unsigned char *bits, int x, int y, int width, int height)
             height <= (int)vita2d_texture_get_height(t)) {
             shownView = t;
             shownPlace = place;
+            shownOverlay = overlayDrawn[i] ? overlayTextures[i] : NULL;
             vgpu_view_forget(); // the screen buffer's copy, if any, is old
             return 1;
         }
@@ -476,6 +564,7 @@ void VitaSyncView(void)
     int y, stride;
 
     shownView = lastView = NULL;
+    shownOverlay = lastOverlay = NULL;
     if (view == NULL || drawSurface == NULL)
         return;
     from = vita2d_texture_get_datap(view);
@@ -484,6 +573,8 @@ void VitaSyncView(void)
     for (y = 0; y < place.h; y++)
         memcpy(to + y * drawSurface->pitch, from + y * stride, place.w);
     vgpu_view_copied(from, place.x, place.y, place.w, place.h);
+    // and its HUD, if it was drawn in the overlay
+    VitaOverlayComposite(from, place.x, place.y, place.w, place.h);
 }
 
 // The screen's texture, cleared. Without it there is nothing to show the game
@@ -638,9 +729,12 @@ void SetSDLPalette(int index, int count, uchar *pal) {
     }
 
     memcpy(vita2d_texture_get_palette(texBuffer), palette32Bit, sizeof(uint32_t) * 256);
-    for (int i = 0; i < VGPU_CANVASES; i++)
+    for (int i = 0; i < VGPU_CANVASES; i++) {
         if (viewTextures[i] != NULL)
             memcpy(vita2d_texture_get_palette(viewTextures[i]), palette32Bit, sizeof(uint32_t) * 256);
+        if (overlayTextures[i] != NULL)
+            OverlayPalette(overlayTextures[i], palette32Bit);
+    }
     vgpu_set_palette(raw, gammalut[gam], !UseCutscenePalette);
 }
 
@@ -652,7 +746,9 @@ void SDLDraw() {
         // this frame has the 3D view as the GPU left it in one of its canvases
         view = lastView = shownView;
         lastPlace = shownPlace;
+        lastOverlay = shownOverlay;
         shownView = NULL;
+        shownOverlay = NULL;
     } else if (lastView != NULL) {
         // No view drawn since, and nothing has said that the screen buffer
         // holds it (VitaSyncView): the last view stays on.
@@ -676,6 +772,9 @@ void SDLDraw() {
         if (!vgpu_draw_view(&view->gxm_tex, vita2d_texture_get_datap(view), vita2d_texture_get_width(view),
                             destRect.x, destRect.y, scaleX, scaleY, lastPlace.w, lastPlace.h))
             vita2d_draw_texture_scale(view, destRect.x, destRect.y, scaleX, scaleY);
+        // the HUD, drawn into its overlay while the GPU drew the view
+        if (lastOverlay != NULL)
+            vita2d_draw_texture_scale(lastOverlay, destRect.x, destRect.y, scaleX, scaleY);
     } else if (view != NULL) { // the paneled view's window, over the panels
         float x = destRect.x + lastPlace.x * scaleX, y = destRect.y + lastPlace.y * scaleY;
 

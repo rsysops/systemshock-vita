@@ -139,6 +139,7 @@ along with this program.  If not, see <http://www.gnu.org/licenses/>.
 #include "olhext.h"
 
 #include "VitaGpu.h"
+#include "view360.h"
 #include "vprof.h"
 #include "rastq.h"
 
@@ -640,8 +641,80 @@ g3s_vector zvec = {0, 0, 0};
 
 extern uchar view360_is_rendering;
 
+// ---- the full-screen HUD while the GPU draws (docs/PERFORMANCE.md, S14) ----
+//
+// The HUD only writes its pixels: in full screen it can go into an overlay of
+// the view's canvas (VitaViewOverlay, index 0 see-through) while the GPU is
+// still drawing the view, and the screen lays it over the view. Not with a
+// screen effect, which goes over the HUD and writes index 0 (static, shield,
+// teleport, SHODAN, vertical hold), nor with the inventory's rear view (an
+// opaque picture, whose black is index 0), nor paused.
+static uchar hud_overlay_wanted(void) {
+    extern uchar game_paused;
+
+    if (!full_game_3d || game_paused || _fr->draw_call == NULL || (_fr_curflags & FR_SFX_MASK) != 0 ||
+        inv_is_360_view() || VitaViewOverlay(_fr->draw_canvas.bm.bits) == NULL)
+        return FALSE;
+#ifdef VITA_PROFILE
+    if (vprof_variant == 0) // the HUD after the wait, to time the overlay against
+        return FALSE;
+#endif
+    return TRUE;
+}
+
+// The HUD drawn into the overlay: the canvas's pixels are the overlay's for
+// that time, so that every HUD path draws as it always did, and so does the
+// cursor. In the checks, one overlay in 64 starts as 255 in place of 0, and
+// the pixels the HUD drew in index 0 are counted: opaque black the overlay
+// would show as see-through. They are none if the overlay is right.
+static uchar draw_hud_in_overlay(uchar *send) {
+    grs_bitmap *bm = &_fr->draw_canvas.bm;
+    uchar *view_bits = bm->bits, *over = VitaViewOverlay(view_bits), fill = 0;
+    int y;
+#ifdef VITA_PROFILE
+    static unsigned overlays;
+    int check = vprof_checks && ++overlays % 64 == 0;
+
+    if (check)
+        fill = 0xFF;
+#endif
+    for (y = 0; y < bm->h; y++)
+        memset(over + (size_t)y * bm->row, fill, bm->w);
+    bm->bits = over;
+    gr_set_canvas(&_fr->draw_canvas);
+    VPROF_RUN(VPROF_HUD, *send = _fr->draw_call(grd_screen_canvas, bm, _fr->xtop, _fr->ytop, _fr_curflags));
+    if (*send)
+        (*fr_mouse_hide)(); // the cursor, over the HUD, as it was drawn after it
+    bm->bits = view_bits;
+    gr_set_canvas(&_fr->draw_canvas);
+    vgpu_counters.hud_overlays++;
+#ifdef VITA_PROFILE
+    if (check) {
+        static uchar row[2048];
+        unsigned long long zeros = 0;
+        int x;
+
+        for (y = 0; y < bm->h && bm->w <= (int)sizeof(row); y++) {
+            uchar *line = over + (size_t)y * bm->row;
+            memcpy(row, line, bm->w);
+            for (x = 0; x < bm->w; x++) {
+                zeros += row[x] == 0;
+                if (row[x] == 0xFF)
+                    row[x] = 0;
+            }
+            memcpy(line, row, bm->w);
+        }
+        vgpu_counters.hud_checks++;
+        vgpu_counters.hud_zeros += zeros;
+        vprof_frame_discard(); // the scan reads GPU memory: not this frame's time
+    }
+#endif
+    return TRUE;
+}
+
 int fr_send_view(void) {
     uchar snd_frm = TRUE;
+    uchar hud_over = FALSE; // this frame's HUD went into the overlay
     // The GPU may still be drawing this view: rastq_end doesn't wait for
     // it, and until rastq_gpu_finish the canvas is the GPU's. (Not the help
     // scan's own view, which the CPU draws during that time.)
@@ -688,8 +761,12 @@ int fr_send_view(void) {
             current_num_hudobjs = hudobjs;
             gr_set_canvas(canvas);
         }
+        // and the full-screen HUD, into its overlay
+        if (!(_fr_curflags & FR_PICKUPM_MASK) && hud_overlay_wanted())
+            hud_over = draw_hud_in_overlay(&snd_frm);
         rastq_gpu_finish();
     }
+    VitaOverlayDrawn(_fr->draw_canvas.bm.bits, hud_over);
 
     // stereo support - closedown ??
 
@@ -700,14 +777,15 @@ int fr_send_view(void) {
         _fr_ret;
     }
 
-    // Draw the overlays
-    if (_fr->draw_call)
+    // Draw the overlays (or, in full screen, they are in the overlay already)
+    if (_fr->draw_call && !hud_over)
         VPROF_RUN(VPROF_HUD, snd_frm = _fr->draw_call(grd_screen_canvas, &_fr->draw_canvas.bm, _fr->xtop, _fr->ytop,
                                                       _fr_curflags));
 
     VPROF_MARK_BEGIN(VPROF_VIEWOUT);
     if (snd_frm) {
-        (*fr_mouse_hide)();               // This actually draws the mouse into the rendered canvas.
+        if (!hud_over)
+            (*fr_mouse_hide)();           // This actually draws the mouse into the rendered canvas.
         gr_set_canvas(grd_screen_canvas); // Now set us to the screen canvas.
 
         if (_fr_curflags & FR_DOUBLEB_MASK) // If we're double-buffered (which we always are)
@@ -724,6 +802,9 @@ int fr_send_view(void) {
                         Fast_FullScreen_Copy(&_fr->draw_canvas.bm);
                         vgpu_view_copied(_fr->draw_canvas.bm.bits, 0, 0, _fr->draw_canvas.bm.w,
                                          _fr->draw_canvas.bm.h);
+                        // its HUD, if it went into the overlay
+                        VitaOverlayComposite(_fr->draw_canvas.bm.bits, 0, 0, _fr->draw_canvas.bm.w,
+                                             _fr->draw_canvas.bm.h);
                     }
                 } else {
                     // the paneled view too, laid over the panels when
